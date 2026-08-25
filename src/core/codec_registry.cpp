@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <shared_mutex>
 
 namespace bl {
 
@@ -12,10 +13,6 @@ namespace {
 
 bool isExperimental(const BlCodecPlugin* p) noexcept {
     return (p->caps.flags & BL_FLAG_EXPERIMENTAL) != 0;
-}
-
-bool isPassthrough(const BlCodecPlugin* p) noexcept {
-    return (p->caps.flags & BL_FLAG_PASSTHROUGH) != 0;
 }
 
 } // namespace
@@ -27,16 +24,21 @@ Result<void> CodecRegistry::registerPlugin(BlCodecPlugin* plugin) {
                                  std::string("cannot register plugin: ") +
                                      detail::validationMessage(shape));
     }
-    if (find(plugin->name)) {
-        return Result<void>::err(Err::RegistryDuplicate,
-                                 std::string("plugin '") + plugin->name +
-                                     "' is already registered");
+
+    std::unique_lock<std::shared_mutex> lock(mutex_);
+    for (BlCodecPlugin* existing : plugins_) {
+        if (std::string_view(existing->name) == plugin->name) {
+            return Result<void>::err(Err::RegistryDuplicate,
+                                     std::string("plugin '") + plugin->name +
+                                         "' is already registered");
+        }
     }
     plugins_.push_back(plugin);
     return Result<void>();
 }
 
 BlCodecPlugin* CodecRegistry::find(std::string_view name) const noexcept {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
     for (BlCodecPlugin* p : plugins_) {
         if (name == p->name) return p;
     }
@@ -45,6 +47,7 @@ BlCodecPlugin* CodecRegistry::find(std::string_view name) const noexcept {
 
 std::vector<BlCodecPlugin*> CodecRegistry::byType(
     unsigned char codecType) const noexcept {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
     std::vector<BlCodecPlugin*> out;
     for (BlCodecPlugin* p : plugins_) {
         if (p->type == codecType) out.push_back(p);
@@ -57,13 +60,25 @@ BlCodecPlugin* CodecRegistry::defaultFor(unsigned char codecType,
     const uint32_t needed =
         role == CodecRole::Preview ? BL_ROLE_DECODE : BL_ROLE_ENCODE;
     BlCodecPlugin* experimentalFallback = nullptr;
-    for (BlCodecPlugin* p : byType(codecType)) {
-        if (isPassthrough(p)) continue;
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    for (BlCodecPlugin* p : plugins_) {
+        if (p->type != codecType) continue;
+        if ((p->caps.flags & BL_FLAG_PASSTHROUGH) != 0) continue;
         if ((p->caps.roles & needed) == 0) continue;
         if (!isExperimental(p)) return p;
         if (!experimentalFallback) experimentalFallback = p;
     }
     return experimentalFallback;
+}
+
+size_t CodecRegistry::count() const noexcept {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    return plugins_.size();
+}
+
+void CodecRegistry::clear() noexcept {
+    std::unique_lock<std::shared_mutex> lock(mutex_);
+    plugins_.clear();
 }
 
 } // namespace bl

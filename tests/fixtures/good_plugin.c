@@ -77,23 +77,22 @@ static void fixture_cleanup(void* ctx_in) {
 
 static const char* kExtensions[] = {"fx", "fixture", NULL};
 
-static BlCodecPlugin g_plugin;
+static BlCodecPlugin g_plugin = {
+    BL_PLUGIN_ABI_VERSION,
+    "fixturegood",
+    "valid fixture plugin used by unit tests",
+    BL_CODEC_VIDEO,
+    {BL_ROLE_DECODE | BL_ROLE_ENCODE,
+     0u,
+     kExtensions,
+     "libfixtureenc",
+     "libfixturedec",
+     NULL},
+    fixture_init,
+    fixture_decode,
+    fixture_encode,
+    fixture_flush,
+    fixture_cleanup,
+};
 
-BlCodecPlugin* bl_get_codec_plugin(void) {
-    g_plugin.abi_version = BL_PLUGIN_ABI_VERSION;
-    g_plugin.name = "fixturegood";
-    g_plugin.description = "valid fixture plugin used by unit tests";
-    g_plugin.type = BL_CODEC_VIDEO;
-    g_plugin.caps.roles = BL_ROLE_DECODE | BL_ROLE_ENCODE;
-    g_plugin.caps.flags = 0;
-    g_plugin.caps.file_extensions = kExtensions;
-    g_plugin.caps.ff_encoder = "libfixtureenc";
-    g_plugin.caps.ff_decoder = "libfixturedec";
-    g_plugin.caps.params = NULL;
-    g_plugin.init = fixture_init;
-    g_plugin.decode = fixture_decode;
-    g_plugin.encode = fixture_encode;
-    g_plugin.flush = fixture_flush;
-    g_plugin.cleanup = fixture_cleanup;
-    return &g_plugin;
-}
+BlCodecPlugin* bl_get_codec_plugin(void) { return &g_plugin; }

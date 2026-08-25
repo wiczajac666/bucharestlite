@@ -10,7 +10,8 @@
 - [x] CORE-1: project skeleton, logger, Result/Err, time library + unit tests (27/27 green)
 - [x] CORE-2: plugin ABI header (bl_plugins v1), platform layer, PluginLoader, CodecRegistry + fixtures (44/44 green)
 - [x] CORE-3: built-in passthrough plugin (video+audio, ABI v2, registerBuiltins) + docs (51/51 green)
-- [ ] CORE-4: UndoStack + command infrastructure  ← **next**
+- [x] Thread-safety retrofit: CodecRegistry shared_mutex, race-free plugin statics, TSAN preset + stress tests (55/55 green incl. linux-tsan)
+- [ ] CORE-4: thread-safe UndoStack + command infrastructure  ← **next**
 - [ ] Core engine implemented (bl_core)
 - [ ] Timeline engine implemented (bl_timeline)
 - [ ] Render backend implemented (bl_render)

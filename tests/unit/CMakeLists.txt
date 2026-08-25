@@ -27,6 +27,7 @@ add_executable(bl_core_tests
     test_codec_registry.cpp
     test_plugin_loader.cpp
     test_builtin_plugins.cpp
+    test_concurrency.cpp
 )
 
 target_link_libraries(bl_core_tests PRIVATE bl_core GTest::gtest_main)

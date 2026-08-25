@@ -28,20 +28,17 @@ static void bad_abi_cleanup(void* ctx_in) {
 
 static const char* kExtensions[] = {"bad", NULL};
 
-static BlCodecPlugin g_plugin;
+static BlCodecPlugin g_plugin = {
+    999u,
+    "fixturebadabi",
+    "fixture plugin declaring a wrong ABI version",
+    BL_CODEC_VIDEO,
+    {BL_ROLE_DECODE | BL_ROLE_ENCODE, 0u, kExtensions, NULL, NULL, NULL},
+    bad_abi_init,
+    NULL,
+    NULL,
+    NULL,
+    bad_abi_cleanup,
+};
 
-BlCodecPlugin* bl_get_codec_plugin(void) {
-    g_plugin.abi_version = 999u;
-    g_plugin.name = "fixturebadabi";
-    g_plugin.description = "fixture plugin declaring a wrong ABI version";
-    g_plugin.type = BL_CODEC_VIDEO;
-    g_plugin.caps.roles = BL_ROLE_DECODE | BL_ROLE_ENCODE;
-    g_plugin.caps.flags = 0;
-    g_plugin.caps.file_extensions = kExtensions;
-    g_plugin.init = bad_abi_init;
-    g_plugin.decode = NULL;
-    g_plugin.encode = NULL;
-    g_plugin.flush = NULL;
-    g_plugin.cleanup = bad_abi_cleanup;
-    return &g_plugin;
-}
+BlCodecPlugin* bl_get_codec_plugin(void) { return &g_plugin; }

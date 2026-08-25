@@ -61,43 +61,42 @@ static const char* kAudioExtensions[] = {"mkv", "m4a", NULL};
 
 static BlParamDesc kNoParams[] = {{NULL, BL_PARAM_INT, 0.0, 0.0, 0.0, NULL, NULL}};
 
-static BlCodecPlugin g_video_plugin;
-static BlCodecPlugin g_audio_plugin;
+static BlCodecPlugin g_video_plugin = {
+    BL_PLUGIN_ABI_VERSION,
+    "passthrough.video",
+    "built-in stream-copy pseudo-plugin for video tracks",
+    BL_CODEC_VIDEO,
+    {BL_ROLE_ENCODE,
+     BL_FLAG_PASSTHROUGH,
+     kVideoExtensions,
+     NULL,
+     NULL,
+     kNoParams},
+    passthrough_init,
+    NULL,
+    passthrough_encode,
+    passthrough_flush,
+    passthrough_cleanup,
+};
 
-BlCodecPlugin* bl_passthrough_video_plugin(void) {
-    if (!g_video_plugin.name) {
-        g_video_plugin.abi_version = BL_PLUGIN_ABI_VERSION;
-        g_video_plugin.name = "passthrough.video";
-        g_video_plugin.description =
-            "built-in stream-copy pseudo-plugin for video tracks";
-        g_video_plugin.type = BL_CODEC_VIDEO;
-        g_video_plugin.caps.roles = BL_ROLE_ENCODE;
-        g_video_plugin.caps.flags = BL_FLAG_PASSTHROUGH;
-        g_video_plugin.caps.file_extensions = kVideoExtensions;
-        g_video_plugin.caps.params = kNoParams;
-        g_video_plugin.init = passthrough_init;
-        g_video_plugin.encode = passthrough_encode;
-        g_video_plugin.flush = passthrough_flush;
-        g_video_plugin.cleanup = passthrough_cleanup;
-    }
-    return &g_video_plugin;
-}
+static BlCodecPlugin g_audio_plugin = {
+    BL_PLUGIN_ABI_VERSION,
+    "passthrough.audio",
+    "built-in stream-copy pseudo-plugin for audio tracks",
+    BL_CODEC_AUDIO,
+    {BL_ROLE_ENCODE,
+     BL_FLAG_PASSTHROUGH,
+     kAudioExtensions,
+     NULL,
+     NULL,
+     kNoParams},
+    passthrough_init,
+    NULL,
+    passthrough_encode,
+    passthrough_flush,
+    passthrough_cleanup,
+};
 
-BlCodecPlugin* bl_passthrough_audio_plugin(void) {
-    if (!g_audio_plugin.name) {
-        g_audio_plugin.abi_version = BL_PLUGIN_ABI_VERSION;
-        g_audio_plugin.name = "passthrough.audio";
-        g_audio_plugin.description =
-            "built-in stream-copy pseudo-plugin for audio tracks";
-        g_audio_plugin.type = BL_CODEC_AUDIO;
-        g_audio_plugin.caps.roles = BL_ROLE_ENCODE;
-        g_audio_plugin.caps.flags = BL_FLAG_PASSTHROUGH;
-        g_audio_plugin.caps.file_extensions = kAudioExtensions;
-        g_audio_plugin.caps.params = kNoParams;
-        g_audio_plugin.init = passthrough_init;
-        g_audio_plugin.encode = passthrough_encode;
-        g_audio_plugin.flush = passthrough_flush;
-        g_audio_plugin.cleanup = passthrough_cleanup;
-    }
-    return &g_audio_plugin;
-}
+BlCodecPlugin* bl_passthrough_video_plugin(void) { return &g_video_plugin; }
+
+BlCodecPlugin* bl_passthrough_audio_plugin(void) { return &g_audio_plugin; }

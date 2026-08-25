@@ -23,6 +23,14 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             }
+        },
+        {
+            "name": "linux-tsan",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "BL_ENABLE_TSAN": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -33,6 +41,10 @@
         {
             "name": "linux-release",
             "configurePreset": "linux-release"
+        },
+        {
+            "name": "linux-tsan",
+            "configurePreset": "linux-tsan"
         }
     ],
     "testPresets": [
@@ -44,6 +56,11 @@
         {
             "name": "linux-release",
             "configurePreset": "linux-release",
+            "output": { "outputOnFailure": true }
+        },
+        {
+            "name": "linux-tsan",
+            "configurePreset": "linux-tsan",
             "output": { "outputOnFailure": true }
         }
     ]

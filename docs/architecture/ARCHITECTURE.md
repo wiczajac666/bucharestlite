@@ -214,6 +214,17 @@ Snapshot discipline (the critical rule):
 - Every playback session and every export pins a `SequenceSnapshot` — a cheap persistent (copy-on-write) immutable view of the timeline. Edits during playback apply to the next snapshot boundary (next cut/frame), never tear the current frame.
 - GPU contexts: one shared OpenGL context; compositor owns resources; textures cross threads only via `QOpenGLBuffer`/PBO with fence sync.
 
+Thread-safety contract per component (verified under ThreadSanitizer via `linux-tsan` preset):
+
+| Component | Contract |
+|---|---|
+| bl_core time/Result | Pure value types — safe everywhere |
+| Logger | Fully thread-safe: internal queue + worker thread, atomic level gate, lock-free `enabled()` |
+| DynamicLibrary / PluginLoader / PluginHandle | Stateless methods; concurrent `load()` calls independent; dlfcn internally synchronized |
+| CodecRegistry | Thread-safe: `std::shared_mutex` — shared for readers (`find`/`byType`/`defaultFor`), exclusive for writers (`registerPlugin`/`clear`) |
+| Codec plugin instances | Single-threaded **per instance** (ABI rule §9.2): host creates one instance per concurrent use; descriptor accessors are race-free statics |
+| UndoStack (CORE-4) | Thread-safe API per Option A: execution serialized through the stack as the single mutation choke-point |
+
 ---
 
 ## 7. Data Flow Diagrams

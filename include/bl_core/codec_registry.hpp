@@ -3,6 +3,8 @@
 #include <bl_core/result.hpp>
 
 #include <cstddef>
+#include <mutex>
+#include <shared_mutex>
 #include <string_view>
 #include <vector>
 
@@ -22,11 +24,12 @@ public:
 
     BlCodecPlugin* defaultFor(unsigned char codecType, CodecRole role) const noexcept;
 
-    size_t count() const noexcept { return plugins_.size(); }
+    size_t count() const noexcept;
 
-    void clear() noexcept { plugins_.clear(); }
+    void clear() noexcept;
 
 private:
+    mutable std::shared_mutex mutex_;
     std::vector<BlCodecPlugin*> plugins_;
 };
 

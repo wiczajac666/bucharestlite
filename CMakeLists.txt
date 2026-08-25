@@ -12,6 +12,15 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BL_BUILD_TESTS "Build unit tests" ON)
+option(BL_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
+
+if(BL_ENABLE_TSAN)
+    if(NOT (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"))
+        message(FATAL_ERROR "BL_ENABLE_TSAN requires GCC or Clang")
+    endif()
+    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=thread)
+endif()
 
 function(bl_enable_warnings target)
     if(MSVC)
