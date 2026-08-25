@@ -24,6 +24,7 @@ add_executable(bl_core_tests
     test_time.cpp
     test_result.cpp
     test_logger.cpp
+    test_undo_stack.cpp
     test_codec_registry.cpp
     test_plugin_loader.cpp
     test_builtin_plugins.cpp

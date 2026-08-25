@@ -2,6 +2,7 @@ add_library(bl_core STATIC
     time.cpp
     result.cpp
     logger.cpp
+    undo_stack.cpp
     plugin_validation.cpp
     plugin_loader.cpp
     codec_registry.cpp
