@@ -30,6 +30,7 @@ add_executable(bl_core_tests
     test_builtin_plugins.cpp
     test_concurrency.cpp
     test_media_jobs.cpp
+    test_persistence.cpp
 )
 
 target_link_libraries(bl_core_tests PRIVATE bl_core GTest::gtest_main)

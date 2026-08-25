@@ -22,6 +22,15 @@ if(BL_ENABLE_TSAN)
     add_link_options(-fsanitize=thread)
 endif()
 
+include(FetchContent)
+
+FetchContent_Declare(
+    nlohmann_json
+    URL https://github.com/nlohmann/json/archive/refs/tags/v3.11.3.tar.gz
+)
+
+FetchContent_MakeAvailable(nlohmann_json)
+
 function(bl_enable_warnings target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /WX /permissive-)

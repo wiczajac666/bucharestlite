@@ -16,6 +16,32 @@ std::string dynamicLibrarySuffix() noexcept {
 #endif
 }
 
+std::string userDataRoot() {
+#if defined(_WIN32)
+    const char* appdata = std::getenv("APPDATA");
+    if (appdata && *appdata) {
+        return std::string(appdata) + "\\BucharestLite";
+    }
+    return "BucharestLite";
+#elif defined(__APPLE__)
+    const char* home = std::getenv("HOME");
+    if (home && *home) {
+        return std::string(home) + "/Library/Application Support/BucharestLite";
+    }
+    return "BucharestLite";
+#else
+    const char* xdg = std::getenv("XDG_DATA_HOME");
+    if (xdg && *xdg) {
+        return std::string(xdg) + "/bucharest-lite";
+    }
+    const char* home = std::getenv("HOME");
+    if (home && *home) {
+        return std::string(home) + "/.local/share/bucharest-lite";
+    }
+    return "bucharest-lite";
+#endif
+}
+
 std::vector<std::string> pluginRootDirectories() {
     std::vector<std::string> roots;
 #if defined(_WIN32)
