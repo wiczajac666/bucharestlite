@@ -454,5 +454,355 @@ TEST(JsonRoundTrip, Timeline) {
     EXPECT_EQ(tl2.sequence().videoTracks.size(), 1u);
 }
 
+TEST(TrimLeftTest, ShrinkFromRight) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip c;
+    c.id = "c1";
+    c.timelineStart = Time::fromFrame(0, fps24());
+    c.timelineDuration = Duration::fromFrames(10, fps24());
+    c.source.sourceIn = Time::fromFrame(0, fps24());
+    ASSERT_TRUE(track.addClip(c));
+
+    Time newStart = Time::fromFrame(3, fps24());
+    EXPECT_TRUE(track.trimClipLeft("c1", newStart));
+    EXPECT_EQ(track.clips()[0].timelineStart, newStart);
+    EXPECT_EQ(track.clips()[0].timelineDuration,
+              Duration::fromFrames(7, fps24()));
+}
+
+TEST(TrimLeftTest, GrowIntoGap) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip c1;
+    c1.id = "c1";
+    c1.timelineStart = Time::fromFrame(0, fps24());
+    c1.timelineDuration = Duration::fromFrames(5, fps24());
+    Clip c2;
+    c2.id = "c2";
+    c2.timelineStart = Time::fromFrame(10, fps24());
+    c2.timelineDuration = Duration::fromFrames(5, fps24());
+    ASSERT_TRUE(track.addClip(c1));
+    ASSERT_TRUE(track.addClip(c2));
+
+    Time newStart = Time::fromFrame(7, fps24());
+    EXPECT_TRUE(track.trimClipLeft("c2", newStart));
+    EXPECT_EQ(track.clips()[1].timelineStart, newStart);
+    EXPECT_EQ(track.clips()[1].timelineDuration,
+              Duration::fromFrames(8, fps24()));
+}
+
+TEST(TrimLeftTest, RejectCrossPrev) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip c1;
+    c1.id = "c1";
+    c1.timelineStart = Time::fromFrame(0, fps24());
+    c1.timelineDuration = Duration::fromFrames(5, fps24());
+    Clip c2;
+    c2.id = "c2";
+    c2.timelineStart = Time::fromFrame(10, fps24());
+    c2.timelineDuration = Duration::fromFrames(5, fps24());
+    ASSERT_TRUE(track.addClip(c1));
+    ASSERT_TRUE(track.addClip(c2));
+
+    Time target = Time::fromFrame(3, fps24());
+    EXPECT_FALSE(track.trimClipLeft("c2", target));
+    EXPECT_EQ(track.clips()[1].timelineStart, Time::fromFrame(10, fps24()));
+}
+
+TEST(TrimLeftTest, RejectVanish) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip c;
+    c.id = "c1";
+    c.timelineStart = Time::fromFrame(5, fps24());
+    c.timelineDuration = Duration::fromFrames(10, fps24());
+    ASSERT_TRUE(track.addClip(c));
+
+    Time target = Time::fromFrame(15, fps24());
+    EXPECT_FALSE(track.trimClipLeft("c1", target));
+}
+
+TEST(TrimLeftTest, RejectNonexistent) {
+    Track<Clip> track("V1", TrackKind::Video);
+    EXPECT_FALSE(track.trimClipLeft("nope", Time::fromFrame(0, fps24())));
+}
+
+TEST(TrimRightTest, ShrinkFromRight) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip c;
+    c.id = "c1";
+    c.timelineStart = Time::fromFrame(0, fps24());
+    c.timelineDuration = Duration::fromFrames(10, fps24());
+    ASSERT_TRUE(track.addClip(c));
+
+    Time newEnd = Time::fromFrame(7, fps24());
+    EXPECT_TRUE(track.trimClipRight("c1", newEnd));
+    EXPECT_EQ(track.clips()[0].timelineDuration,
+              Duration::fromFrames(7, fps24()));
+}
+
+TEST(TrimRightTest, GrowIntoGap) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip c1;
+    c1.id = "c1";
+    c1.timelineStart = Time::fromFrame(0, fps24());
+    c1.timelineDuration = Duration::fromFrames(5, fps24());
+    Clip c2;
+    c2.id = "c2";
+    c2.timelineStart = Time::fromFrame(10, fps24());
+    c2.timelineDuration = Duration::fromFrames(5, fps24());
+    ASSERT_TRUE(track.addClip(c1));
+    ASSERT_TRUE(track.addClip(c2));
+
+    Time newEnd = Time::fromFrame(9, fps24());
+    EXPECT_TRUE(track.trimClipRight("c1", newEnd));
+    EXPECT_EQ(track.clips()[0].timelineDuration,
+              Duration::fromFrames(9, fps24()));
+}
+
+TEST(TrimRightTest, RejectCrossNext) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip c1;
+    c1.id = "c1";
+    c1.timelineStart = Time::fromFrame(0, fps24());
+    c1.timelineDuration = Duration::fromFrames(5, fps24());
+    Clip c2;
+    c2.id = "c2";
+    c2.timelineStart = Time::fromFrame(10, fps24());
+    c2.timelineDuration = Duration::fromFrames(5, fps24());
+    ASSERT_TRUE(track.addClip(c1));
+    ASSERT_TRUE(track.addClip(c2));
+
+    Time target = Time::fromFrame(12, fps24());
+    EXPECT_FALSE(track.trimClipRight("c1", target));
+    EXPECT_EQ(track.clips()[0].timelineDuration,
+              Duration::fromFrames(5, fps24()));
+}
+
+TEST(TrimRightTest, RejectNonexistent) {
+    Track<Clip> track("V1", TrackKind::Video);
+    EXPECT_FALSE(track.trimClipRight("nope", Time::fromFrame(10, fps24())));
+}
+
+TEST(RippleDeleteTest, ClosesGap) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip c1;
+    c1.id = "c1";
+    c1.timelineStart = Time::fromFrame(0, fps24());
+    c1.timelineDuration = Duration::fromFrames(5, fps24());
+    Clip c2;
+    c2.id = "c2";
+    c2.timelineStart = Time::fromFrame(10, fps24());
+    c2.timelineDuration = Duration::fromFrames(5, fps24());
+    Clip c3;
+    c3.id = "c3";
+    c3.timelineStart = Time::fromFrame(20, fps24());
+    c3.timelineDuration = Duration::fromFrames(5, fps24());
+    ASSERT_TRUE(track.addClip(c1));
+    ASSERT_TRUE(track.addClip(c2));
+    ASSERT_TRUE(track.addClip(c3));
+
+    EXPECT_TRUE(track.rippleDelete("c2"));
+    EXPECT_EQ(track.clips().size(), 2u);
+    EXPECT_EQ(track.clips()[0].id, "c1");
+    EXPECT_EQ(track.clips()[0].timelineStart, Time::fromFrame(0, fps24()));
+    EXPECT_EQ(track.clips()[1].id, "c3");
+    Time expectedC3 = Time::fromFrame(15, fps24());
+    EXPECT_EQ(track.clips()[1].timelineStart, expectedC3);
+}
+
+TEST(RippleDeleteTest, LastClip) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip c;
+    c.id = "c1";
+    c.timelineStart = Time::fromFrame(0, fps24());
+    c.timelineDuration = Duration::fromFrames(5, fps24());
+    ASSERT_TRUE(track.addClip(c));
+
+    EXPECT_TRUE(track.rippleDelete("c1"));
+    EXPECT_TRUE(track.clips().empty());
+}
+
+TEST(RippleDeleteTest, NonexistentFails) {
+    Track<Clip> track("V1", TrackKind::Video);
+    EXPECT_FALSE(track.rippleDelete("nope"));
+}
+
+TEST(RippleTrimRightTest, ShiftsLater) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip c1;
+    c1.id = "c1";
+    c1.timelineStart = Time::fromFrame(0, fps24());
+    c1.timelineDuration = Duration::fromFrames(5, fps24());
+    Clip c2;
+    c2.id = "c2";
+    c2.timelineStart = Time::fromFrame(10, fps24());
+    c2.timelineDuration = Duration::fromFrames(5, fps24());
+    Clip c3;
+    c3.id = "c3";
+    c3.timelineStart = Time::fromFrame(20, fps24());
+    c3.timelineDuration = Duration::fromFrames(5, fps24());
+    ASSERT_TRUE(track.addClip(c1));
+    ASSERT_TRUE(track.addClip(c2));
+    ASSERT_TRUE(track.addClip(c3));
+
+    Time newEnd = Time::fromFrame(14, fps24());
+    EXPECT_TRUE(track.rippleTrimRight("c2", newEnd));
+    EXPECT_EQ(track.clips()[1].timelineDuration,
+              Duration::fromFrames(4, fps24()));
+    Time expectedC3 = Time::fromFrame(19, fps24());
+    EXPECT_EQ(track.clips()[2].timelineStart, expectedC3);
+}
+
+TEST(RippleTrimLeftTest, ShiftsEarlier) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip c1;
+    c1.id = "c1";
+    c1.timelineStart = Time::fromFrame(0, fps24());
+    c1.timelineDuration = Duration::fromFrames(5, fps24());
+    Clip c2;
+    c2.id = "c2";
+    c2.timelineStart = Time::fromFrame(10, fps24());
+    c2.timelineDuration = Duration::fromFrames(5, fps24());
+    Clip c3;
+    c3.id = "c3";
+    c3.timelineStart = Time::fromFrame(20, fps24());
+    c3.timelineDuration = Duration::fromFrames(5, fps24());
+    ASSERT_TRUE(track.addClip(c1));
+    ASSERT_TRUE(track.addClip(c2));
+    ASSERT_TRUE(track.addClip(c3));
+
+    Time newStart = Time::fromFrame(12, fps24());
+    EXPECT_TRUE(track.rippleTrimLeft("c2", newStart));
+    EXPECT_EQ(track.clips()[1].timelineStart, newStart);
+    EXPECT_EQ(track.clips()[1].timelineDuration,
+              Duration::fromFrames(3, fps24()));
+    Time expectedC1 = Time::fromFrame(2, fps24());
+    EXPECT_EQ(track.clips()[0].timelineStart, expectedC1);
+}
+
+TEST(RippleTrimLeftTest, GrowShiftsEarlierBack) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip c1;
+    c1.id = "c1";
+    c1.timelineStart = Time::fromFrame(0, fps24());
+    c1.timelineDuration = Duration::fromFrames(5, fps24());
+    Clip c2;
+    c2.id = "c2";
+    c2.timelineStart = Time::fromFrame(10, fps24());
+    c2.timelineDuration = Duration::fromFrames(5, fps24());
+    ASSERT_TRUE(track.addClip(c1));
+    ASSERT_TRUE(track.addClip(c2));
+
+    Time newStart = Time::fromFrame(7, fps24());
+    EXPECT_TRUE(track.rippleTrimLeft("c2", newStart));
+    EXPECT_EQ(track.clips()[1].timelineStart, newStart);
+    EXPECT_EQ(track.clips()[0].timelineStart, Time::fromFrame(-3, fps24()));
+}
+
+TEST(RippleTrimRightTest, NonexistentFails) {
+    Track<Clip> track("V1", TrackKind::Video);
+    EXPECT_FALSE(track.rippleTrimRight("nope", Time::fromFrame(10, fps24())));
+}
+
+TEST(RippleTrimLeftTest, NonexistentFails) {
+    Track<Clip> track("V1", TrackKind::Video);
+    EXPECT_FALSE(track.rippleTrimLeft("nope", Time::fromFrame(0, fps24())));
+}
+
+TEST(SpeedTrimTest, TrimLeftSlowMo) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip c;
+    c.id = "c1";
+    c.timelineStart = Time::fromFrame(0, fps24());
+    c.timelineDuration = Duration::fromFrames(20, fps24());
+    c.source.sourceIn = Time::fromFrame(100, fps24());
+    c.source.sourceOut = Time::fromFrame(300, fps24());
+    c.speed = SpeedRemap{2, 1, false};
+    ASSERT_TRUE(track.addClip(c));
+
+    Time newStart = Time::fromFrame(5, fps24());
+    EXPECT_TRUE(track.trimClipLeft("c1", newStart));
+    Time expected = Time::fromFrame(110, fps24());
+    EXPECT_EQ(track.clips()[0].source.sourceIn, expected);
+}
+
+TEST(SpeedTrimTest, TrimRightSlowMo) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip c;
+    c.id = "c1";
+    c.timelineStart = Time::fromFrame(0, fps24());
+    c.timelineDuration = Duration::fromFrames(20, fps24());
+    c.source.sourceIn = Time::fromFrame(100, fps24());
+    c.source.sourceOut = Time::fromFrame(300, fps24());
+    c.speed = SpeedRemap{2, 1, false};
+    ASSERT_TRUE(track.addClip(c));
+
+    Time newEnd = Time::fromFrame(15, fps24());
+    EXPECT_TRUE(track.trimClipRight("c1", newEnd));
+    Time expected = Time::fromFrame(290, fps24());
+    EXPECT_EQ(track.clips()[0].source.sourceOut, expected);
+}
+
+TEST(SpeedSplitTest, SourceInSpeedAware) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip c;
+    c.id = "c1";
+    c.timelineStart = Time::fromFrame(0, fps24());
+    c.timelineDuration = Duration::fromFrames(20, fps24());
+    c.source.sourceIn = Time::fromFrame(100, fps24());
+    c.speed = SpeedRemap{2, 1, false};
+    ASSERT_TRUE(track.addClip(c));
+
+    Time splitPoint = Time::fromFrame(8, fps24());
+    auto right = track.splitClip("c1", splitPoint);
+    ASSERT_TRUE(right.has_value());
+    Time expected = Time::fromFrame(116, fps24());
+    EXPECT_EQ(right->source.sourceIn, expected);
+}
+
+TEST(SpeedRippleTest, RippleDeleteSlowMo) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip c1;
+    c1.id = "c1";
+    c1.timelineStart = Time::fromFrame(0, fps24());
+    c1.timelineDuration = Duration::fromFrames(10, fps24());
+    Clip c2;
+    c2.id = "c2";
+    c2.timelineStart = Time::fromFrame(20, fps24());
+    c2.timelineDuration = Duration::fromFrames(5, fps24());
+    c2.speed = SpeedRemap{2, 1, false};
+    ASSERT_TRUE(track.addClip(c1));
+    ASSERT_TRUE(track.addClip(c2));
+
+    EXPECT_TRUE(track.rippleDelete("c1"));
+    Time expectedC2 = Time::fromFrame(10, fps24());
+    EXPECT_EQ(track.clips()[0].timelineStart, expectedC2);
+}
+
+TEST(TimelineEditWrappers, InvalidTrackIndex) {
+    Timeline tl;
+    EXPECT_FALSE(tl.trimClipLeftInVideoTrack(0, "c1", Time::fromFrame(0, fps24())));
+    EXPECT_FALSE(tl.trimClipRightInVideoTrack(0, "c1", Time::fromFrame(10, fps24())));
+    EXPECT_FALSE(tl.rippleDeleteFromVideoTrack(0, "c1"));
+    EXPECT_FALSE(tl.rippleTrimLeftInVideoTrack(0, "c1", Time::fromFrame(0, fps24())));
+    EXPECT_FALSE(tl.rippleTrimRightInVideoTrack(0, "c1", Time::fromFrame(10, fps24())));
+    EXPECT_FALSE(tl.trimClipLeftInAudioTrack(0, "c1", Time::fromFrame(0, fps24())));
+    EXPECT_FALSE(tl.trimClipRightInAudioTrack(0, "c1", Time::fromFrame(10, fps24())));
+    EXPECT_FALSE(tl.rippleDeleteFromAudioTrack(0, "c1"));
+    EXPECT_FALSE(tl.rippleTrimLeftInAudioTrack(0, "c1", Time::fromFrame(0, fps24())));
+    EXPECT_FALSE(tl.rippleTrimRightInAudioTrack(0, "c1", Time::fromFrame(10, fps24())));
+}
+
+TEST(TimelineEditWrappers, RippleDeleteAudioTrack) {
+    Timeline tl;
+    tl.sequence().addAudioTrack("A1");
+    Clip c;
+    c.id = "a1";
+    c.timelineStart = Time::fromFrame(0, fps24());
+    c.timelineDuration = Duration::fromFrames(5, fps24());
+    ASSERT_TRUE(tl.addClipToAudioTrack(0, c));
+    EXPECT_TRUE(tl.rippleDeleteFromAudioTrack(0, "a1"));
+    EXPECT_TRUE(tl.sequence().audioTracks[0].clips().empty());
+}
+
 } // namespace
 } // namespace bl

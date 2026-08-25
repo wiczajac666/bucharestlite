@@ -112,11 +112,106 @@ public:
         original.timelineDuration = leftDur;
         right.timelineStart = splitPoint;
         right.timelineDuration = rightDur;
-        right.source.sourceIn = original.source.sourceIn + leftDur;
+        right.source.sourceIn = advanceSourceTime(
+            original.source.sourceIn, leftDur, original.speed);
 
         auto it = clips_.begin() + static_cast<ptrdiff_t>(*idx) + 1;
         clips_.insert(it, right);
         return right;
+    }
+
+    bool trimClipLeft(const ClipId& id, Time newStart) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        ClipType& c = clips_[*idx];
+        if (newStart >= c.timelineStart + c.timelineDuration) return false;
+        if (newStart > c.timelineStart) {
+            Time clipEnd = c.timelineStart + c.timelineDuration;
+            c.source.sourceIn = advanceSourceTime(
+                c.source.sourceIn, newStart - c.timelineStart, c.speed);
+            c.timelineDuration = clipEnd - newStart;
+            c.timelineStart = newStart;
+            return true;
+        }
+        if (newStart < c.timelineStart) {
+            if (idx > 0) {
+                Time prevEnd = clips_[*idx - 1].timelineStart +
+                               clips_[*idx - 1].timelineDuration;
+                if (newStart < prevEnd) return false;
+            }
+            Time clipEnd = c.timelineStart + c.timelineDuration;
+            Duration growDelta = c.timelineStart - newStart;
+            c.source.sourceIn = advanceSourceTime(
+                c.source.sourceIn, -growDelta, c.speed);
+            c.timelineStart = newStart;
+            c.timelineDuration = clipEnd - newStart;
+            return true;
+        }
+        return false;
+    }
+
+    bool trimClipRight(const ClipId& id, Time newEnd) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        ClipType& c = clips_[*idx];
+        if (newEnd <= c.timelineStart) return false;
+        if (*idx + 1 < clips_.size()) {
+            Time nextStart = clips_[*idx + 1].timelineStart;
+            if (newEnd > nextStart) return false;
+        }
+        Duration newDur = newEnd - c.timelineStart;
+        if (newDur == c.timelineDuration) return false;
+        Duration growDelta = newDur - c.timelineDuration;
+        c.source.sourceOut = advanceSourceTime(
+            c.source.sourceOut, growDelta, c.speed);
+        c.timelineDuration = newDur;
+        return true;
+    }
+
+    bool rippleDelete(const ClipId& id) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        ClipType removed = clips_[*idx];
+        clips_.erase(clips_.begin() + static_cast<ptrdiff_t>(*idx));
+        for (size_t i = *idx; i < clips_.size(); ++i) {
+            clips_[i].timelineStart = clips_[i].timelineStart - removed.timelineDuration;
+        }
+        return true;
+    }
+
+    bool rippleTrimLeft(const ClipId& id, Time newStart) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        ClipType& c = clips_[*idx];
+        if (newStart >= c.timelineStart + c.timelineDuration) return false;
+        if (newStart == c.timelineStart) return false;
+        Duration delta = newStart - c.timelineStart;
+        c.source.sourceIn = advanceSourceTime(
+            c.source.sourceIn, delta, c.speed);
+        Time clipEnd = c.timelineStart + c.timelineDuration;
+        c.timelineStart = newStart;
+        c.timelineDuration = clipEnd - newStart;
+        for (size_t i = 0; i < *idx; ++i) {
+            clips_[i].timelineStart = clips_[i].timelineStart + delta;
+        }
+        return true;
+    }
+
+    bool rippleTrimRight(const ClipId& id, Time newEnd) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        ClipType& c = clips_[*idx];
+        if (newEnd <= c.timelineStart) return false;
+        if (newEnd == c.timelineStart + c.timelineDuration) return false;
+        Duration newDur = newEnd - c.timelineStart;
+        Duration delta = newDur - c.timelineDuration;
+        c.source.sourceOut = advanceSourceTime(
+            c.source.sourceOut, delta, c.speed);
+        c.timelineDuration = newDur;
+        for (size_t i = *idx + 1; i < clips_.size(); ++i) {
+            clips_[i].timelineStart = clips_[i].timelineStart + delta;
+        }
+        return true;
     }
 
 private:

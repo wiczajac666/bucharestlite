@@ -92,4 +92,7 @@ void from_json(const nlohmann::json& j, EffectInstance& e);
 void to_json(nlohmann::json& j, const AudioClipProps& a);
 void from_json(const nlohmann::json& j, AudioClipProps& a);
 
+Time advanceSourceTime(Time sourcePos, Duration timelineDelta,
+                       SpeedRemap speed);
+
 } // namespace bl

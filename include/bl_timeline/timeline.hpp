@@ -87,6 +87,64 @@ public:
 
     void addMarker(const Marker& m) { sequence_.addMarker(m); }
 
+    bool trimClipLeftInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                  Time newStart) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].trimClipLeft(clipId, newStart);
+    }
+
+    bool trimClipLeftInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                  Time newStart) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].trimClipLeft(clipId, newStart);
+    }
+
+    bool trimClipRightInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                   Time newEnd) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].trimClipRight(clipId, newEnd);
+    }
+
+    bool trimClipRightInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                   Time newEnd) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].trimClipRight(clipId, newEnd);
+    }
+
+    bool rippleDeleteFromVideoTrack(size_t trackIndex, const ClipId& clipId) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].rippleDelete(clipId);
+    }
+
+    bool rippleDeleteFromAudioTrack(size_t trackIndex, const ClipId& clipId) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].rippleDelete(clipId);
+    }
+
+    bool rippleTrimLeftInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                    Time newStart) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].rippleTrimLeft(clipId, newStart);
+    }
+
+    bool rippleTrimLeftInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                    Time newStart) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].rippleTrimLeft(clipId, newStart);
+    }
+
+    bool rippleTrimRightInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                     Time newEnd) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].rippleTrimRight(clipId, newEnd);
+    }
+
+    bool rippleTrimRightInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                     Time newEnd) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].rippleTrimRight(clipId, newEnd);
+    }
+
 private:
     Sequence sequence_;
 };

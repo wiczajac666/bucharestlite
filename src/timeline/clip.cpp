@@ -1,6 +1,48 @@
 #include <bl_timeline/clip.hpp>
 
+#include <cassert>
+
+#if defined(__SIZEOF_INT128__)
+#define BL_HAS_INT128 1
+#else
+#define BL_HAS_INT128 0
+#endif
+
 namespace bl {
+
+#if BL_HAS_INT128
+
+__extension__ typedef __int128 Wide;
+
+static int64_t roundHalfEvenWide(Wide n, Wide d) {
+    assert(d != 0);
+    if (d < 0) { n = -n; d = -d; }
+    Wide q = n / d;
+    Wide r = n % d;
+    if (r == 0) return static_cast<int64_t>(q);
+    Wide twice = r * 2;
+    if (twice > d || twice < -d)
+        return static_cast<int64_t>(q + (r > 0 ? 1 : -1));
+    if (q % 2 != 0)
+        return static_cast<int64_t>(q + (r > 0 ? 1 : -1));
+    return static_cast<int64_t>(q);
+}
+
+static Time advanceSourceTimeWide(Time sourcePos, Duration timelineDelta,
+                                  SpeedRemap speed) {
+    Wide num = static_cast<Wide>(timelineDelta.ticks) *
+               static_cast<Wide>(timelineDelta.rate.den) *
+               static_cast<Wide>(speed.rateNum) *
+               static_cast<Wide>(sourcePos.rate.num);
+    Wide den = static_cast<Wide>(timelineDelta.rate.num) *
+               static_cast<Wide>(speed.rateDen) *
+               static_cast<Wide>(sourcePos.rate.den);
+    Time result = sourcePos;
+    result.ticks += roundHalfEvenWide(num, den);
+    return result;
+}
+
+#endif
 
 Duration Clip::effectiveDuration() const noexcept {
     if (speed.isIdentity()) return timelineDuration;
@@ -111,6 +153,25 @@ void from_json(const nlohmann::json& j, Clip& c) {
         }
     }
     if (j.contains("audio")) from_json(j.at("audio"), c.audio);
+}
+
+Time advanceSourceTime(Time sourcePos, Duration timelineDelta,
+                       SpeedRemap speed) {
+#if BL_HAS_INT128
+    return advanceSourceTimeWide(sourcePos, timelineDelta, speed);
+#else
+    Time result = sourcePos;
+    double tlSec = static_cast<double>(timelineDelta.ticks) *
+                   static_cast<double>(timelineDelta.rate.den) /
+                   static_cast<double>(timelineDelta.rate.num);
+    double factor = static_cast<double>(speed.rateNum) /
+                    static_cast<double>(speed.rateDen);
+    double srcTicks = tlSec * factor *
+                      static_cast<double>(sourcePos.rate.num) /
+                      static_cast<double>(sourcePos.rate.den);
+    result.ticks += static_cast<int64_t>(srcTicks);
+    return result;
+#endif
 }
 
 } // namespace bl
