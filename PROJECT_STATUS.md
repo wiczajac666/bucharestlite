@@ -14,8 +14,9 @@
 - [x] CORE-4: thread-safe UndoStack + command infrastructure (ICommand/CommandBase/FunctionCommand; merge-on-push, macros, memory limit) — 71/71 green incl. linux-tsan
 - [x] CORE-5: JobManager (priority queue, cooperative cancel, events) + MediaSource probe + Demuxer (FFmpeg 8) — 90/90 green incl. linux-tsan
 - [x] CORE-6: ProjectRepository (JSON schema v1, atomic saves, relative media paths, migrator framework) + AutosaveRing (10-slot, recovery detection) — 106/106 green incl. linux-tsan; bl_core complete
+- [x] TL-1: Timeline domain model (Sequence, Track, Clip, Marker, SpeedRemap, EffectInstance, TimelineSnapshot, Timeline) + JSON round-trip — 140/140 green incl. linux-tsan; bl_timeline module complete
 - [ ] DecoderBridge (plugin decode adaptation) — deferred to PLG-1..9 phase
-- [ ] Timeline engine implemented (bl_timeline): TL-1..8  ← **next**
+- [ ] Timeline editing commands (TL-2: trim, move, delete with overlap detection) ← **next**
 - [ ] Timeline engine implemented (bl_timeline)
 - [ ] Render backend implemented (bl_render)
 - [ ] Audio engine implemented (bl_audio)

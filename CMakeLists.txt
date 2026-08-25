@@ -40,6 +40,7 @@ function(bl_enable_warnings target)
 endfunction()
 
 add_subdirectory(src/core)
+add_subdirectory(src/timeline)
 
 if(BL_BUILD_TESTS)
     enable_testing()

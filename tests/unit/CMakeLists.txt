@@ -31,9 +31,10 @@ add_executable(bl_core_tests
     test_concurrency.cpp
     test_media_jobs.cpp
     test_persistence.cpp
+    test_timeline.cpp
 )
 
-target_link_libraries(bl_core_tests PRIVATE bl_core GTest::gtest_main)
+target_link_libraries(bl_core_tests PRIVATE bl_core bl_timeline GTest::gtest_main)
 
 target_include_directories(bl_core_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../../src
