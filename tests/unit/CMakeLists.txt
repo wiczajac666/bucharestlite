@@ -26,9 +26,14 @@ add_executable(bl_core_tests
     test_logger.cpp
     test_codec_registry.cpp
     test_plugin_loader.cpp
+    test_builtin_plugins.cpp
 )
 
 target_link_libraries(bl_core_tests PRIVATE bl_core GTest::gtest_main)
+
+target_include_directories(bl_core_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../src
+)
 
 target_compile_definitions(bl_core_tests PRIVATE
     BL_TEST_PLUGIN_DIR="$<TARGET_FILE_DIR:bl_core_tests>"

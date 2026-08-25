@@ -482,7 +482,7 @@ Header-only C ABI in `include/bl_plugins/` (`codec_plugin.h`, `plugin_manifest.h
 #include <stdint.h>
 #include <stddef.h>
 
-#define BL_PLUGIN_ABI_VERSION 1u
+#define BL_PLUGIN_ABI_VERSION 2u   /* v2: added BL_FLAG_PASSTHROUGH + codec_name/extradata in BlCodecConfig */
 
 typedef enum BlCodecType { BL_CODEC_VIDEO = 0, BL_CODEC_AUDIO = 1 } BlCodecType;
 typedef enum BlCodecRole { BL_ROLE_DECODE = 1<<0, BL_ROLE_ENCODE = 1<<1 } BlCodecRole;
@@ -503,7 +503,10 @@ typedef struct BlAudioInfo {
 
 typedef struct BlCaps {
     uint32_t roles;            /* BlCodecRole mask */
-    uint32_t flags;            /* BL_FLAG_LOSSLESS, BL_FLAG_HWACCEL, BL_FLAG_EXPERIMENTAL */
+    uint32_t flags;            /* BL_FLAG_LOSSLESS, BL_FLAG_HWACCEL, BL_FLAG_EXPERIMENTAL,
+                                  BL_FLAG_PASSTHROUGH (encode() receives compressed packets
+                                  and must return them byte-identical; never a defaultFor
+                                  candidate; decode() never called) */
     const char* const* file_extensions;  /* NULL-terminated, may be NULL */
     const char* ff_encoder;    /* advisory: matching libavcodec encoder name, or NULL */
     const char* ff_decoder;
@@ -568,7 +571,7 @@ Lifecycle & rules:
 | vorbis | libvorbis | libavcodec vorbis | |
 | opus | libopus | libavcodec opus | |
 
-Plus a built-in **passthrough** pseudo-plugin: stream-copy compatible tracks into MKV without re-encode.
+Plus a built-in **passthrough** pseudo-plugin: stream-copy compatible tracks into MKV without re-encode. Shipped as two compiled-in descriptors (`passthrough.video`, `passthrough.audio`), registered via `registerBuiltins()` at startup — no dlopen involved. Flagged `BL_FLAG_PASSTHROUGH`; excluded from `defaultFor()`.
 
 HW-accelerated decode (NVDEC/VAAPI/VideoToolbox) is a phase-2 flag (`BL_FLAG_HWACCEL`) behind the same interface — no API change anticipated.
 
@@ -728,6 +731,7 @@ No open questions remain for Gate 1.
 3. **OpenGL-first, Vulkan deferred**: ORCHESTRATOR lists "Vulkan/OpenGL"; shipping GL 3.3 first reaches all three platforms sooner; `IRenderBackend` keeps Vulkan possible without rework.
 4. **Audio device IO via QtMultimedia** instead of adding RtAudio/JACK-first — fewer deps; JACK/WASAPI benefits arrive via OS stacks anyway.
 5. **Universal interchange formats pinned** (BGRA32 / f32-planar) — implied but unspecified previously.
+6. **Plugin ABI amended to v2 during build** (2026-08-25, CORE-3): added `BL_FLAG_PASSTHROUGH` and codec-parameter fields (`codec_name`, `extradata`, `extradata_size`) to `BlCodecConfig`. Reason: the passthrough pseudo-plugin needs a compressed-packet contract and the future muxer (EXP-2) needs codec parameters for copied streams. Version bumped 1→2 per §18 ABI policy; no external plugins existed yet.
 
 ## 20. Gate 1 Sign-Off
 

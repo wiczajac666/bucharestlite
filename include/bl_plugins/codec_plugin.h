@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define BL_PLUGIN_ABI_VERSION 1u
+#define BL_PLUGIN_ABI_VERSION 2u
 
 typedef enum BlCodecType {
     BL_CODEC_VIDEO = 0,
@@ -23,6 +23,7 @@ typedef enum BlCodecRole {
 #define BL_FLAG_LOSSLESS      (1u << 0)
 #define BL_FLAG_HWACCEL       (1u << 1)
 #define BL_FLAG_EXPERIMENTAL  (1u << 2)
+#define BL_FLAG_PASSTHROUGH   (1u << 3)
 
 #define BL_PIXFMT_BGRA32      1u
 #define BL_SAMPFMT_F32_PLANAR 1u
@@ -116,6 +117,9 @@ typedef struct BlConfigEntry {
 typedef struct BlCodecConfig {
     uint32_t abi_version;
     const BlConfigEntry* params;
+    const char* codec_name;
+    const uint8_t* extradata;
+    size_t extradata_size;
     BlVideoInfo video;
     BlAudioInfo audio;
     const BlHostApi* host;

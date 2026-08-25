@@ -14,6 +14,10 @@ bool isExperimental(const BlCodecPlugin* p) noexcept {
     return (p->caps.flags & BL_FLAG_EXPERIMENTAL) != 0;
 }
 
+bool isPassthrough(const BlCodecPlugin* p) noexcept {
+    return (p->caps.flags & BL_FLAG_PASSTHROUGH) != 0;
+}
+
 } // namespace
 
 Result<void> CodecRegistry::registerPlugin(BlCodecPlugin* plugin) {
@@ -54,6 +58,7 @@ BlCodecPlugin* CodecRegistry::defaultFor(unsigned char codecType,
         role == CodecRole::Preview ? BL_ROLE_DECODE : BL_ROLE_ENCODE;
     BlCodecPlugin* experimentalFallback = nullptr;
     for (BlCodecPlugin* p : byType(codecType)) {
+        if (isPassthrough(p)) continue;
         if ((p->caps.roles & needed) == 0) continue;
         if (!isExperimental(p)) return p;
         if (!experimentalFallback) experimentalFallback = p;

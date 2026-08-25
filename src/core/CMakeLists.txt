@@ -5,6 +5,8 @@ add_library(bl_core STATIC
     plugin_validation.cpp
     plugin_loader.cpp
     codec_registry.cpp
+    builtin_plugins.cpp
+    ../plugins/passthrough/passthrough_plugin.c
     platform/dynamic_library.cpp
     platform/paths.cpp
 )
