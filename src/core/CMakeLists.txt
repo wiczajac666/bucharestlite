@@ -1,8 +1,18 @@
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(BL_FFMPEG REQUIRED IMPORTED_TARGET
+    libavformat
+    libavcodec
+    libavutil
+)
+
 add_library(bl_core STATIC
     time.cpp
     result.cpp
     logger.cpp
     undo_stack.cpp
+    job_manager.cpp
+    media_source.cpp
+    demuxer.cpp
     plugin_validation.cpp
     plugin_loader.cpp
     codec_registry.cpp
@@ -27,10 +37,4 @@ if(NOT MSVC)
     target_link_libraries(bl_core PUBLIC ${CMAKE_DL_LIBS})
 endif()
 
-set_target_properties(bl_core PROPERTIES
-    POSITION_INDEPENDENT_CODE ON
-    CXX_VISIBILITY_PRESET hidden
-    VISIBILITY_INLINES_HIDDEN ON
-)
-
-bl_enable_warnings(bl_core)
+target_link_libraries(bl_core PUBLIC PkgConfig::BL_FFMPEG)

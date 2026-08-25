@@ -12,7 +12,9 @@
 - [x] CORE-3: built-in passthrough plugin (video+audio, ABI v2, registerBuiltins) + docs (51/51 green)
 - [x] Thread-safety retrofit: CodecRegistry shared_mutex, race-free plugin statics, TSAN preset + stress tests (55/55 green incl. linux-tsan)
 - [x] CORE-4: thread-safe UndoStack + command infrastructure (ICommand/CommandBase/FunctionCommand; merge-on-push, macros, memory limit) — 71/71 green incl. linux-tsan
-- [ ] CORE-5: JobManager + MediaSource/Demuxer/probe pipeline (FFmpeg dev libs installed)  ← **next**
+- [x] CORE-5: JobManager (priority queue, cooperative cancel, events) + MediaSource probe + Demuxer (FFmpeg 8) — 90/90 green incl. linux-tsan
+- [ ] DecoderBridge (plugin decode adaptation) — deferred to PLG-1..9 phase
+- [ ] CORE-6: ProjectRepository (JSON schema v1) + autosave ring  ← **next**
 - [ ] Core engine implemented (bl_core)
 - [ ] Timeline engine implemented (bl_timeline)
 - [ ] Render backend implemented (bl_render)

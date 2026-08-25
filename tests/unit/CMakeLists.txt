@@ -29,6 +29,7 @@ add_executable(bl_core_tests
     test_plugin_loader.cpp
     test_builtin_plugins.cpp
     test_concurrency.cpp
+    test_media_jobs.cpp
 )
 
 target_link_libraries(bl_core_tests PRIVATE bl_core GTest::gtest_main)
@@ -39,6 +40,7 @@ target_include_directories(bl_core_tests PRIVATE
 
 target_compile_definitions(bl_core_tests PRIVATE
     BL_TEST_PLUGIN_DIR="$<TARGET_FILE_DIR:bl_core_tests>"
+    BL_TEST_MEDIA_DIR="$<TARGET_FILE_DIR:bl_core_tests>/media"
 )
 
 if(MSVC)
@@ -49,3 +51,11 @@ endif()
 
 include(GoogleTest)
 gtest_discover_tests(bl_core_tests DISCOVERY_TIMEOUT 60)
+
+add_custom_command(TARGET bl_core_tests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_BINARY_DIR}/../media
+            $<TARGET_FILE_DIR:bl_core_tests>/media
+    COMMENT "Copying media fixtures next to test binary"
+    VERBATIM
+)

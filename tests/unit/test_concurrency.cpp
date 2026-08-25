@@ -38,7 +38,6 @@ TEST(ThreadSafetyTest, RegistryConcurrentWritersAndReaders) {
 
     constexpr int kWriters = 8;
     constexpr int kPerWriter = 40;
-    constexpr int kReaderIterations = 4000;
 
     std::atomic<bool> go{false};
     std::atomic<int> registerFailures{0};
