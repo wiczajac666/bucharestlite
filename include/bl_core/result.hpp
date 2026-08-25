@@ -54,6 +54,12 @@ public:
     const T& value() const & { return std::get<T>(storage_); }
     T&& value() && { return std::get<T>(std::move(storage_)); }
 
+    T& operator*() & { return value(); }
+    const T& operator*() const & { return value(); }
+    T&& operator*() && { return std::move(*this).value(); }
+    T* operator->() noexcept { return &std::get<T>(storage_); }
+    const T* operator->() const noexcept { return &std::get<T>(storage_); }
+
     T valueOr(T fallback) const {
         return ok() ? std::get<T>(storage_) : std::move(fallback);
     }
@@ -68,6 +74,10 @@ public:
     Result() : failure_{Err::Ok, std::string()} {}
     Result(Err code, std::string message = std::string())
         : failure_{code, std::move(message)} {}
+
+    static Result<void> err(Err code, std::string message = std::string()) {
+        return Result<void>(code, std::move(message));
+    }
 
     bool ok() const noexcept { return failure_.code == Err::Ok; }
     explicit operator bool() const noexcept { return ok(); }

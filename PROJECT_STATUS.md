@@ -7,7 +7,9 @@
 - [x] Deviations §19 accepted
 
 ## Phase 1: Backend
-- [ ] CORE-1: project skeleton, logger, Result/Err, time library + unit tests  ← **in progress**
+- [x] CORE-1: project skeleton, logger, Result/Err, time library + unit tests (27/27 green)
+- [x] CORE-2: plugin ABI header (bl_plugins v1), platform layer, PluginLoader, CodecRegistry + fixtures (44/44 green)
+- [ ] CORE-3: codec registry built-in passthrough plugin  ← **next**
 - [ ] Core engine implemented (bl_core)
 - [ ] Timeline engine implemented (bl_timeline)
 - [ ] Render backend implemented (bl_render)

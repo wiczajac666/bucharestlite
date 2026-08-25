@@ -1,10 +1,38 @@
+set(BL_FIXTURES
+    good_plugin:fixturegood
+    bad_abi_plugin:fixturebadabi
+    noentry_plugin:fixturenoentry
+)
+
+foreach(fixture IN LISTS BL_FIXTURES)
+    string(REPLACE ":" ";" fixture_pair ${fixture})
+    list(GET fixture_pair 0 fixture_name)
+    list(GET fixture_pair 1 fixture_output)
+    add_library(${fixture_name} MODULE ../fixtures/${fixture_name}.c)
+    target_include_directories(${fixture_name} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../include
+    )
+    set_target_properties(${fixture_name} PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:bl_core_tests>/plugins
+        RUNTIME_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:bl_core_tests>/plugins
+        OUTPUT_NAME ${fixture_output}
+        PREFIX "lib"
+    )
+endforeach()
+
 add_executable(bl_core_tests
     test_time.cpp
     test_result.cpp
     test_logger.cpp
+    test_codec_registry.cpp
+    test_plugin_loader.cpp
 )
 
 target_link_libraries(bl_core_tests PRIVATE bl_core GTest::gtest_main)
+
+target_compile_definitions(bl_core_tests PRIVATE
+    BL_TEST_PLUGIN_DIR="$<TARGET_FILE_DIR:bl_core_tests>"
+)
 
 if(MSVC)
     target_compile_options(bl_core_tests PRIVATE /W4 /permissive-)
