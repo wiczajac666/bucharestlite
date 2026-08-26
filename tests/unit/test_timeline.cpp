@@ -2088,5 +2088,229 @@ TEST(TransitionWrappers, TimelineInvalidIndex) {
     EXPECT_FALSE(tl.removeTransitionInAudioTrack(99, "X"));
 }
 
+TEST(SubtitleStyleJson, RoundTrip) {
+    SubtitleStyle s;
+    s.font = "Arial";
+    s.fontSize = 32;
+    s.color = "#FF0000";
+    s.position = SubtitleStyle::Position::Top;
+
+    nlohmann::json j = s;
+    SubtitleStyle s2 = j.get<SubtitleStyle>();
+    EXPECT_EQ(s2.font, "Arial");
+    EXPECT_EQ(s2.fontSize, 32);
+    EXPECT_EQ(s2.color, "#FF0000");
+    EXPECT_EQ(s2.position, SubtitleStyle::Position::Top);
+}
+
+TEST(SubtitleStyleJson, Defaults) {
+    SubtitleStyle s;
+    nlohmann::json j = s;
+    SubtitleStyle s2 = j.get<SubtitleStyle>();
+    EXPECT_EQ(s2.font, "sans-serif");
+    EXPECT_EQ(s2.fontSize, 24);
+    EXPECT_EQ(s2.color, "#FFFFFF");
+    EXPECT_EQ(s2.position, SubtitleStyle::Position::Bottom);
+}
+
+TEST(SubtitleStyleJson, AllPositions) {
+    for (auto pos : {SubtitleStyle::Position::Bottom,
+                     SubtitleStyle::Position::Top,
+                     SubtitleStyle::Position::Center}) {
+        SubtitleStyle s;
+        s.position = pos;
+        nlohmann::json j = s;
+        SubtitleStyle s2 = j.get<SubtitleStyle>();
+        EXPECT_EQ(s2.position, pos);
+    }
+}
+
+TEST(SubtitleClipEquality, TextAndStyleAffectComparison) {
+    Clip a = makeClip("C", 0, 100);
+    Clip b = makeClip("C", 0, 100);
+    EXPECT_TRUE(a == b);
+
+    a.subtitleText = std::string("Hello");
+    EXPECT_FALSE(a == b);
+
+    b.subtitleText = std::string("Hello");
+    EXPECT_TRUE(a == b);
+
+    SubtitleStyle style;
+    style.font = "Arial";
+    a.subtitleStyle = style;
+    EXPECT_FALSE(a == b);
+
+    b.subtitleStyle = style;
+    EXPECT_TRUE(a == b);
+}
+
+TEST(SubtitleClipJson, TextAndStylePresent) {
+    Clip c = makeClip("C", 0, 100);
+    c.subtitleText = std::string("Hello World");
+    SubtitleStyle style;
+    style.font = "Courier";
+    style.fontSize = 20;
+    style.color = "#00FF00";
+    style.position = SubtitleStyle::Position::Center;
+    c.subtitleStyle = style;
+
+    nlohmann::json j = c;
+    Clip c2 = j.get<Clip>();
+    ASSERT_TRUE(c2.subtitleText.has_value());
+    EXPECT_EQ(*c2.subtitleText, "Hello World");
+    ASSERT_TRUE(c2.subtitleStyle.has_value());
+    EXPECT_EQ(c2.subtitleStyle->font, "Courier");
+    EXPECT_EQ(c2.subtitleStyle->fontSize, 20);
+    EXPECT_EQ(c2.subtitleStyle->color, "#00FF00");
+    EXPECT_EQ(c2.subtitleStyle->position, SubtitleStyle::Position::Center);
+}
+
+TEST(SubtitleClipJson, TextOnlyNoStyle) {
+    Clip c = makeClip("C", 0, 100);
+    c.subtitleText = std::string("Text only");
+
+    nlohmann::json j = c;
+    Clip c2 = j.get<Clip>();
+    ASSERT_TRUE(c2.subtitleText.has_value());
+    EXPECT_EQ(*c2.subtitleText, "Text only");
+    EXPECT_FALSE(c2.subtitleStyle.has_value());
+}
+
+TEST(SubtitleClipJson, AbsentFieldsBackwardCompat) {
+    Clip c = makeClip("C", 0, 100);
+    nlohmann::json j = c;
+    Clip c2 = j.get<Clip>();
+    EXPECT_FALSE(c2.subtitleText.has_value());
+    EXPECT_FALSE(c2.subtitleStyle.has_value());
+}
+
+TEST(SubtitleTrackOps, SetAndGetText) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("C1", 0, 100)));
+    EXPECT_TRUE(t.setSubtitleText("C1", "Hello"));
+    auto text = t.getSubtitleText("C1");
+    ASSERT_TRUE(text.has_value());
+    EXPECT_EQ(*text, "Hello");
+}
+
+TEST(SubtitleTrackOps, SetAndGetStyle) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("C1", 0, 100)));
+    SubtitleStyle style;
+    style.font = "Verdana";
+    style.fontSize = 28;
+    EXPECT_TRUE(t.setSubtitleStyle("C1", style));
+    auto got = t.getSubtitleStyle("C1");
+    ASSERT_TRUE(got.has_value());
+    EXPECT_EQ(got->font, "Verdana");
+    EXPECT_EQ(got->fontSize, 28);
+}
+
+TEST(SubtitleTrackOps, InvalidClipId) {
+    VideoTrack t;
+    EXPECT_FALSE(t.setSubtitleText("MISSING", "text"));
+    EXPECT_FALSE(t.setSubtitleStyle("MISSING", SubtitleStyle{}));
+    EXPECT_FALSE(t.getSubtitleText("MISSING").has_value());
+    EXPECT_FALSE(t.getSubtitleStyle("MISSING").has_value());
+}
+
+TEST(SubtitleTrackOps, GetBeforeSetReturnsNullopt) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("C1", 0, 100)));
+    EXPECT_FALSE(t.getSubtitleText("C1").has_value());
+    EXPECT_FALSE(t.getSubtitleStyle("C1").has_value());
+}
+
+TEST(SubtitleSplit, TextPreservedOnBothHalves) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("C1", 0, 100)));
+    t.setSubtitleText("C1", "Shared text");
+    SubtitleStyle style;
+    style.font = "Mono";
+    t.setSubtitleStyle("C1", style);
+    t.splitClip("C1", Time::fromFrame(40, fps24()));
+
+    const auto& clips = t.clips();
+    ASSERT_EQ(clips.size(), 2u);
+    auto t0 = t.getSubtitleText(clips[0].id);
+    auto t1 = t.getSubtitleText(clips[1].id);
+    ASSERT_TRUE(t0.has_value());
+    ASSERT_TRUE(t1.has_value());
+    EXPECT_EQ(*t0, "Shared text");
+    EXPECT_EQ(*t1, "Shared text");
+    auto s0 = t.getSubtitleStyle(clips[0].id);
+    auto s1 = t.getSubtitleStyle(clips[1].id);
+    ASSERT_TRUE(s0.has_value());
+    ASSERT_TRUE(s1.has_value());
+    EXPECT_EQ(s0->font, "Mono");
+    EXPECT_EQ(s1->font, "Mono");
+}
+
+TEST(SubtitleOverwrite, TextOnPlacedClip) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    Clip ov = makeClip("B", 0, 50);
+    ov.id = "B";
+    ov.subtitleText = std::string("Overwritten");
+    ASSERT_TRUE(t.overwriteClip(ov, Time::fromFrame(30, fps24())));
+
+    auto text = t.getSubtitleText("B");
+    ASSERT_TRUE(text.has_value());
+    EXPECT_EQ(*text, "Overwritten");
+}
+
+TEST(SubtitleWrappers, SequenceHappyPath) {
+    Sequence seq;
+    seq.addVideoTrack("V1");
+    seq.addAudioTrack("A1");
+    seq.videoTracks[0].addClip(makeClip("v1", 0, 100));
+    seq.audioTracks[0].addClip(makeClip("a1", 0, 100));
+
+    EXPECT_TRUE(seq.setSubtitleTextInVideoTrack(0, "v1", "Video sub"));
+    EXPECT_TRUE(seq.setSubtitleTextInAudioTrack(0, "a1", "Audio sub"));
+    SubtitleStyle style;
+    style.font = "Bold";
+    EXPECT_TRUE(seq.setSubtitleStyleInVideoTrack(0, "v1", style));
+    EXPECT_TRUE(seq.setSubtitleStyleInAudioTrack(0, "a1", style));
+
+    EXPECT_EQ(*seq.videoTracks[0].getSubtitleText("v1"), "Video sub");
+    EXPECT_EQ(*seq.audioTracks[0].getSubtitleText("a1"), "Audio sub");
+}
+
+TEST(SubtitleWrappers, SequenceInvalidIndex) {
+    Sequence seq;
+    EXPECT_FALSE(seq.setSubtitleTextInVideoTrack(99, "X", "text"));
+    EXPECT_FALSE(seq.setSubtitleTextInAudioTrack(99, "X", "text"));
+    EXPECT_FALSE(seq.setSubtitleStyleInVideoTrack(99, "X", SubtitleStyle{}));
+    EXPECT_FALSE(seq.setSubtitleStyleInAudioTrack(99, "X", SubtitleStyle{}));
+}
+
+TEST(SubtitleWrappers, TimelineHappyPath) {
+    Timeline tl;
+    tl.sequence().addVideoTrack("V1");
+    tl.sequence().addAudioTrack("A1");
+    ASSERT_TRUE(tl.addClipToVideoTrack(0, makeClip("v1", 0, 100)));
+    ASSERT_TRUE(tl.addClipToAudioTrack(0, makeClip("a1", 0, 100)));
+
+    EXPECT_TRUE(tl.setSubtitleTextInVideoTrack(0, "v1", "Video sub"));
+    EXPECT_TRUE(tl.setSubtitleTextInAudioTrack(0, "a1", "Audio sub"));
+    SubtitleStyle style;
+    style.fontSize = 36;
+    EXPECT_TRUE(tl.setSubtitleStyleInVideoTrack(0, "v1", style));
+    EXPECT_TRUE(tl.setSubtitleStyleInAudioTrack(0, "a1", style));
+
+    EXPECT_EQ(*tl.sequence().videoTracks[0].getSubtitleText("v1"), "Video sub");
+    EXPECT_EQ(*tl.sequence().audioTracks[0].getSubtitleText("a1"), "Audio sub");
+}
+
+TEST(SubtitleWrappers, TimelineInvalidIndex) {
+    Timeline tl;
+    EXPECT_FALSE(tl.setSubtitleTextInVideoTrack(99, "X", "text"));
+    EXPECT_FALSE(tl.setSubtitleTextInAudioTrack(99, "X", "text"));
+    EXPECT_FALSE(tl.setSubtitleStyleInVideoTrack(99, "X", SubtitleStyle{}));
+    EXPECT_FALSE(tl.setSubtitleStyleInAudioTrack(99, "X", SubtitleStyle{}));
+}
+
 } // namespace
 } // namespace bl

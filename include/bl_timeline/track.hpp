@@ -412,6 +412,32 @@ public:
         return clips_[*idxA].transitionOut;
     }
 
+    bool setSubtitleText(const ClipId& id, std::string text) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        clips_[*idx].subtitleText = std::move(text);
+        return true;
+    }
+
+    bool setSubtitleStyle(const ClipId& id, SubtitleStyle style) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        clips_[*idx].subtitleStyle = std::move(style);
+        return true;
+    }
+
+    std::optional<std::string> getSubtitleText(const ClipId& id) const {
+        auto idx = findClipById(id);
+        if (!idx) return std::nullopt;
+        return clips_[*idx].subtitleText;
+    }
+
+    std::optional<SubtitleStyle> getSubtitleStyle(const ClipId& id) const {
+        auto idx = findClipById(id);
+        if (!idx) return std::nullopt;
+        return clips_[*idx].subtitleStyle;
+    }
+
     bool setClipKeyframe(const ClipId& id, KeyChannel channel, Time t,
                          double value, Interpolation interp) {
         auto idx = findClipById(id);

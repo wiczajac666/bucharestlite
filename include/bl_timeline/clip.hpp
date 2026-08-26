@@ -2,6 +2,7 @@
 
 #include <bl_core/time.hpp>
 #include <bl_timeline/keyframes.hpp>
+#include <bl_timeline/subtitle.hpp>
 #include <bl_timeline/transition.hpp>
 #include <nlohmann/json.hpp>
 
@@ -73,6 +74,8 @@ struct Clip {
     AudioClipProps audio;
     std::optional<KeyframeTrackSet> keyframes;
     std::optional<TransitionSpec> transitionOut;
+    std::optional<std::string> subtitleText;
+    std::optional<SubtitleStyle> subtitleStyle;
 
     Duration effectiveDuration() const noexcept;
 };
@@ -84,7 +87,9 @@ inline bool operator==(const Clip& a, const Clip& b) {
            a.timelineDuration == b.timelineDuration &&
            a.speed == b.speed && a.effects == b.effects &&
            a.audio == b.audio && a.keyframes == b.keyframes &&
-           a.transitionOut == b.transitionOut;
+           a.transitionOut == b.transitionOut &&
+           a.subtitleText == b.subtitleText &&
+           a.subtitleStyle == b.subtitleStyle;
 }
 
 void to_json(nlohmann::json& j, const Clip& c);

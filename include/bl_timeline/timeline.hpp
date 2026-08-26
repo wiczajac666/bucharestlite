@@ -251,6 +251,34 @@ public:
         return sequence_.audioTracks[trackIndex].removeTransition(clipId);
     }
 
+    bool setSubtitleTextInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                     std::string text) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].setSubtitleText(
+            clipId, std::move(text));
+    }
+
+    bool setSubtitleTextInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                     std::string text) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].setSubtitleText(
+            clipId, std::move(text));
+    }
+
+    bool setSubtitleStyleInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                      SubtitleStyle style) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].setSubtitleStyle(
+            clipId, std::move(style));
+    }
+
+    bool setSubtitleStyleInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                      SubtitleStyle style) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].setSubtitleStyle(
+            clipId, std::move(style));
+    }
+
 private:
     Sequence sequence_;
 };

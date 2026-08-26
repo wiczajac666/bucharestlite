@@ -159,6 +159,37 @@ void from_json(const nlohmann::json& j, AudioClipProps& a) {
     a.pan = j.value("pan", 0.0);
 }
 
+void to_json(nlohmann::json& j, SubtitleStyle::Position p) {
+    switch (p) {
+        case SubtitleStyle::Position::Bottom: j = "bottom"; break;
+        case SubtitleStyle::Position::Top:    j = "top";    break;
+        case SubtitleStyle::Position::Center: j = "center"; break;
+    }
+}
+
+void from_json(const nlohmann::json& j, SubtitleStyle::Position& p) {
+    std::string s = j.get<std::string>();
+    if      (s == "top")    p = SubtitleStyle::Position::Top;
+    else if (s == "center") p = SubtitleStyle::Position::Center;
+    else                    p = SubtitleStyle::Position::Bottom;
+}
+
+void to_json(nlohmann::json& j, const SubtitleStyle& s) {
+    j = {
+        {"font",     s.font},
+        {"fontSize", s.fontSize},
+        {"color",    s.color},
+        {"position", s.position}
+    };
+}
+
+void from_json(const nlohmann::json& j, SubtitleStyle& s) {
+    s.font     = j.value("font", "sans-serif");
+    s.fontSize = j.value("fontSize", 24);
+    s.color    = j.value("color", "#FFFFFF");
+    from_json(j.at("position"), s.position);
+}
+
 void to_json(nlohmann::json& j, const Clip& c) {
     j = {
         {"id", c.id},
@@ -179,6 +210,8 @@ void to_json(nlohmann::json& j, const Clip& c) {
     };
     if (c.keyframes) j["keyframes"] = *c.keyframes;
     if (c.transitionOut) j["transitionOut"] = *c.transitionOut;
+    if (c.subtitleText) j["subtitleText"] = *c.subtitleText;
+    if (c.subtitleStyle) j["subtitleStyle"] = *c.subtitleStyle;
 }
 
 void from_json(const nlohmann::json& j, Clip& c) {
@@ -213,6 +246,12 @@ void from_json(const nlohmann::json& j, Clip& c) {
         }
     }
     if (j.contains("audio")) from_json(j.at("audio"), c.audio);
+    if (j.contains("subtitleText")) {
+        c.subtitleText = j.at("subtitleText").get<std::string>();
+    }
+    if (j.contains("subtitleStyle")) {
+        from_json(j.at("subtitleStyle"), c.subtitleStyle.emplace());
+    }
 }
 
 Time advanceSourceTime(Time sourcePos, Duration timelineDelta,

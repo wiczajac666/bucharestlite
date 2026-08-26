@@ -120,6 +120,30 @@ struct Sequence {
         if (t >= audioTracks.size()) return false;
         return audioTracks[t].removeTransition(id);
     }
+
+    bool setSubtitleTextInVideoTrack(size_t t, const ClipId& id,
+                                     std::string text) {
+        if (t >= videoTracks.size()) return false;
+        return videoTracks[t].setSubtitleText(id, std::move(text));
+    }
+
+    bool setSubtitleTextInAudioTrack(size_t t, const ClipId& id,
+                                     std::string text) {
+        if (t >= audioTracks.size()) return false;
+        return audioTracks[t].setSubtitleText(id, std::move(text));
+    }
+
+    bool setSubtitleStyleInVideoTrack(size_t t, const ClipId& id,
+                                      SubtitleStyle style) {
+        if (t >= videoTracks.size()) return false;
+        return videoTracks[t].setSubtitleStyle(id, std::move(style));
+    }
+
+    bool setSubtitleStyleInAudioTrack(size_t t, const ClipId& id,
+                                      SubtitleStyle style) {
+        if (t >= audioTracks.size()) return false;
+        return audioTracks[t].setSubtitleStyle(id, std::move(style));
+    }
 };
 
 void to_json(nlohmann::json& j, const Sequence& s);

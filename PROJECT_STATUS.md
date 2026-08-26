@@ -21,7 +21,8 @@
 - [x] TL-5: speed/time retiming (setClipSpeed source-preserving retime + ripple, retimedTimelineDuration rational math, effectiveDuration semantics clarified) — 203/203 green incl. linux-tsan
 - [x] TL-6: keyframeable properties (KeyframeTrack/Set, Hold/Linear/Bezier-smoothstep evaluate, 7 channels, clip-relative times, fragment rebase across split/insert/overwrite) — 225/225 green incl. linux-tsan
 - [x] TL-7: clip transitions (edge-metadata model: TransitionSpec kinds, duration, alignment, params; addTransition validates adjacency+bounds; pruneInvalidTransitions sweep on all mutators; split/insert/overwrite/ripple/speed all prune gracefully) — 252/252 green incl. linux-tsan
-- [ ] Timeline engine implemented (bl_timeline)
+- [x] TL-8: subtitle track data model (SubtitleStyle struct; subtitleText + subtitleStyle on Clip; setSubtitleText/getSubtitleText/setSubtitleStyle/getSubtitleStyle on Track; Sequence/Timeline wrappers) — 269/269 green incl. linux-tsan
+- [x] bl_timeline (timeline domain model, clips, tracks, sequences, keyframes, transitions, subtitles)
 - [ ] Render backend implemented (bl_render)
 - [ ] Audio engine implemented (bl_audio)
 - [ ] Codec plugins implemented (h264, vp9, av1, theora, mpeg4, aac, flac, vorbis, opus)
