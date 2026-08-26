@@ -50,6 +50,58 @@ Duration Clip::effectiveDuration() const noexcept {
     return Duration::fromTicks(effTicks, timelineDuration.rate);
 }
 
+void to_json(nlohmann::json& j, TransitionKind kind) {
+    switch (kind) {
+        case TransitionKind::Crossfade: j = "crossfade"; break;
+        case TransitionKind::Wipe:      j = "wipe";      break;
+        case TransitionKind::Dissolve:  j = "dissolve";  break;
+        case TransitionKind::Slide:     j = "slide";     break;
+    }
+}
+
+void from_json(const nlohmann::json& j, TransitionKind& kind) {
+    std::string s = j.get<std::string>();
+    if      (s == "crossfade") kind = TransitionKind::Crossfade;
+    else if (s == "wipe")      kind = TransitionKind::Wipe;
+    else if (s == "dissolve")  kind = TransitionKind::Dissolve;
+    else                       kind = TransitionKind::Slide;
+}
+
+void to_json(nlohmann::json& j, TransitionAlignment a) {
+    switch (a) {
+        case TransitionAlignment::Center: j = "center"; break;
+        case TransitionAlignment::Left:   j = "left";   break;
+        case TransitionAlignment::Right:  j = "right";  break;
+    }
+}
+
+void from_json(const nlohmann::json& j, TransitionAlignment& a) {
+    std::string s = j.get<std::string>();
+    if      (s == "center") a = TransitionAlignment::Center;
+    else if (s == "left")   a = TransitionAlignment::Left;
+    else                    a = TransitionAlignment::Right;
+}
+
+void to_json(nlohmann::json& j, const TransitionSpec& s) {
+    j = {
+        {"kind",      s.kind},
+        {"duration",  {{"ticks", s.duration.ticks},
+                       {"rate",  {{"num", s.duration.rate.num},
+                                  {"den", s.duration.rate.den}}}}},
+        {"alignment", s.alignment},
+        {"params",    s.params}
+    };
+}
+
+void from_json(const nlohmann::json& j, TransitionSpec& s) {
+    from_json(j.at("kind"), s.kind);
+    s.duration.ticks = j.at("duration").at("ticks").get<int64_t>();
+    s.duration.rate.num = j.at("duration").at("rate").at("num").get<int64_t>();
+    s.duration.rate.den = j.at("duration").at("rate").at("den").get<int64_t>();
+    from_json(j.at("alignment"), s.alignment);
+    s.params = j.value("params", nlohmann::json::object());
+}
+
 void to_json(nlohmann::json& j, const SourceRef& s) {
     j = {
         {"mediaItemId", s.mediaItemId},
@@ -126,6 +178,7 @@ void to_json(nlohmann::json& j, const Clip& c) {
         {"audio", c.audio}
     };
     if (c.keyframes) j["keyframes"] = *c.keyframes;
+    if (c.transitionOut) j["transitionOut"] = *c.transitionOut;
 }
 
 void from_json(const nlohmann::json& j, Clip& c) {
@@ -148,6 +201,9 @@ void from_json(const nlohmann::json& j, Clip& c) {
     if (j.contains("speed")) from_json(j.at("speed"), c.speed);
     if (j.contains("keyframes")) {
         from_json(j.at("keyframes"), c.keyframes.emplace());
+    }
+    if (j.contains("transitionOut")) {
+        from_json(j.at("transitionOut"), c.transitionOut.emplace());
     }
     if (j.contains("effects")) {
         const auto& arr = j.at("effects");

@@ -220,11 +220,35 @@ public:
     }
 
     bool removeClipKeyframeInAudioTrack(size_t trackIndex,
-                                        const ClipId& clipId,
-                                        KeyChannel channel, Time at) {
+                                         const ClipId& clipId,
+                                         KeyChannel channel, Time at) {
         if (trackIndex >= sequence_.audioTracks.size()) return false;
         return sequence_.audioTracks[trackIndex].removeClipKeyframe(
             clipId, channel, at);
+    }
+
+    bool addTransitionInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                    TransitionSpec spec) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].addTransition(
+            clipId, std::move(spec));
+    }
+
+    bool addTransitionInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                    TransitionSpec spec) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].addTransition(
+            clipId, std::move(spec));
+    }
+
+    bool removeTransitionInVideoTrack(size_t trackIndex, const ClipId& clipId) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].removeTransition(clipId);
+    }
+
+    bool removeTransitionInAudioTrack(size_t trackIndex, const ClipId& clipId) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].removeTransition(clipId);
     }
 
 private:

@@ -94,9 +94,31 @@ struct Sequence {
     }
 
     bool removeClipKeyframeInAudioTrack(size_t t, const ClipId& id,
-                                        KeyChannel channel, Time at) {
+                                         KeyChannel channel, Time at) {
         if (t >= audioTracks.size()) return false;
         return audioTracks[t].removeClipKeyframe(id, channel, at);
+    }
+
+    bool addTransitionInVideoTrack(size_t t, const ClipId& id,
+                                    TransitionSpec spec) {
+        if (t >= videoTracks.size()) return false;
+        return videoTracks[t].addTransition(id, std::move(spec));
+    }
+
+    bool addTransitionInAudioTrack(size_t t, const ClipId& id,
+                                    TransitionSpec spec) {
+        if (t >= audioTracks.size()) return false;
+        return audioTracks[t].addTransition(id, std::move(spec));
+    }
+
+    bool removeTransitionInVideoTrack(size_t t, const ClipId& id) {
+        if (t >= videoTracks.size()) return false;
+        return videoTracks[t].removeTransition(id);
+    }
+
+    bool removeTransitionInAudioTrack(size_t t, const ClipId& id) {
+        if (t >= audioTracks.size()) return false;
+        return audioTracks[t].removeTransition(id);
     }
 };
 

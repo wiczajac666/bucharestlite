@@ -1798,5 +1798,295 @@ TEST(TimelineKeyframeWrappers, HappyPathVideoAndAudio) {
         tl.sequence().audioTracks[0].clips()[0].keyframes->volume->empty());
 }
 
+TEST(TransitionAdd, ValidAdjacentEdge) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 100, 100)));
+
+    TransitionSpec spec;
+    spec.kind = TransitionKind::Crossfade;
+    spec.duration = Duration::fromFrames(12, fps24());
+    EXPECT_TRUE(t.addTransition("A", spec));
+
+    auto got = t.transitionAfter("A");
+    ASSERT_TRUE(got.has_value());
+    EXPECT_EQ(got->kind, TransitionKind::Crossfade);
+    EXPECT_EQ(got->duration, spec.duration);
+    EXPECT_EQ(got->alignment, TransitionAlignment::Center);
+}
+
+TEST(TransitionAdd, RejectsNonexistentClip) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    TransitionSpec s; s.duration = Duration::fromFrames(6, fps24());
+    EXPECT_FALSE(t.addTransition("MISSING", s));
+}
+
+TEST(TransitionAdd, RejectsNoNextClip) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    TransitionSpec s; s.duration = Duration::fromFrames(6, fps24());
+    EXPECT_FALSE(t.addTransition("A", s));
+}
+
+TEST(TransitionAdd, RejectsNonAdjacent) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 150, 100)));
+    TransitionSpec s; s.duration = Duration::fromFrames(6, fps24());
+    EXPECT_FALSE(t.addTransition("A", s));
+}
+
+TEST(TransitionAdd, RejectsZeroDuration) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 100, 100)));
+    TransitionSpec s; s.duration = Duration{0, fps24()};
+    EXPECT_FALSE(t.addTransition("A", s));
+}
+
+TEST(TransitionAdd, RejectsExceedsMinNeighborDuration) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 20)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 20, 100)));
+    TransitionSpec s; s.duration = Duration::fromFrames(21, fps24());
+    EXPECT_FALSE(t.addTransition("A", s));
+}
+
+TEST(TransitionAdd, AcceptsExactlyMinNeighborDuration) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 20)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 20, 100)));
+    TransitionSpec s; s.duration = Duration::fromFrames(20, fps24());
+    EXPECT_TRUE(t.addTransition("A", s));
+}
+
+TEST(TransitionAdd, ReplacesExistingTransition) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 100, 100)));
+
+    TransitionSpec s1; s1.kind = TransitionKind::Wipe;
+    s1.duration = Duration::fromFrames(8, fps24());
+    ASSERT_TRUE(t.addTransition("A", s1));
+
+    TransitionSpec s2; s2.kind = TransitionKind::Dissolve;
+    s2.duration = Duration::fromFrames(16, fps24());
+    ASSERT_TRUE(t.addTransition("A", s2));
+
+    auto got = t.transitionAfter("A");
+    ASSERT_TRUE(got.has_value());
+    EXPECT_EQ(got->kind, TransitionKind::Dissolve);
+    EXPECT_EQ(got->duration, s2.duration);
+}
+
+TEST(TransitionRemove, DropsExisting) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 100, 100)));
+    TransitionSpec s; s.duration = Duration::fromFrames(8, fps24());
+    ASSERT_TRUE(t.addTransition("A", s));
+    EXPECT_TRUE(t.removeTransition("A"));
+    EXPECT_FALSE(t.transitionAfter("A").has_value());
+}
+
+TEST(TransitionRemove, RejectsMissing) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    EXPECT_FALSE(t.removeTransition("MISSING"));
+}
+
+TEST(TransitionRemove, RejectsAlreadyNone) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 100, 100)));
+    EXPECT_FALSE(t.removeTransition("A"));
+}
+
+TEST(TransitionQuery, TransitionBetweenValidPair) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 100, 100)));
+    TransitionSpec s; s.duration = Duration::fromFrames(8, fps24());
+    ASSERT_TRUE(t.addTransition("A", s));
+    auto got = t.transitionBetween("A", "B");
+    ASSERT_TRUE(got.has_value());
+    EXPECT_EQ(got->kind, TransitionKind::Crossfade);
+}
+
+TEST(TransitionQuery, TransitionBetweenWrongSecond) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 100, 100)));
+    ASSERT_TRUE(t.addClip(makeClip("C", 200, 100)));
+    TransitionSpec s; s.duration = Duration::fromFrames(8, fps24());
+    ASSERT_TRUE(t.addTransition("A", s));
+    EXPECT_FALSE(t.transitionBetween("A", "C").has_value());
+}
+
+TEST(TransitionPrune, OnTrimRightPastNeighbor) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 50)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 50, 50)));
+    TransitionSpec s; s.duration = Duration::fromFrames(8, fps24());
+    ASSERT_TRUE(t.addTransition("A", s));
+    ASSERT_TRUE(t.trimClipRight("A", Time::fromFrame(40, fps24())));
+    EXPECT_FALSE(t.transitionAfter("A").has_value());
+}
+
+TEST(TransitionPrune, OnSpeedRetimeShrinkOverflowsDuration) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 100, 100)));
+    TransitionSpec s; s.duration = Duration::fromFrames(95, fps24());
+    ASSERT_TRUE(t.addTransition("A", s));
+    ASSERT_TRUE(t.setClipSpeed("A", SpeedRemap{2, 1}));
+    EXPECT_FALSE(t.transitionAfter("A").has_value());
+}
+
+TEST(TransitionPrune, OnTrimLeftGapBreaksAdjacency) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 100, 100)));
+    TransitionSpec s; s.duration = Duration::fromFrames(8, fps24());
+    ASSERT_TRUE(t.addTransition("A", s));
+    ASSERT_TRUE(t.trimClipLeft("B", Time::fromFrame(120, fps24())));
+    EXPECT_FALSE(t.transitionAfter("A").has_value());
+}
+
+TEST(TransitionPrune, OnSplitOverflowsDuration) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 20)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 20, 100)));
+    TransitionSpec s; s.duration = Duration::fromFrames(12, fps24());
+    ASSERT_TRUE(t.addTransition("A", s));
+    ASSERT_TRUE(t.splitClip("A", Time::fromFrame(10, fps24())));
+    EXPECT_FALSE(t.transitionAfter("A").has_value());
+}
+
+TEST(TransitionPrune, OnOverwriteShrinksLeftRemnant) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 100, 50)));
+    TransitionSpec s; s.duration = Duration::fromFrames(40, fps24());
+    ASSERT_TRUE(t.addTransition("A", s));
+    Clip ov = makeClip("X", 0, 30);
+    ov.id = "X";
+    ASSERT_TRUE(t.overwriteClip(ov, Time::fromFrame(80, fps24())));
+    EXPECT_FALSE(t.transitionAfter("A").has_value());
+}
+
+TEST(TransitionPrune, OnOverwriteStraddleOverflowsDuration) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 100, 50)));
+    TransitionSpec s; s.duration = Duration::fromFrames(45, fps24());
+    ASSERT_TRUE(t.addTransition("A", s));
+    Clip ov = makeClip("X", 0, 30);
+    ov.id = "X";
+    ASSERT_TRUE(t.overwriteClip(ov, Time::fromFrame(80, fps24())));
+    EXPECT_FALSE(t.transitionAfter("A").has_value());
+}
+
+TEST(TransitionPrune, ValidTransitionSurvivesTrim) {
+    VideoTrack t;
+    ASSERT_TRUE(t.addClip(makeClip("A", 0, 100)));
+    ASSERT_TRUE(t.addClip(makeClip("B", 100, 100)));
+    TransitionSpec s; s.duration = Duration::fromFrames(8, fps24());
+    ASSERT_TRUE(t.addTransition("A", s));
+    ASSERT_TRUE(t.trimClipLeft("A", Time::fromFrame(10, fps24())));
+    ASSERT_TRUE(t.trimClipRight("B", Time::fromFrame(190, fps24())));
+    auto got = t.transitionAfter("A");
+    ASSERT_TRUE(got.has_value());
+    EXPECT_EQ(got->kind, TransitionKind::Crossfade);
+}
+
+TEST(TransitionJson, RoundTrip) {
+    TransitionSpec spec;
+    spec.kind = TransitionKind::Wipe;
+    spec.duration = Duration::fromFrames(12, fps24());
+    spec.alignment = TransitionAlignment::Right;
+    spec.params = {{"softness", 0.5}};
+
+    Clip c = makeClip("C", 0, 100);
+    c.transitionOut = spec;
+
+    nlohmann::json j = c;
+    Clip c2 = j.get<Clip>();
+    ASSERT_TRUE(c2.transitionOut.has_value());
+    EXPECT_EQ(c2.transitionOut->kind, TransitionKind::Wipe);
+    EXPECT_EQ(c2.transitionOut->duration, spec.duration);
+    EXPECT_EQ(c2.transitionOut->alignment, TransitionAlignment::Right);
+    EXPECT_DOUBLE_EQ(c2.transitionOut->params["softness"].get<double>(), 0.5);
+}
+
+TEST(TransitionJson, NoFieldBackwardCompat) {
+    Clip c = makeClip("C", 0, 100);
+    nlohmann::json j = c;
+    Clip c2 = j.get<Clip>();
+    EXPECT_FALSE(c2.transitionOut.has_value());
+}
+
+TEST(TransitionClipEquality, TransitionAffectsComparison) {
+    Clip a = makeClip("C", 0, 100);
+    Clip b = makeClip("C", 0, 100);
+    EXPECT_TRUE(a == b);
+    TransitionSpec s; s.duration = Duration::fromFrames(8, fps24());
+    a.transitionOut = s;
+    EXPECT_FALSE(a == b);
+}
+
+TEST(TransitionWrappers, SequenceHappyPath) {
+    Sequence seq;
+    seq.addVideoTrack("V1");
+    seq.addAudioTrack("A1");
+    seq.videoTracks[0].addClip(makeClip("v1", 0, 100));
+    seq.videoTracks[0].addClip(makeClip("v2", 100, 100));
+    seq.audioTracks[0].addClip(makeClip("a1", 0, 100));
+    seq.audioTracks[0].addClip(makeClip("a2", 100, 100));
+
+    TransitionSpec sv; sv.kind = TransitionKind::Crossfade;
+    sv.duration = Duration::fromFrames(8, fps24());
+    EXPECT_TRUE(seq.addTransitionInVideoTrack(0, "v1", sv));
+    EXPECT_TRUE(seq.addTransitionInAudioTrack(0, "a1", sv));
+    EXPECT_TRUE(seq.removeTransitionInVideoTrack(0, "v1"));
+    EXPECT_TRUE(seq.removeTransitionInAudioTrack(0, "a1"));
+}
+
+TEST(TransitionWrappers, SequenceInvalidIndex) {
+    Sequence seq;
+    TransitionSpec s; s.duration = Duration::fromFrames(8, fps24());
+    EXPECT_FALSE(seq.addTransitionInVideoTrack(99, "X", s));
+    EXPECT_FALSE(seq.addTransitionInAudioTrack(99, "X", s));
+    EXPECT_FALSE(seq.removeTransitionInVideoTrack(99, "X"));
+    EXPECT_FALSE(seq.removeTransitionInAudioTrack(99, "X"));
+}
+
+TEST(TransitionWrappers, TimelineHappyPath) {
+    Timeline tl;
+    tl.sequence().addVideoTrack("V1");
+    tl.sequence().addAudioTrack("A1");
+    ASSERT_TRUE(tl.addClipToVideoTrack(0, makeClip("v1", 0, 100)));
+    ASSERT_TRUE(tl.addClipToVideoTrack(0, makeClip("v2", 100, 100)));
+    ASSERT_TRUE(tl.addClipToAudioTrack(0, makeClip("a1", 0, 100)));
+    ASSERT_TRUE(tl.addClipToAudioTrack(0, makeClip("a2", 100, 100)));
+
+    TransitionSpec sv; sv.kind = TransitionKind::Dissolve;
+    sv.duration = Duration::fromFrames(8, fps24());
+    EXPECT_TRUE(tl.addTransitionInVideoTrack(0, "v1", sv));
+    EXPECT_TRUE(tl.addTransitionInAudioTrack(0, "a1", sv));
+    EXPECT_TRUE(tl.removeTransitionInVideoTrack(0, "v1"));
+    EXPECT_TRUE(tl.removeTransitionInAudioTrack(0, "a1"));
+}
+
+TEST(TransitionWrappers, TimelineInvalidIndex) {
+    Timeline tl;
+    TransitionSpec s; s.duration = Duration::fromFrames(8, fps24());
+    EXPECT_FALSE(tl.addTransitionInVideoTrack(99, "X", s));
+    EXPECT_FALSE(tl.addTransitionInAudioTrack(99, "X", s));
+    EXPECT_FALSE(tl.removeTransitionInVideoTrack(99, "X"));
+    EXPECT_FALSE(tl.removeTransitionInAudioTrack(99, "X"));
+}
+
 } // namespace
 } // namespace bl

@@ -63,6 +63,7 @@ public:
                 return a.timelineStart < b.timelineStart;
             });
         clips_.insert(it, clip);
+        pruneInvalidTransitions();
         return true;
     }
 
@@ -70,6 +71,7 @@ public:
         auto idx = findClipById(id);
         if (!idx) return false;
         clips_.erase(clips_.begin() + static_cast<ptrdiff_t>(*idx));
+        pruneInvalidTransitions();
         return true;
     }
 
@@ -91,6 +93,7 @@ public:
                 return a.timelineStart < b.timelineStart;
             });
         clips_.insert(it, moved);
+        pruneInvalidTransitions();
         return true;
     }
 
@@ -123,6 +126,7 @@ public:
 
         auto it = clips_.begin() + static_cast<ptrdiff_t>(*idx) + 1;
         clips_.insert(it, right);
+        pruneInvalidTransitions();
         return right;
     }
 
@@ -137,6 +141,7 @@ public:
                 c.source.sourceIn, newStart - c.timelineStart, c.speed);
             c.timelineDuration = clipEnd - newStart;
             c.timelineStart = newStart;
+            pruneInvalidTransitions();
             return true;
         }
         if (newStart < c.timelineStart) {
@@ -151,6 +156,7 @@ public:
                 c.source.sourceIn, -growDelta, c.speed);
             c.timelineStart = newStart;
             c.timelineDuration = clipEnd - newStart;
+            pruneInvalidTransitions();
             return true;
         }
         return false;
@@ -171,6 +177,7 @@ public:
         c.source.sourceOut = advanceSourceTime(
             c.source.sourceOut, growDelta, c.speed);
         c.timelineDuration = newDur;
+        pruneInvalidTransitions();
         return true;
     }
 
@@ -182,6 +189,7 @@ public:
         for (size_t i = *idx; i < clips_.size(); ++i) {
             clips_[i].timelineStart = clips_[i].timelineStart - removed.timelineDuration;
         }
+        pruneInvalidTransitions();
         return true;
     }
 
@@ -200,6 +208,7 @@ public:
         for (size_t i = 0; i < *idx; ++i) {
             clips_[i].timelineStart = clips_[i].timelineStart + delta;
         }
+        pruneInvalidTransitions();
         return true;
     }
 
@@ -217,6 +226,7 @@ public:
         for (size_t i = *idx + 1; i < clips_.size(); ++i) {
             clips_[i].timelineStart = clips_[i].timelineStart + delta;
         }
+        pruneInvalidTransitions();
         return true;
     }
 
@@ -258,6 +268,7 @@ public:
         placed.timelineStart = at;
         auto it = clips_.begin() + static_cast<ptrdiff_t>(first);
         it = clips_.insert(it, placed);
+        pruneInvalidTransitions();
         return *it;
     }
 
@@ -333,6 +344,7 @@ public:
                 return a.timelineStart < b.timelineStart;
             });
         clips_.insert(it, placed);
+        pruneInvalidTransitions();
         return placed;
     }
 
@@ -359,7 +371,45 @@ public:
         for (size_t i = *idx + 1; i < clips_.size(); ++i) {
             clips_[i].timelineStart = clips_[i].timelineStart + delta;
         }
+        pruneInvalidTransitions();
         return c;
+    }
+
+    bool addTransition(const ClipId& id, TransitionSpec spec) {
+        auto idx = findClipById(id);
+        if (!idx || *idx + 1 >= clips_.size()) return false;
+        Time curEnd = clips_[*idx].timelineStart + clips_[*idx].timelineDuration;
+        Time nextStart = clips_[*idx + 1].timelineStart;
+        if (curEnd != nextStart) return false;
+        if (spec.duration <= Duration{}) return false;
+        Duration minDur = std::min(clips_[*idx].timelineDuration,
+                                   clips_[*idx + 1].timelineDuration);
+        if (spec.duration > minDur) return false;
+        clips_[*idx].transitionOut = std::move(spec);
+        return true;
+    }
+
+    bool removeTransition(const ClipId& id) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        if (!clips_[*idx].transitionOut) return false;
+        clips_[*idx].transitionOut = std::nullopt;
+        return true;
+    }
+
+    std::optional<TransitionSpec> transitionAfter(const ClipId& id) const {
+        auto idx = findClipById(id);
+        if (!idx) return std::nullopt;
+        return clips_[*idx].transitionOut;
+    }
+
+    std::optional<TransitionSpec> transitionBetween(const ClipId& idA,
+                                                    const ClipId& idB) const {
+        auto idxA = findClipById(idA);
+        if (!idxA) return std::nullopt;
+        if (*idxA + 1 >= clips_.size()) return std::nullopt;
+        if (clips_[*idxA + 1].id != idB) return std::nullopt;
+        return clips_[*idxA].transitionOut;
     }
 
     bool setClipKeyframe(const ClipId& id, KeyChannel channel, Time t,
@@ -408,6 +458,24 @@ private:
     bool locked_{false};
     int32_t height_{60};
     std::vector<ClipType> clips_;
+
+    void pruneInvalidTransitions() {
+        for (size_t i = 0; i + 1 < clips_.size(); ++i) {
+            ClipType& cur = clips_[i];
+            if (!cur.transitionOut) continue;
+            const ClipType& next = clips_[i + 1];
+            Time curEnd = cur.timelineStart + cur.timelineDuration;
+            if (curEnd != next.timelineStart ||
+                cur.transitionOut->duration <= Duration{} ||
+                cur.transitionOut->duration >
+                    std::min(cur.timelineDuration, next.timelineDuration)) {
+                cur.transitionOut = std::nullopt;
+            }
+        }
+        if (!clips_.empty() && clips_.back().transitionOut) {
+            clips_.back().transitionOut = std::nullopt;
+        }
+    }
 };
 
 using VideoTrack = Track<Clip>;
