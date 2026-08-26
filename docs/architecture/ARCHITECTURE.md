@@ -744,6 +744,7 @@ No open questions remain for Gate 1.
 5. **Universal interchange formats pinned** (BGRA32 / f32-planar) — implied but unspecified previously.
 6. **Plugin ABI amended to v2 during build** (2026-08-25, CORE-3): added `BL_FLAG_PASSTHROUGH` and codec-parameter fields (`codec_name`, `extradata`, `extradata_size`) to `BlCodecConfig`. Reason: the passthrough pseudo-plugin needs a compressed-packet contract and the future muxer (EXP-2) needs codec parameters for copied streams. Version bumped 1→2 per §18 ABI policy; no external plugins existed yet.
 7. **Timeline mutations are direct methods** returning `bool`/`std::optional` rather than the §8.2 sketch of every mutation returning an `ICommand` factory. Reason: keeps bl_timeline pure-domain and unit-testable; undo is layered on top via `TimelineSnapshot` + CORE-4 commands at the UI layer (UI-2). Convention established in TL-1/TL-2, extended by TL-4 (2026-08-26).
+8. **Bezier keyframes evaluated as smoothstep** (`u²(3−2u)`) in v1; editable per-keyframe handles arrive with the RND-4/UI-4 curve editor. Also: keyframe times are clip-relative (survive move/retime), and fragment-producing edits (split / insert-split / overwrite remnants) partition keys half-open — a key exactly on the cut goes to the right fragment. Recorded 2026-08-26 (TL-6).
 
 ## 20. Gate 1 Sign-Off
 

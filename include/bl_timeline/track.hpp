@@ -114,6 +114,12 @@ public:
         right.timelineDuration = rightDur;
         right.source.sourceIn = advanceSourceTime(
             original.source.sourceIn, leftDur, original.speed);
+        if (original.keyframes) {
+            right.keyframes =
+                keyframeSetSuffixRebased(*original.keyframes, leftDur);
+            original.keyframes =
+                keyframeSetPrefix(*original.keyframes, leftDur);
+        }
 
         auto it = clips_.begin() + static_cast<ptrdiff_t>(*idx) + 1;
         clips_.insert(it, right);
@@ -231,6 +237,12 @@ public:
                     prev.source.sourceIn, at - prev.timelineStart, prev.speed);
                 right.timelineStart = at;
                 right.timelineDuration = prevEnd - at;
+                if (prev.keyframes) {
+                    right.keyframes = keyframeSetSuffixRebased(
+                        *prev.keyframes, at - prev.timelineStart);
+                    prev.keyframes = keyframeSetPrefix(
+                        *prev.keyframes, at - prev.timelineStart);
+                }
                 prev.timelineDuration = at - prev.timelineStart;
                 clips_.insert(clips_.begin() + static_cast<ptrdiff_t>(first),
                               right);
@@ -276,6 +288,11 @@ public:
                     c.source.sourceIn, end - cStart, c.speed);
                 rightPart.timelineStart = end;
                 rightPart.timelineDuration = cEnd - end;
+                if (c.keyframes) {
+                    rightPart.keyframes = keyframeSetSuffixRebased(
+                        *c.keyframes, end - cStart);
+                    c.keyframes = keyframeSetPrefix(*c.keyframes, at - cStart);
+                }
                 c.timelineDuration = at - cStart;
                 c.source.sourceOut = advanceSourceTime(
                     c.source.sourceOut, at - cEnd, c.speed);
@@ -286,10 +303,18 @@ public:
                 continue;
             }
             if (hasLeft) {
+                if (c.keyframes) {
+                    c.keyframes =
+                        keyframeSetPrefix(*c.keyframes, at - cStart);
+                }
                 c.timelineDuration = at - cStart;
                 c.source.sourceOut = advanceSourceTime(
                     c.source.sourceOut, at - cEnd, c.speed);
             } else if (hasRight) {
+                if (c.keyframes) {
+                    c.keyframes = keyframeSetSuffixRebased(*c.keyframes,
+                                                           end - cStart);
+                }
                 c.source.sourceIn = advanceSourceTime(
                     c.source.sourceIn, end - cStart, c.speed);
                 c.timelineStart = end;
@@ -335,6 +360,33 @@ public:
             clips_[i].timelineStart = clips_[i].timelineStart + delta;
         }
         return c;
+    }
+
+    bool setClipKeyframe(const ClipId& id, KeyChannel channel, Time t,
+                         double value, Interpolation interp) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        ClipType& c = clips_[*idx];
+        if (!c.keyframes) c.keyframes = KeyframeTrackSet{};
+        c.keyframes->ensure(channel).set(t, value, interp);
+        return true;
+    }
+
+    bool removeClipKeyframe(const ClipId& id, KeyChannel channel, Time t) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        if (!clips_[*idx].keyframes) return false;
+        KeyframeTrack* tr = clips_[*idx].keyframes->track(channel);
+        if (!tr) return false;
+        return tr->remove(t);
+    }
+
+    std::optional<double> evaluateClipChannel(const ClipId& id,
+                                              KeyChannel channel,
+                                              Time t) const {
+        auto idx = findClipById(id);
+        if (!idx || !clips_[*idx].keyframes) return std::nullopt;
+        return evaluateChannel(*clips_[*idx].keyframes, channel, t);
     }
 
 private:

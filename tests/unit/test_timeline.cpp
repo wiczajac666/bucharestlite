@@ -1433,5 +1433,370 @@ TEST(TimelineSpeedWrappers, HappyPathVideoAndAudio) {
     EXPECT_EQ(a->timelineDuration, Duration::fromFrames(20, fps24()));
 }
 
+namespace {
+
+Keyframe makeKey(int64_t frame, double value,
+                 Interpolation interp = Interpolation::Linear) {
+    return Keyframe{Time::fromFrame(frame, fps24()), value, interp};
+}
+
+const KeyframeTrack* channelOf(const Clip& c, KeyChannel ch) {
+    return c.keyframes ? c.keyframes->track(ch) : nullptr;
+}
+
+} // namespace
+
+TEST(KeyframeEvaluateTest, EmptyTrackReturnsZero) {
+    KeyframeTrack track;
+    EXPECT_DOUBLE_EQ(track.evaluate(Time::fromFrame(5, fps24())), 0.0);
+}
+
+TEST(KeyframeEvaluateTest, SingleSampleAlwaysReturnsValue) {
+    KeyframeTrack track;
+    track.set(Time::fromFrame(5, fps24()), 42.0, Interpolation::Linear);
+    EXPECT_DOUBLE_EQ(track.evaluate(Time::fromFrame(0, fps24())), 42.0);
+    EXPECT_DOUBLE_EQ(track.evaluate(Time::fromFrame(100, fps24())), 42.0);
+}
+
+TEST(KeyframeEvaluateTest, BoundaryClampsToEndpoints) {
+    KeyframeTrack track;
+    track.set(Time::fromFrame(0, fps24()), 10.0, Interpolation::Linear);
+    track.set(Time::fromFrame(10, fps24()), 90.0, Interpolation::Linear);
+    EXPECT_DOUBLE_EQ(track.evaluate(Time::fromFrame(0, fps24())), 10.0);
+    EXPECT_DOUBLE_EQ(track.evaluate(Time::fromFrame(10, fps24())), 90.0);
+    EXPECT_DOUBLE_EQ(track.evaluate(Time::fromFrame(20, fps24())), 90.0);
+}
+
+TEST(KeyframeEvaluateTest, LinearMidpoint) {
+    KeyframeTrack track;
+    track.set(Time::fromFrame(0, fps24()), 10.0, Interpolation::Linear);
+    track.set(Time::fromFrame(10, fps24()), 30.0, Interpolation::Linear);
+    EXPECT_DOUBLE_EQ(
+        track.evaluate(Time::fromFrame(5, fps24())), 20.0);
+}
+
+TEST(KeyframeEvaluateTest, BezierSmoothstepAtQuarter) {
+    KeyframeTrack track;
+    track.set(Time::fromFrame(0, fps24()), 0.0, Interpolation::Bezier);
+    track.set(Time::fromFrame(10, fps24()), 100.0, Interpolation::Bezier);
+    EXPECT_NEAR(track.evaluate(Time::fromFrame(2, fps24())), 10.4, 1e-9);
+    EXPECT_NEAR(track.evaluate(Time::fromFrame(5, fps24())), 50.0, 1e-9);
+}
+
+TEST(KeyframeEvaluateTest, SegmentUsesLeftKeyInterp) {
+    KeyframeTrack track;
+    track.set(Time::fromFrame(0, fps24()), 10.0, Interpolation::Hold);
+    track.set(Time::fromFrame(10, fps24()), 50.0, Interpolation::Linear);
+    track.set(Time::fromFrame(20, fps24()), 90.0, Interpolation::Linear);
+    EXPECT_DOUBLE_EQ(track.evaluate(Time::fromFrame(4, fps24())), 10.0);
+    EXPECT_DOUBLE_EQ(track.evaluate(Time::fromFrame(15, fps24())), 70.0);
+}
+
+TEST(KeyframeTrackTest, SetReplacesSameTick) {
+    KeyframeTrack track;
+    track.set(Time::fromFrame(5, fps24()), 1.0, Interpolation::Linear);
+    track.set(Time::fromFrame(5, fps24()), 2.0, Interpolation::Hold);
+    ASSERT_EQ(track.size(), 1u);
+    EXPECT_DOUBLE_EQ(track.samples()[0].value, 2.0);
+    EXPECT_EQ(track.samples()[0].interpolation, Interpolation::Hold);
+}
+
+TEST(KeyframeTrackTest, SortedInsertOrder) {
+    KeyframeTrack track;
+    track.set(Time::fromFrame(20, fps24()), 3.0, Interpolation::Linear);
+    track.set(Time::fromFrame(0, fps24()), 1.0, Interpolation::Linear);
+    track.set(Time::fromFrame(10, fps24()), 2.0, Interpolation::Linear);
+    ASSERT_EQ(track.size(), 3u);
+    EXPECT_EQ(track.samples()[0].t, Time::fromFrame(0, fps24()));
+    EXPECT_EQ(track.samples()[1].t, Time::fromFrame(10, fps24()));
+    EXPECT_EQ(track.samples()[2].t, Time::fromFrame(20, fps24()));
+}
+
+TEST(KeyframeTrackTest, RemoveExistingAndMissing) {
+    KeyframeTrack track;
+    track.set(Time::fromFrame(5, fps24()), 1.0, Interpolation::Linear);
+    EXPECT_TRUE(track.remove(Time::fromFrame(5, fps24())));
+    EXPECT_TRUE(track.empty());
+    EXPECT_FALSE(track.remove(Time::fromFrame(5, fps24())));
+}
+
+TEST(KeyframeTrackSetTest, ChannelIsolation) {
+    KeyframeTrackSet set;
+    set.ensure(KeyChannel::Opacity)
+        .set(Time::fromFrame(0, fps24()), 0.5, Interpolation::Linear);
+    EXPECT_NE(set.track(KeyChannel::Opacity), nullptr);
+    EXPECT_EQ(set.track(KeyChannel::Volume), nullptr);
+    EXPECT_FALSE(set.empty());
+}
+
+TEST(KeyframeTrackSetTest, PrefixAndSuffixRebaseSlices) {
+    KeyframeTrackSet set;
+    set.ensure(KeyChannel::Opacity)
+        .set(Time::fromFrame(2, fps24()), 1.0, Interpolation::Linear);
+    set.ensure(KeyChannel::Opacity)
+        .set(Time::fromFrame(5, fps24()), 2.0, Interpolation::Linear);
+    set.ensure(KeyChannel::Opacity)
+        .set(Time::fromFrame(8, fps24()), 3.0, Interpolation::Linear);
+
+    KeyframeTrackSet head =
+        keyframeSetPrefix(set, Duration::fromFrames(5, fps24()));
+    ASSERT_TRUE(head.opacity.has_value());
+    ASSERT_EQ(head.opacity->size(), 1u);
+    EXPECT_EQ(head.opacity->samples()[0].t, Time::fromFrame(2, fps24()));
+
+    KeyframeTrackSet tail = keyframeSetSuffixRebased(
+        set, Duration::fromFrames(5, fps24()));
+    ASSERT_TRUE(tail.opacity.has_value());
+    ASSERT_EQ(tail.opacity->size(), 2u);
+    EXPECT_EQ(tail.opacity->samples()[0].t, Time::fromFrame(0, fps24()));
+    EXPECT_DOUBLE_EQ(tail.opacity->samples()[0].value, 2.0);
+    EXPECT_EQ(tail.opacity->samples()[1].t, Time::fromFrame(3, fps24()));
+    EXPECT_DOUBLE_EQ(tail.opacity->samples()[1].value, 3.0);
+}
+
+TEST(ClipKeyframesTest, EqualityAndJsonRoundTrip) {
+    Clip c = makeClip("c1", 0, 20);
+    c.keyframes = KeyframeTrackSet{};
+    c.keyframes->ensure(KeyChannel::Opacity)
+        .set(Time::fromFrame(5, fps24()), 0.25, Interpolation::Bezier);
+    c.keyframes->ensure(KeyChannel::Volume)
+        .set(Time::fromFrame(10, fps24()), 0.9, Interpolation::Hold);
+
+    Clip copy = c;
+    EXPECT_EQ(c, copy);
+
+    nlohmann::json j = c;
+    Clip parsed = j.get<Clip>();
+    EXPECT_EQ(c, parsed);
+
+    Clip plain = makeClip("plain", 0, 5);
+    nlohmann::json pj = plain;
+    Clip pparsed = pj.get<Clip>();
+    EXPECT_FALSE(pparsed.keyframes.has_value());
+}
+
+TEST(SplitKeyframeTest, DistributesAcrossHalves) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip a = makeClip("a", 0, 20);
+    a.keyframes = KeyframeTrackSet{};
+    a.keyframes->ensure(KeyChannel::Opacity)
+        .set(Time::fromFrame(5, fps24()), 0.2, Interpolation::Linear);
+    a.keyframes->ensure(KeyChannel::Opacity)
+        .set(Time::fromFrame(15, fps24()), 0.8, Interpolation::Bezier);
+    ASSERT_TRUE(track.addClip(a));
+
+    auto right = track.splitClip("a", Time::fromFrame(10, fps24()));
+    ASSERT_TRUE(right.has_value());
+
+    const KeyframeTrack* leftKeys = channelOf(track.clips()[0],
+                                              KeyChannel::Opacity);
+    ASSERT_NE(leftKeys, nullptr);
+    ASSERT_EQ(leftKeys->size(), 1u);
+    EXPECT_DOUBLE_EQ(leftKeys->samples()[0].value, 0.2);
+
+    const KeyframeTrack* rightKeys = channelOf(track.clips()[1],
+                                               KeyChannel::Opacity);
+    ASSERT_NE(rightKeys, nullptr);
+    ASSERT_EQ(rightKeys->size(), 1u);
+    EXPECT_EQ(rightKeys->samples()[0].t, Time::fromFrame(5, fps24()));
+    EXPECT_DOUBLE_EQ(rightKeys->samples()[0].value, 0.8);
+    EXPECT_EQ(rightKeys->samples()[0].interpolation, Interpolation::Bezier);
+}
+
+TEST(InsertClipKeyframeTest, FragmentGetsLateKeysRebased) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip a = makeClip("a", 0, 10);
+    a.name = "A";
+    a.keyframes = KeyframeTrackSet{};
+    a.keyframes->ensure(KeyChannel::PosX)
+        .set(Time::fromFrame(3, fps24()), 1.0, Interpolation::Linear);
+    a.keyframes->ensure(KeyChannel::PosX)
+        .set(Time::fromFrame(8, fps24()), 2.0, Interpolation::Linear);
+    ASSERT_TRUE(track.addClip(a));
+
+    auto placed = track.insertClip(makeClip("n", 999, 4),
+                                   Time::fromFrame(6, fps24()));
+    ASSERT_TRUE(placed.has_value());
+
+    const KeyframeTrack* leftKeys = channelOf(track.clips()[0],
+                                              KeyChannel::PosX);
+    ASSERT_NE(leftKeys, nullptr);
+    ASSERT_EQ(leftKeys->size(), 1u);
+    EXPECT_EQ(leftKeys->samples()[0].t, Time::fromFrame(3, fps24()));
+
+    const KeyframeTrack* fragKeys = channelOf(track.clips()[2],
+                                              KeyChannel::PosX);
+    ASSERT_NE(fragKeys, nullptr);
+    ASSERT_EQ(fragKeys->size(), 1u);
+    EXPECT_EQ(fragKeys->samples()[0].t, Time::fromFrame(2, fps24()));
+    EXPECT_DOUBLE_EQ(fragKeys->samples()[0].value, 2.0);
+}
+
+TEST(OverwriteKeyframeTest, StraddleKeepsOuterDropsMiddle) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip a = makeClip("a", 0, 10);
+    a.keyframes = KeyframeTrackSet{};
+    for (int64_t f : {2, 5, 8}) {
+        a.keyframes->ensure(KeyChannel::Opacity)
+            .set(Time::fromFrame(f, fps24()),
+                 static_cast<double>(f) / 10.0, Interpolation::Linear);
+    }
+    ASSERT_TRUE(track.addClip(a));
+
+    auto placed = track.overwriteClip(makeClip("n", 0, 4),
+                                      Time::fromFrame(3, fps24()));
+    ASSERT_TRUE(placed.has_value());
+
+    const KeyframeTrack* leftKeys = channelOf(track.clips()[0],
+                                              KeyChannel::Opacity);
+    ASSERT_NE(leftKeys, nullptr);
+    ASSERT_EQ(leftKeys->size(), 1u);
+    EXPECT_EQ(leftKeys->samples()[0].t, Time::fromFrame(2, fps24()));
+
+    const KeyframeTrack* rightKeys = channelOf(track.clips()[2],
+                                               KeyChannel::Opacity);
+    ASSERT_NE(rightKeys, nullptr);
+    ASSERT_EQ(rightKeys->size(), 1u);
+    EXPECT_EQ(rightKeys->samples()[0].t, Time::fromFrame(1, fps24()));
+    EXPECT_DOUBLE_EQ(rightKeys->samples()[0].value, 0.8);
+}
+
+TEST(OverwriteKeyframeTest, LeftRemnantTrimsLateKeys) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip a = makeClip("a", 0, 10);
+    a.keyframes = KeyframeTrackSet{};
+    a.keyframes->ensure(KeyChannel::Opacity)
+        .set(Time::fromFrame(2, fps24()), 0.2, Interpolation::Linear);
+    a.keyframes->ensure(KeyChannel::Opacity)
+        .set(Time::fromFrame(8, fps24()), 0.8, Interpolation::Linear);
+    ASSERT_TRUE(track.addClip(a));
+
+    auto placed = track.overwriteClip(makeClip("n", 0, 10),
+                                      Time::fromFrame(5, fps24()));
+    ASSERT_TRUE(placed.has_value());
+
+    const KeyframeTrack* keys = channelOf(track.clips()[0],
+                                          KeyChannel::Opacity);
+    ASSERT_NE(keys, nullptr);
+    ASSERT_EQ(keys->size(), 1u);
+    EXPECT_EQ(keys->samples()[0].t, Time::fromFrame(2, fps24()));
+}
+
+TEST(OverwriteKeyframeTest, RightRemnantRebasesEarlyDrop) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip a = makeClip("a", 10, 10);
+    a.keyframes = KeyframeTrackSet{};
+    a.keyframes->ensure(KeyChannel::Opacity)
+        .set(Time::fromFrame(2, fps24()), 0.2, Interpolation::Linear);
+    a.keyframes->ensure(KeyChannel::Opacity)
+        .set(Time::fromFrame(6, fps24()), 0.6, Interpolation::Linear);
+    ASSERT_TRUE(track.addClip(a));
+
+    auto placed = track.overwriteClip(makeClip("n", 0, 10),
+                                      Time::fromFrame(5, fps24()));
+    ASSERT_TRUE(placed.has_value());
+
+    const KeyframeTrack* keys = channelOf(track.clips()[1],
+                                          KeyChannel::Opacity);
+    ASSERT_NE(keys, nullptr);
+    ASSERT_EQ(keys->size(), 1u);
+    EXPECT_EQ(keys->samples()[0].t, Time::fromFrame(1, fps24()));
+    EXPECT_DOUBLE_EQ(keys->samples()[0].value, 0.6);
+}
+
+TEST(SetSpeedKeyframeTest, RetimeLeavesKeysAtRelativeTimes) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip a = makeClip("a", 0, 20);
+    a.keyframes = KeyframeTrackSet{};
+    a.keyframes->ensure(KeyChannel::Scale)
+        .set(Time::fromFrame(5, fps24()), 1.5, Interpolation::Linear);
+    ASSERT_TRUE(track.addClip(a));
+
+    ASSERT_TRUE(track.setClipSpeed("a", SpeedRemap{2, 1, false}).has_value());
+    const KeyframeTrack* keys = channelOf(track.clips()[0], KeyChannel::Scale);
+    ASSERT_NE(keys, nullptr);
+    ASSERT_EQ(keys->size(), 1u);
+    EXPECT_EQ(keys->samples()[0].t, Time::fromFrame(5, fps24()));
+}
+
+TEST(TrackKeyframeOpsTest, NonexistentClipFails) {
+    Track<Clip> track("V1", TrackKind::Video);
+    EXPECT_FALSE(track.setClipKeyframe("nope", KeyChannel::Opacity,
+                                       Time::fromFrame(0, fps24()), 1.0,
+                                       Interpolation::Linear));
+    EXPECT_FALSE(track.removeClipKeyframe("nope", KeyChannel::Opacity,
+                                          Time::fromFrame(0, fps24())));
+    EXPECT_FALSE(track.evaluateClipChannel("nope", KeyChannel::Opacity,
+                                           Time::fromFrame(0, fps24()))
+                      .has_value());
+}
+
+TEST(TrackKeyframeOpsTest, SetEvaluateRemoveCycle) {
+    Track<Clip> track("V1", TrackKind::Video);
+    ASSERT_TRUE(track.addClip(makeClip("a", 0, 20)));
+
+    EXPECT_TRUE(track.setClipKeyframe("a", KeyChannel::Opacity,
+                                      Time::fromFrame(0, fps24()), 0.0,
+                                      Interpolation::Linear));
+    EXPECT_TRUE(track.setClipKeyframe("a", KeyChannel::Opacity,
+                                      Time::fromFrame(10, fps24()), 1.0,
+                                      Interpolation::Linear));
+
+    auto mid = track.evaluateClipChannel("a", KeyChannel::Opacity,
+                                         Time::fromFrame(5, fps24()));
+    ASSERT_TRUE(mid.has_value());
+    EXPECT_NEAR(*mid, 0.5, 1e-9);
+
+    auto absent = track.evaluateClipChannel("a", KeyChannel::Volume,
+                                            Time::fromFrame(5, fps24()));
+    EXPECT_FALSE(absent.has_value());
+
+    EXPECT_TRUE(track.removeClipKeyframe("a", KeyChannel::Opacity,
+                                         Time::fromFrame(10, fps24())));
+    EXPECT_FALSE(track.removeClipKeyframe("a", KeyChannel::Opacity,
+                                          Time::fromFrame(10, fps24())));
+}
+
+TEST(TimelineKeyframeWrappers, InvalidTrackIndex) {
+    Timeline tl;
+    EXPECT_FALSE(tl.setClipKeyframeInVideoTrack(
+        0, "c1", KeyChannel::Opacity, Time::fromFrame(0, fps24()), 1.0,
+        Interpolation::Linear));
+    EXPECT_FALSE(tl.setClipKeyframeInAudioTrack(
+        0, "c1", KeyChannel::Volume, Time::fromFrame(0, fps24()), 1.0,
+        Interpolation::Linear));
+    EXPECT_FALSE(tl.removeClipKeyframeInVideoTrack(
+        0, "c1", KeyChannel::Opacity, Time::fromFrame(0, fps24())));
+    EXPECT_FALSE(tl.removeClipKeyframeInAudioTrack(
+        0, "c1", KeyChannel::Volume, Time::fromFrame(0, fps24())));
+}
+
+TEST(TimelineKeyframeWrappers, HappyPathVideoAndAudio) {
+    Timeline tl;
+    tl.sequence().addVideoTrack("V1");
+    tl.sequence().addAudioTrack("A1");
+    ASSERT_TRUE(tl.addClipToVideoTrack(0, makeClip("v1", 0, 10)));
+    ASSERT_TRUE(tl.addClipToAudioTrack(0, makeClip("a1", 0, 10)));
+
+    EXPECT_TRUE(tl.setClipKeyframeInVideoTrack(
+        0, "v1", KeyChannel::Opacity, Time::fromFrame(0, fps24()), 0.0,
+        Interpolation::Linear));
+    EXPECT_TRUE(tl.setClipKeyframeInVideoTrack(
+        0, "v1", KeyChannel::Opacity, Time::fromFrame(10, fps24()), 1.0,
+        Interpolation::Linear));
+    auto v = tl.sequence().videoTracks[0].evaluateClipChannel(
+        "v1", KeyChannel::Opacity, Time::fromFrame(5, fps24()));
+    ASSERT_TRUE(v.has_value());
+    EXPECT_NEAR(*v, 0.5, 1e-9);
+
+    EXPECT_TRUE(tl.setClipKeyframeInAudioTrack(
+        0, "a1", KeyChannel::Volume, Time::fromFrame(0, fps24()), 1.0,
+        Interpolation::Hold));
+    EXPECT_TRUE(tl.removeClipKeyframeInAudioTrack(
+        0, "a1", KeyChannel::Volume, Time::fromFrame(0, fps24())));
+    EXPECT_TRUE(
+        tl.sequence().audioTracks[0].clips()[0].keyframes->volume->empty());
+}
+
 } // namespace
 } // namespace bl

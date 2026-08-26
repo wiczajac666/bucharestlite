@@ -19,6 +19,7 @@
 - [ ] DecoderBridge (plugin decode adaptation) — deferred to PLG-1..9 phase
 - [x] TL-4: 3-point editing (Track insertClip split-and-push / overwriteClip remnant-aware / appendClip + makeThreePointClip source-range→timeline mapping) — 190/190 green incl. linux-tsan
 - [x] TL-5: speed/time retiming (setClipSpeed source-preserving retime + ripple, retimedTimelineDuration rational math, effectiveDuration semantics clarified) — 203/203 green incl. linux-tsan
+- [x] TL-6: keyframeable properties (KeyframeTrack/Set, Hold/Linear/Bezier-smoothstep evaluate, 7 channels, clip-relative times, fragment rebase across split/insert/overwrite) — 225/225 green incl. linux-tsan
 - [ ] Timeline engine implemented (bl_timeline)
 - [ ] Render backend implemented (bl_render)
 - [ ] Audio engine implemented (bl_audio)

@@ -1,5 +1,6 @@
 add_library(bl_timeline STATIC
     clip.cpp
+    keyframes.cpp
     track.cpp
     sequence.cpp
     timeline.cpp

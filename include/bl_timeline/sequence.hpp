@@ -72,6 +72,32 @@ struct Sequence {
         if (t >= audioTracks.size()) return std::nullopt;
         return audioTracks[t].setClipSpeed(id, speed);
     }
+
+    bool setClipKeyframeInVideoTrack(size_t t, const ClipId& id,
+                                     KeyChannel channel, Time at,
+                                     double value, Interpolation interp) {
+        if (t >= videoTracks.size()) return false;
+        return videoTracks[t].setClipKeyframe(id, channel, at, value, interp);
+    }
+
+    bool setClipKeyframeInAudioTrack(size_t t, const ClipId& id,
+                                     KeyChannel channel, Time at,
+                                     double value, Interpolation interp) {
+        if (t >= audioTracks.size()) return false;
+        return audioTracks[t].setClipKeyframe(id, channel, at, value, interp);
+    }
+
+    bool removeClipKeyframeInVideoTrack(size_t t, const ClipId& id,
+                                        KeyChannel channel, Time at) {
+        if (t >= videoTracks.size()) return false;
+        return videoTracks[t].removeClipKeyframe(id, channel, at);
+    }
+
+    bool removeClipKeyframeInAudioTrack(size_t t, const ClipId& id,
+                                        KeyChannel channel, Time at) {
+        if (t >= audioTracks.size()) return false;
+        return audioTracks[t].removeClipKeyframe(id, channel, at);
+    }
 };
 
 void to_json(nlohmann::json& j, const Sequence& s);

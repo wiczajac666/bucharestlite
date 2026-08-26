@@ -125,6 +125,7 @@ void to_json(nlohmann::json& j, const Clip& c) {
         {"effects", c.effects},
         {"audio", c.audio}
     };
+    if (c.keyframes) j["keyframes"] = *c.keyframes;
 }
 
 void from_json(const nlohmann::json& j, Clip& c) {
@@ -145,6 +146,9 @@ void from_json(const nlohmann::json& j, Clip& c) {
     c.timelineDuration.rate.den =
         j.at("timelineDuration").at("rate").at("den").get<int64_t>();
     if (j.contains("speed")) from_json(j.at("speed"), c.speed);
+    if (j.contains("keyframes")) {
+        from_json(j.at("keyframes"), c.keyframes.emplace());
+    }
     if (j.contains("effects")) {
         const auto& arr = j.at("effects");
         c.effects.resize(arr.size());

@@ -195,6 +195,38 @@ public:
         return sequence_.audioTracks[trackIndex].setClipSpeed(clipId, speed);
     }
 
+    bool setClipKeyframeInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                     KeyChannel channel, Time at,
+                                     double value, Interpolation interp) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].setClipKeyframe(
+            clipId, channel, at, value, interp);
+    }
+
+    bool setClipKeyframeInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                     KeyChannel channel, Time at,
+                                     double value, Interpolation interp) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].setClipKeyframe(
+            clipId, channel, at, value, interp);
+    }
+
+    bool removeClipKeyframeInVideoTrack(size_t trackIndex,
+                                        const ClipId& clipId,
+                                        KeyChannel channel, Time at) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].removeClipKeyframe(
+            clipId, channel, at);
+    }
+
+    bool removeClipKeyframeInAudioTrack(size_t trackIndex,
+                                        const ClipId& clipId,
+                                        KeyChannel channel, Time at) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].removeClipKeyframe(
+            clipId, channel, at);
+    }
+
 private:
     Sequence sequence_;
 };
