@@ -200,7 +200,7 @@ TEST(ClipEffectiveDurationTest, Identity) {
     EXPECT_EQ(c.effectiveDuration(), c.timelineDuration);
 }
 
-TEST(ClipEffectiveDurationTest, SlowMotion2x) {
+TEST(ClipEffectiveDurationTest, ConsumesDoubleSourceMaterial) {
     Clip c;
     c.timelineDuration = Duration::fromFrames(10, fps24());
     c.speed = SpeedRemap{2, 1, false};
@@ -208,7 +208,7 @@ TEST(ClipEffectiveDurationTest, SlowMotion2x) {
     EXPECT_EQ(eff.ticks, c.timelineDuration.ticks * 2);
 }
 
-TEST(ClipEffectiveDurationTest, FastMotionHalf) {
+TEST(ClipEffectiveDurationTest, ConsumesHalfSourceMaterial) {
     Clip c;
     c.timelineDuration = Duration::fromFrames(10, fps24());
     c.speed = SpeedRemap{1, 2, false};
@@ -1270,6 +1270,167 @@ TEST(TimelineThreePointWrappers, InsertAppendOverwriteHappyPath) {
     EXPECT_NE(a2Right.id, "a2");
     EXPECT_EQ(a2Right.timelineStart, Time::fromFrame(8, fps24()));
     EXPECT_EQ(a2Right.timelineDuration, Duration::fromFrames(2, fps24()));
+}
+
+TEST(SetClipSpeedTest, DoubleHalvesSpanRipplesLater) {
+    Track<Clip> track("V1", TrackKind::Video);
+    ASSERT_TRUE(track.addClip(makeClip("a", 0, 20)));
+    ASSERT_TRUE(track.addClip(makeClip("b", 20, 10)));
+
+    auto placed = track.setClipSpeed("a", SpeedRemap{2, 1, false});
+    ASSERT_TRUE(placed.has_value());
+    EXPECT_EQ(track.clips()[0].timelineDuration,
+              Duration::fromFrames(10, fps24()));
+    EXPECT_EQ(track.clips()[1].timelineStart, Time::fromFrame(10, fps24()));
+    EXPECT_EQ(track.clips()[1].timelineDuration,
+              Duration::fromFrames(10, fps24()));
+    EXPECT_TRUE(sortedByStart(track));
+}
+
+TEST(SetClipSpeedTest, HalfDoublesSpanRipplesLater) {
+    Track<Clip> track("V1", TrackKind::Video);
+    ASSERT_TRUE(track.addClip(makeClip("a", 0, 20)));
+    ASSERT_TRUE(track.addClip(makeClip("b", 20, 5)));
+
+    auto placed = track.setClipSpeed("a", SpeedRemap{1, 2, false});
+    ASSERT_TRUE(placed.has_value());
+    EXPECT_EQ(track.clips()[0].timelineDuration,
+              Duration::fromFrames(40, fps24()));
+    EXPECT_EQ(track.clips()[1].timelineStart, Time::fromFrame(40, fps24()));
+    EXPECT_TRUE(sortedByStart(track));
+}
+
+TEST(SetClipSpeedTest, SourceRangeUntouched) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip a = makeClip("a", 0, 20);
+    a.source.sourceIn = Time::fromFrame(100, fps24());
+    a.source.sourceOut = Time::fromFrame(200, fps24());
+    ASSERT_TRUE(track.addClip(a));
+
+    auto placed = track.setClipSpeed("a", SpeedRemap{4, 1, false});
+    ASSERT_TRUE(placed.has_value());
+    EXPECT_EQ(track.clips()[0].source.sourceIn,
+              Time::fromFrame(100, fps24()));
+    EXPECT_EQ(track.clips()[0].source.sourceOut,
+              Time::fromFrame(200, fps24()));
+}
+
+TEST(SetClipSpeedTest, ArbitraryRatioRetime) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip a = makeClip("a", 0, 30);
+    a.speed = SpeedRemap{3, 1, false};
+    ASSERT_TRUE(track.addClip(a));
+
+    auto placed = track.setClipSpeed("a", SpeedRemap{1, 2, false});
+    ASSERT_TRUE(placed.has_value());
+    EXPECT_EQ(placed->speed, (SpeedRemap{1, 2, false}));
+    EXPECT_EQ(track.clips()[0].timelineDuration,
+              Duration::fromFrames(180, fps24()));
+}
+
+TEST(SetClipSpeedTest, NonexistentIdFails) {
+    Track<Clip> track("V1", TrackKind::Video);
+    EXPECT_FALSE(
+        track.setClipSpeed("nope", SpeedRemap{2, 1, false}).has_value());
+}
+
+TEST(SetClipSpeedTest, RejectsInvalidRates) {
+    Track<Clip> track("V1", TrackKind::Video);
+    ASSERT_TRUE(track.addClip(makeClip("a", 0, 10)));
+
+    EXPECT_FALSE(track.setClipSpeed("a", SpeedRemap{0, 1, false}).has_value());
+    EXPECT_FALSE(track.setClipSpeed("a", SpeedRemap{1, 0, false}).has_value());
+    EXPECT_FALSE(
+        track.setClipSpeed("a", SpeedRemap{-2, 1, false}).has_value());
+    EXPECT_FALSE(
+        track.setClipSpeed("a", SpeedRemap{2, -1, false}).has_value());
+
+    EXPECT_EQ(track.clips()[0].timelineDuration,
+              Duration::fromFrames(10, fps24()));
+    EXPECT_TRUE(track.clips()[0].speed.isIdentity());
+}
+
+TEST(SetClipSpeedTest, IdentityNoOpKeepsNeighbors) {
+    Track<Clip> track("V1", TrackKind::Video);
+    ASSERT_TRUE(track.addClip(makeClip("a", 0, 10)));
+    ASSERT_TRUE(track.addClip(makeClip("b", 10, 5)));
+
+    auto placed = track.setClipSpeed("a", SpeedRemap{1, 1, false});
+    ASSERT_TRUE(placed.has_value());
+    EXPECT_EQ(track.clips()[0].timelineStart, Time::fromFrame(0, fps24()));
+    EXPECT_EQ(track.clips()[1].timelineStart, Time::fromFrame(10, fps24()));
+}
+
+TEST(SetClipSpeedTest, LastClipGrowsFreely) {
+    Track<Clip> track("V1", TrackKind::Video);
+    ASSERT_TRUE(track.addClip(makeClip("a", 0, 10)));
+
+    auto placed = track.setClipSpeed("a", SpeedRemap{1, 2, false});
+    ASSERT_TRUE(placed.has_value());
+    ASSERT_EQ(track.clips().size(), 1u);
+    EXPECT_EQ(track.clips()[0].timelineDuration,
+              Duration::fromFrames(20, fps24()));
+}
+
+TEST(SetClipSpeedTest, PullLeftIntoGapStaysSorted) {
+    Track<Clip> track("V1", TrackKind::Video);
+    ASSERT_TRUE(track.addClip(makeClip("a", 0, 10)));
+    ASSERT_TRUE(track.addClip(makeClip("b", 30, 5)));
+
+    auto placed = track.setClipSpeed("a", SpeedRemap{2, 1, false});
+    ASSERT_TRUE(placed.has_value());
+    EXPECT_EQ(track.clips()[1].timelineStart, Time::fromFrame(25, fps24()));
+    EXPECT_TRUE(sortedByStart(track));
+}
+
+TEST(SetClipSpeedTest, ReverseFlagStoredWithoutRetime) {
+    Track<Clip> track("V1", TrackKind::Video);
+    ASSERT_TRUE(track.addClip(makeClip("a", 0, 10)));
+
+    auto placed = track.setClipSpeed("a", SpeedRemap{1, 1, true});
+    ASSERT_TRUE(placed.has_value());
+    EXPECT_EQ(track.clips()[0].timelineDuration,
+              Duration::fromFrames(10, fps24()));
+    EXPECT_TRUE(track.clips()[0].speed.reversed);
+    EXPECT_FALSE(track.clips()[0].speed.isIdentity());
+}
+
+TEST(SetClipSpeedThenTrimCombo, TrimUsesNewSpeed) {
+    Track<Clip> track("V1", TrackKind::Video);
+    Clip a = makeClip("a", 0, 20);
+    a.source.sourceIn = Time::fromFrame(100, fps24());
+    ASSERT_TRUE(track.addClip(a));
+
+    ASSERT_TRUE(track.setClipSpeed("a", SpeedRemap{2, 1, false}).has_value());
+    EXPECT_TRUE(track.trimClipLeft("a", Time::fromFrame(5, fps24())));
+    EXPECT_EQ(track.clips()[0].source.sourceIn,
+              Time::fromFrame(110, fps24()));
+}
+
+TEST(TimelineSpeedWrappers, InvalidTrackIndex) {
+    Timeline tl;
+    EXPECT_FALSE(
+        tl.setClipSpeedInVideoTrack(0, "c1", SpeedRemap{2, 1, false})
+            .has_value());
+    EXPECT_FALSE(
+        tl.setClipSpeedInAudioTrack(0, "c1", SpeedRemap{2, 1, false})
+            .has_value());
+}
+
+TEST(TimelineSpeedWrappers, HappyPathVideoAndAudio) {
+    Timeline tl;
+    tl.sequence().addVideoTrack("V1");
+    tl.sequence().addAudioTrack("A1");
+    ASSERT_TRUE(tl.addClipToVideoTrack(0, makeClip("v1", 0, 10)));
+    ASSERT_TRUE(tl.addClipToAudioTrack(0, makeClip("a1", 0, 10)));
+
+    auto v = tl.setClipSpeedInVideoTrack(0, "v1", SpeedRemap{2, 1, false});
+    ASSERT_TRUE(v.has_value());
+    EXPECT_EQ(v->timelineDuration, Duration::fromFrames(5, fps24()));
+
+    auto a = tl.setClipSpeedInAudioTrack(0, "a1", SpeedRemap{1, 2, false});
+    ASSERT_TRUE(a.has_value());
+    EXPECT_EQ(a->timelineDuration, Duration::fromFrames(20, fps24()));
 }
 
 } // namespace

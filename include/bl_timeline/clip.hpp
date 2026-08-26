@@ -100,4 +100,7 @@ std::optional<Clip> makeThreePointClip(const SourceRef& source,
                                        SpeedRemap speed,
                                        std::string name = "");
 
+Duration retimedTimelineDuration(Duration timelineDuration, SpeedRemap from,
+                                 SpeedRemap to);
+
 } // namespace bl

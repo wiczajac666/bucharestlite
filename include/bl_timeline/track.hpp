@@ -321,6 +321,22 @@ public:
         return overwriteClip(incoming, at);
     }
 
+    std::optional<ClipType> setClipSpeed(const ClipId& id, SpeedRemap speed) {
+        if (speed.rateNum <= 0 || speed.rateDen <= 0) return std::nullopt;
+        auto idx = findClipById(id);
+        if (!idx) return std::nullopt;
+        ClipType& c = clips_[*idx];
+        Duration newDur =
+            retimedTimelineDuration(c.timelineDuration, c.speed, speed);
+        Duration delta = newDur - c.timelineDuration;
+        c.timelineDuration = newDur;
+        c.speed = speed;
+        for (size_t i = *idx + 1; i < clips_.size(); ++i) {
+            clips_[i].timelineStart = clips_[i].timelineStart + delta;
+        }
+        return c;
+    }
+
 private:
     bool overlapsExisting(const ClipType& clip) const {
         Time clipEnd = clip.timelineStart + clip.timelineDuration;

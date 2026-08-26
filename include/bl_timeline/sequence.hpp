@@ -60,6 +60,18 @@ struct Sequence {
         if (t >= audioTracks.size()) return std::nullopt;
         return audioTracks[t].appendClip(clip);
     }
+
+    std::optional<Clip> setClipSpeedInVideoTrack(size_t t, const ClipId& id,
+                                                 SpeedRemap speed) {
+        if (t >= videoTracks.size()) return std::nullopt;
+        return videoTracks[t].setClipSpeed(id, speed);
+    }
+
+    std::optional<Clip> setClipSpeedInAudioTrack(size_t t, const ClipId& id,
+                                                 SpeedRemap speed) {
+        if (t >= audioTracks.size()) return std::nullopt;
+        return audioTracks[t].setClipSpeed(id, speed);
+    }
 };
 
 void to_json(nlohmann::json& j, const Sequence& s);

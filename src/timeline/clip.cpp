@@ -184,6 +184,27 @@ static Duration scaleSourceSpanToTimelineWide(Duration span,
 }
 #endif
 
+Duration retimedTimelineDuration(Duration timelineDuration, SpeedRemap from,
+                                 SpeedRemap to) {
+#if BL_HAS_INT128
+    Wide num = static_cast<Wide>(timelineDuration.ticks) *
+               static_cast<Wide>(to.rateDen) *
+               static_cast<Wide>(from.rateNum);
+    Wide den = static_cast<Wide>(from.rateDen) *
+               static_cast<Wide>(to.rateNum);
+    return Duration::fromTicks(roundHalfEvenWide(num, den),
+                               timelineDuration.rate);
+#else
+    double factor =
+        (static_cast<double>(to.rateDen) / static_cast<double>(to.rateNum)) *
+        (static_cast<double>(from.rateNum) / static_cast<double>(from.rateDen));
+    return Duration::fromTicks(
+        static_cast<int64_t>(static_cast<double>(timelineDuration.ticks) *
+                             factor),
+        timelineDuration.rate);
+#endif
+}
+
 std::optional<Clip> makeThreePointClip(const SourceRef& source,
                                        SpeedRemap speed, std::string name) {
     if (!(source.sourceIn < source.sourceOut)) return std::nullopt;

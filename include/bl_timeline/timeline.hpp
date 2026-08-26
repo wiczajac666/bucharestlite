@@ -181,6 +181,20 @@ public:
         return sequence_.audioTracks[trackIndex].appendClip(clip);
     }
 
+    std::optional<Clip> setClipSpeedInVideoTrack(size_t trackIndex,
+                                                 const ClipId& clipId,
+                                                 SpeedRemap speed) {
+        if (trackIndex >= sequence_.videoTracks.size()) return std::nullopt;
+        return sequence_.videoTracks[trackIndex].setClipSpeed(clipId, speed);
+    }
+
+    std::optional<Clip> setClipSpeedInAudioTrack(size_t trackIndex,
+                                                 const ClipId& clipId,
+                                                 SpeedRemap speed) {
+        if (trackIndex >= sequence_.audioTracks.size()) return std::nullopt;
+        return sequence_.audioTracks[trackIndex].setClipSpeed(clipId, speed);
+    }
+
 private:
     Sequence sequence_;
 };
