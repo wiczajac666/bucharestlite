@@ -145,6 +145,42 @@ public:
         return sequence_.audioTracks[trackIndex].rippleTrimRight(clipId, newEnd);
     }
 
+    std::optional<Clip> insertClipInVideoTrack(size_t trackIndex,
+                                               const Clip& clip, Time at) {
+        if (trackIndex >= sequence_.videoTracks.size()) return std::nullopt;
+        return sequence_.videoTracks[trackIndex].insertClip(clip, at);
+    }
+
+    std::optional<Clip> insertClipInAudioTrack(size_t trackIndex,
+                                               const Clip& clip, Time at) {
+        if (trackIndex >= sequence_.audioTracks.size()) return std::nullopt;
+        return sequence_.audioTracks[trackIndex].insertClip(clip, at);
+    }
+
+    std::optional<Clip> overwriteClipInVideoTrack(size_t trackIndex,
+                                                  const Clip& clip, Time at) {
+        if (trackIndex >= sequence_.videoTracks.size()) return std::nullopt;
+        return sequence_.videoTracks[trackIndex].overwriteClip(clip, at);
+    }
+
+    std::optional<Clip> overwriteClipInAudioTrack(size_t trackIndex,
+                                                  const Clip& clip, Time at) {
+        if (trackIndex >= sequence_.audioTracks.size()) return std::nullopt;
+        return sequence_.audioTracks[trackIndex].overwriteClip(clip, at);
+    }
+
+    std::optional<Clip> appendClipToVideoTrack(size_t trackIndex,
+                                               const Clip& clip) {
+        if (trackIndex >= sequence_.videoTracks.size()) return std::nullopt;
+        return sequence_.videoTracks[trackIndex].appendClip(clip);
+    }
+
+    std::optional<Clip> appendClipToAudioTrack(size_t trackIndex,
+                                               const Clip& clip) {
+        if (trackIndex >= sequence_.audioTracks.size()) return std::nullopt;
+        return sequence_.audioTracks[trackIndex].appendClip(clip);
+    }
+
 private:
     Sequence sequence_;
 };

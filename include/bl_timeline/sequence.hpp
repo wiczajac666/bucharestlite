@@ -26,6 +26,40 @@ struct Sequence {
     }
 
     void addMarker(const Marker& m) { markers.push_back(m); }
+
+    std::optional<Clip> insertClipInVideoTrack(size_t t, const Clip& clip,
+                                               Time at) {
+        if (t >= videoTracks.size()) return std::nullopt;
+        return videoTracks[t].insertClip(clip, at);
+    }
+
+    std::optional<Clip> overwriteClipInVideoTrack(size_t t, const Clip& clip,
+                                                  Time at) {
+        if (t >= videoTracks.size()) return std::nullopt;
+        return videoTracks[t].overwriteClip(clip, at);
+    }
+
+    std::optional<Clip> appendClipToVideoTrack(size_t t, const Clip& clip) {
+        if (t >= videoTracks.size()) return std::nullopt;
+        return videoTracks[t].appendClip(clip);
+    }
+
+    std::optional<Clip> insertClipInAudioTrack(size_t t, const Clip& clip,
+                                               Time at) {
+        if (t >= audioTracks.size()) return std::nullopt;
+        return audioTracks[t].insertClip(clip, at);
+    }
+
+    std::optional<Clip> overwriteClipInAudioTrack(size_t t, const Clip& clip,
+                                                  Time at) {
+        if (t >= audioTracks.size()) return std::nullopt;
+        return audioTracks[t].overwriteClip(clip, at);
+    }
+
+    std::optional<Clip> appendClipToAudioTrack(size_t t, const Clip& clip) {
+        if (t >= audioTracks.size()) return std::nullopt;
+        return audioTracks[t].appendClip(clip);
+    }
 };
 
 void to_json(nlohmann::json& j, const Sequence& s);

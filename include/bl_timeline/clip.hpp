@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -94,5 +95,9 @@ void from_json(const nlohmann::json& j, AudioClipProps& a);
 
 Time advanceSourceTime(Time sourcePos, Duration timelineDelta,
                        SpeedRemap speed);
+
+std::optional<Clip> makeThreePointClip(const SourceRef& source,
+                                       SpeedRemap speed,
+                                       std::string name = "");
 
 } // namespace bl

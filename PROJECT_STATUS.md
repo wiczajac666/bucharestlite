@@ -17,7 +17,7 @@
 - [x] TL-1: Timeline domain model (Sequence, Track, Clip, Marker, SpeedRemap, EffectInstance, TimelineSnapshot, Timeline) + JSON round-trip — 140/140 green incl. linux-tsan; bl_timeline module complete
 - [x] TL-2: Timeline editing operations (trimLeft/Right, rippleDelete, rippleTrimLeft/Right) + speed-aware source math + splitClip fix — 163/163 green incl. linux-tsan
 - [ ] DecoderBridge (plugin decode adaptation) — deferred to PLG-1..9 phase
-- [ ] 3-point editing + insert/overwrite (TL-4) ← **next**
+- [x] TL-4: 3-point editing (Track insertClip split-and-push / overwriteClip remnant-aware / appendClip + makeThreePointClip source-range→timeline mapping) — 190/190 green incl. linux-tsan
 - [ ] Timeline engine implemented (bl_timeline)
 - [ ] Render backend implemented (bl_render)
 - [ ] Audio engine implemented (bl_audio)

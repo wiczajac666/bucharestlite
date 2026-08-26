@@ -214,6 +214,113 @@ public:
         return true;
     }
 
+    std::optional<ClipType> insertClip(const ClipType& incoming, Time at) {
+        if (incoming.timelineDuration <= Duration{}) return std::nullopt;
+        size_t first = 0;
+        while (first < clips_.size() && clips_[first].timelineStart < at) {
+            ++first;
+        }
+        if (first > 0) {
+            ClipType& prev = clips_[first - 1];
+            Time prevEnd = prev.timelineStart + prev.timelineDuration;
+            if (prevEnd > at) {
+                ClipType right = prev;
+                right.id = ClipId();
+                right.name = prev.name + " (R)";
+                right.source.sourceIn = advanceSourceTime(
+                    prev.source.sourceIn, at - prev.timelineStart, prev.speed);
+                right.timelineStart = at;
+                right.timelineDuration = prevEnd - at;
+                prev.timelineDuration = at - prev.timelineStart;
+                clips_.insert(clips_.begin() + static_cast<ptrdiff_t>(first),
+                              right);
+            }
+            // `first` still points at the split-off fragment: it belongs to
+            // the pushed region and must ripple with the clips after it.
+        }
+        for (size_t i = first; i < clips_.size(); ++i) {
+            clips_[i].timelineStart =
+                clips_[i].timelineStart + incoming.timelineDuration;
+        }
+        ClipType placed = incoming;
+        placed.timelineStart = at;
+        auto it = clips_.begin() + static_cast<ptrdiff_t>(first);
+        it = clips_.insert(it, placed);
+        return *it;
+    }
+
+    std::optional<ClipType> overwriteClip(const ClipType& incoming, Time at) {
+        if (incoming.timelineDuration <= Duration{}) return std::nullopt;
+        Time end = at + incoming.timelineDuration;
+        auto existing = findClipById(incoming.id);
+        if (existing) {
+            clips_.erase(clips_.begin() + static_cast<ptrdiff_t>(*existing));
+        }
+        for (size_t i = 0; i < clips_.size();) {
+            ClipType& c = clips_[i];
+            Time cStart = c.timelineStart;
+            Time cEnd = cStart + c.timelineDuration;
+            if (at >= cEnd || end <= cStart) {
+                ++i;
+                continue;
+            }
+            bool hasLeft = cStart < at;
+            bool hasRight = end < cEnd;
+            if (hasLeft && hasRight) {
+                // The range lands strictly inside this clip: keep remnants
+                // on both sides, matching splitClip conventions.
+                ClipType rightPart = c;
+                rightPart.id = ClipId();
+                rightPart.name = c.name + " (R)";
+                rightPart.source.sourceIn = advanceSourceTime(
+                    c.source.sourceIn, end - cStart, c.speed);
+                rightPart.timelineStart = end;
+                rightPart.timelineDuration = cEnd - end;
+                c.timelineDuration = at - cStart;
+                c.source.sourceOut = advanceSourceTime(
+                    c.source.sourceOut, at - cEnd, c.speed);
+                clips_.insert(
+                    clips_.begin() + static_cast<ptrdiff_t>(i) + 1,
+                    rightPart);
+                i += 2;
+                continue;
+            }
+            if (hasLeft) {
+                c.timelineDuration = at - cStart;
+                c.source.sourceOut = advanceSourceTime(
+                    c.source.sourceOut, at - cEnd, c.speed);
+            } else if (hasRight) {
+                c.source.sourceIn = advanceSourceTime(
+                    c.source.sourceIn, end - cStart, c.speed);
+                c.timelineStart = end;
+                c.timelineDuration = cEnd - end;
+            } else {
+                clips_.erase(clips_.begin() + static_cast<ptrdiff_t>(i));
+                continue;
+            }
+            ++i;
+        }
+        ClipType placed = incoming;
+        placed.timelineStart = at;
+        auto it = std::lower_bound(
+            clips_.begin(), clips_.end(), placed,
+            [](const ClipType& a, const ClipType& b) {
+                return a.timelineStart < b.timelineStart;
+            });
+        clips_.insert(it, placed);
+        return placed;
+    }
+
+    std::optional<ClipType> appendClip(const ClipType& incoming) {
+        if (incoming.timelineDuration <= Duration{}) return std::nullopt;
+        Time at{0, incoming.timelineStart.rate};
+        for (const auto& c : clips_) {
+            Time cEnd = c.timelineStart + c.timelineDuration;
+            if (cEnd > at) at = cEnd;
+        }
+        return overwriteClip(incoming, at);
+    }
+
 private:
     bool overlapsExisting(const ClipType& clip) const {
         Time clipEnd = clip.timelineStart + clip.timelineDuration;

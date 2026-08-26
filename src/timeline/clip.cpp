@@ -174,4 +174,34 @@ Time advanceSourceTime(Time sourcePos, Duration timelineDelta,
 #endif
 }
 
+#if BL_HAS_INT128
+static Duration scaleSourceSpanToTimelineWide(Duration span,
+                                              SpeedRemap speed) {
+    Wide num = static_cast<Wide>(span.ticks) *
+               static_cast<Wide>(speed.rateDen);
+    Wide den = static_cast<Wide>(speed.rateNum);
+    return Duration::fromTicks(roundHalfEvenWide(num, den), span.rate);
+}
+#endif
+
+std::optional<Clip> makeThreePointClip(const SourceRef& source,
+                                       SpeedRemap speed, std::string name) {
+    if (!(source.sourceIn < source.sourceOut)) return std::nullopt;
+    Clip clip;
+    clip.name = std::move(name);
+    clip.source = source;
+    clip.speed = speed;
+    Duration span = source.sourceOut - source.sourceIn;
+#if BL_HAS_INT128
+    clip.timelineDuration = scaleSourceSpanToTimelineWide(span, speed);
+#else
+    double factor = static_cast<double>(speed.rateDen) /
+                    static_cast<double>(speed.rateNum);
+    clip.timelineDuration = Duration::fromTicks(
+        static_cast<int64_t>(static_cast<double>(span.ticks) * factor),
+        span.rate);
+#endif
+    return clip;
+}
+
 } // namespace bl
