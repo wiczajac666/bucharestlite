@@ -41,6 +41,8 @@ endfunction()
 
 add_subdirectory(src/core)
 add_subdirectory(src/timeline)
+add_subdirectory(src/render)
+add_subdirectory(src/audio)
 
 if(BL_BUILD_TESTS)
     enable_testing()

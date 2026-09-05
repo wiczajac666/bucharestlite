@@ -16,15 +16,18 @@
 - [x] CORE-6: ProjectRepository (JSON schema v1, atomic saves, relative media paths, migrator framework) + AutosaveRing (10-slot, recovery detection) — 106/106 green incl. linux-tsan; bl_core complete
 - [x] TL-1: Timeline domain model (Sequence, Track, Clip, Marker, SpeedRemap, EffectInstance, TimelineSnapshot, Timeline) + JSON round-trip — 140/140 green incl. linux-tsan; bl_timeline module complete
 - [x] TL-2: Timeline editing operations (trimLeft/Right, rippleDelete, rippleTrimLeft/Right) + speed-aware source math + splitClip fix — 163/163 green incl. linux-tsan
-- [ ] DecoderBridge (plugin decode adaptation) — deferred to PLG-1..9 phase
+- [x] DecoderBridge (plugin decode adaptation) — 8/8 green incl. linux-tsan
+- [x] bl_render (CPU compositor: FrameCache, Compositor, EffectRegistry, built-in effects) — 19/19 green incl. linux-tsan
+- [x] bl_audio (AudioEngine, TrackStrip mixer, Mixer, IDeviceOutput/NullDeviceOutput) — 12/12 green incl. linux-tsan
+- Test count: 308 total (debug + linux-tsan)
 - [x] TL-4: 3-point editing (Track insertClip split-and-push / overwriteClip remnant-aware / appendClip + makeThreePointClip source-range→timeline mapping) — 190/190 green incl. linux-tsan
 - [x] TL-5: speed/time retiming (setClipSpeed source-preserving retime + ripple, retimedTimelineDuration rational math, effectiveDuration semantics clarified) — 203/203 green incl. linux-tsan
 - [x] TL-6: keyframeable properties (KeyframeTrack/Set, Hold/Linear/Bezier-smoothstep evaluate, 7 channels, clip-relative times, fragment rebase across split/insert/overwrite) — 225/225 green incl. linux-tsan
 - [x] TL-7: clip transitions (edge-metadata model: TransitionSpec kinds, duration, alignment, params; addTransition validates adjacency+bounds; pruneInvalidTransitions sweep on all mutators; split/insert/overwrite/ripple/speed all prune gracefully) — 252/252 green incl. linux-tsan
 - [x] TL-8: subtitle track data model (SubtitleStyle struct; subtitleText + subtitleStyle on Clip; setSubtitleText/getSubtitleText/setSubtitleStyle/getSubtitleStyle on Track; Sequence/Timeline wrappers) — 269/269 green incl. linux-tsan
 - [x] bl_timeline (timeline domain model, clips, tracks, sequences, keyframes, transitions, subtitles)
-- [ ] Render backend implemented (bl_render)
-- [ ] Audio engine implemented (bl_audio)
+- [x] Render backend implemented (bl_render — CPU compositor)
+- [x] Audio engine implemented (bl_audio)
 - [ ] Codec plugins implemented (h264, vp9, av1, theora, mpeg4, aac, flac, vorbis, opus)
 
 ## Phase 2: Frontend

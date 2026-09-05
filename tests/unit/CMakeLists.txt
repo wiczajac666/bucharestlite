@@ -29,12 +29,17 @@ add_executable(bl_core_tests
     test_plugin_loader.cpp
     test_builtin_plugins.cpp
     test_concurrency.cpp
+    test_decoder_bridge.cpp
+    test_effects.cpp
+    test_frame_cache.cpp
+    test_compositor.cpp
+    test_audio_mixer.cpp
     test_media_jobs.cpp
     test_persistence.cpp
     test_timeline.cpp
 )
 
-target_link_libraries(bl_core_tests PRIVATE bl_core bl_timeline GTest::gtest_main)
+target_link_libraries(bl_core_tests PRIVATE bl_core bl_timeline bl_render bl_audio GTest::gtest_main)
 
 target_include_directories(bl_core_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../../src
