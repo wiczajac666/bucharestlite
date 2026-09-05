@@ -37,6 +37,7 @@ add_executable(bl_core_tests
     test_media_jobs.cpp
     test_persistence.cpp
     test_timeline.cpp
+    test_codec_plugins.cpp
 )
 
 target_link_libraries(bl_core_tests PRIVATE bl_core bl_timeline bl_render bl_audio GTest::gtest_main)
@@ -66,3 +67,13 @@ add_custom_command(TARGET bl_core_tests POST_BUILD
     COMMENT "Copying media fixtures next to test binary"
     VERBATIM
 )
+
+if(BL_BUILD_PLUGINS)
+    add_custom_command(TARGET bl_core_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                ${CMAKE_BINARY_DIR}/plugins
+                $<TARGET_FILE_DIR:bl_core_tests>/plugins
+        COMMENT "Copying codec plugins next to test binary"
+        VERBATIM
+    )
+endif()

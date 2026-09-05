@@ -13,6 +13,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BL_BUILD_TESTS "Build unit tests" ON)
 option(BL_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
+option(BL_BUILD_PLUGINS "Build dlopen-loadable codec plugins" ON)
 
 if(BL_ENABLE_TSAN)
     if(NOT (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"))
@@ -43,6 +44,10 @@ add_subdirectory(src/core)
 add_subdirectory(src/timeline)
 add_subdirectory(src/render)
 add_subdirectory(src/audio)
+
+if(BL_BUILD_PLUGINS)
+    add_subdirectory(src/plugins)
+endif()
 
 if(BL_BUILD_TESTS)
     enable_testing()
