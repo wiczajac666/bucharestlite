@@ -62,10 +62,10 @@ MainWindow::~MainWindow() {
 }
 
 void MainWindow::buildDocks() {
-    auto* mediaBinPanel = new MediaBinPanel(this);
+    mediaBinPanel_ = new MediaBinPanel(controller_, this);
     mediaBin = new QDockWidget(tr("Media Bin"), this);
     mediaBin->setObjectName(QStringLiteral("MediaBinDock"));
-    mediaBin->setWidget(mediaBinPanel);
+    mediaBin->setWidget(mediaBinPanel_);
     addDockWidget(Qt::LeftDockWidgetArea, mediaBin);
 
     preview = new QDockWidget(tr("Preview"), this);

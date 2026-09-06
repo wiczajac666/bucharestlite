@@ -176,8 +176,8 @@ Layout:
   `project.extensions["timeline"]` so a `.blproj` round-trips both documents.
   Mutations (rename, media-bin add/remove) are pushed to the undo stack.
 - `app/theme_manager.hpp/.cpp` — dark/light stylesheet builder.
-- `panels/*` — dockable panels. Placeholders remain for UI-4..UI-7 (Media Bin,
-  Inspector, Mixer); the Timeline (UI-2) and Preview (UI-3) are real
+- `panels/*` — dockable panels. Placeholders remain for UI-5..UI-7 (Inspector,
+  Mixer); the Media Bin (UI-4), Timeline (UI-2) and Preview (UI-3) are real
   implementations described below.
 
 GUI tests run headless through the offscreen QPA platform:
@@ -318,3 +318,31 @@ no GPU path (RND-1).
 - Stepping one frame at 23.976/29.97 into a microsecond-rate playhead rounds
   (`roundHalfEven`), so compare stepped positions with `EXPECT_NEAR(..., 1e-6)`,
   not exact `Time` equality.
+
+## Media Bin panel (UI-4)
+
+The Media Bin dock lists the imported media of the open project. `ProjectData`
+owns the rows (`std::vector<MediaBinItem>{id, path, name}`); the panel does **no
+decoding** — a bin entry is just a name + id. All mutation flows through the
+`ProjectController` undo stack:
+
+- `ProjectController::addToMediaBin(path)` / `removeFromMediaBin(id)` each push
+  a single `FunctionCommand` and then emit `projectChanged()`.
+- `MediaBinPanel` holds a `ProjectController*`, connects `projectChanged()` →
+  `reload()`, and rebuilds its `QListWidget` from `controller_->mediaBin()`.
+  Because add/remove/undo/redo/open/new all funnel through `projectChanged`,
+  the list stays consistent without panel-level state.
+
+Stable identity: each `QListWidgetItem` stores the media-bin `id` in
+`Qt::UserRole`. Look it up via `selectedId()` and pass it back to
+`removeFromMediaBin` rather than matching on the display name (names are not
+guaranteed unique).
+
+Decisions kept out of scope (documented): **media→timeline drag** is deferred —
+`TimelineView` has no drop handling yet, and wiring a `QDrag`/`QMimeData` + drop
+acceptance + `Track.insertClip` is a cross-panel feature. Metadata columns and
+thumbnails would require async `MediaSource::probe`, also deferred.
+
+The filter box is a plain substring match (case-insensitive) over the item
+name, implemented in the widget-free `media_bin_detail::matchesFilter` helper so
+it is unit-testable without a QApplication.

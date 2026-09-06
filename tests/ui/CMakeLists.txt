@@ -7,6 +7,7 @@ add_executable(bl_ui_tests
     test_timeline_panel.cpp
     test_transport_controller.cpp
     test_preview_panel.cpp
+    test_media_bin_panel.cpp
 )
 
 target_link_libraries(bl_ui_tests PRIVATE bl::ui bl::core bl_timeline bl::render GTest::gtest GTest::gtest_main Qt6::Widgets Qt6::Test)

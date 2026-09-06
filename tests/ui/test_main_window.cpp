@@ -67,11 +67,11 @@ TEST(MainWindow, createsAllDockingPanels) {
         EXPECT_NE(window.dock(title), nullptr) << title.toStdString();
     }
 
-    // Media Bin, Inspector and Mixer remain placeholders; the timeline and
+    // Inspector and Mixer remain placeholders; the Media Bin, timeline and
     // preview panels are real widgets, so they must not sport a "placeholder"
     // label.
     const auto labels = window.findChildren<QLabel*>(QStringLiteral("placeholder"));
-    EXPECT_EQ(labels.size(), static_cast<int>(dockTitles().size()) - 2);
+    EXPECT_EQ(labels.size(), static_cast<int>(dockTitles().size()) - 3);
 }
 
 TEST(MainWindow, titleFollowsProjectAndDirtyState) {

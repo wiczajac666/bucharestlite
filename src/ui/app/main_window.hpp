@@ -65,6 +65,7 @@ private:
 
     PreviewPanel* previewPanel_{nullptr};
     TimelinePanel* timelinePanel_{nullptr};
+    MediaBinPanel* mediaBinPanel_{nullptr};
 
     QAction* undoAction_{nullptr};
     QAction* redoAction_{nullptr};
