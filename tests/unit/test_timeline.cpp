@@ -1435,11 +1435,6 @@ TEST(TimelineSpeedWrappers, HappyPathVideoAndAudio) {
 
 namespace {
 
-Keyframe makeKey(int64_t frame, double value,
-                 Interpolation interp = Interpolation::Linear) {
-    return Keyframe{Time::fromFrame(frame, fps24()), value, interp};
-}
-
 const KeyframeTrack* channelOf(const Clip& c, KeyChannel ch) {
     return c.keyframes ? c.keyframes->track(ch) : nullptr;
 }

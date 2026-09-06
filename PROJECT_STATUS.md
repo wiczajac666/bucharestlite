@@ -28,7 +28,8 @@
 - [x] bl_timeline (timeline domain model, clips, tracks, sequences, keyframes, transitions, subtitles)
 - [x] Render backend implemented (bl_render — CPU compositor)
 - [x] Audio engine implemented (bl_audio)
-- [ ] Codec plugins implemented (h264, vp9, av1, theora, mpeg4, aac, flac, vorbis, opus)
+- [x] Codec plugins implemented (h264, vp9, av1, theora, mpeg4, aac, flac, vorbis, opus) — 9 dlopen FFmpeg-backed MODULEs, best-effort decoder init for extradata-driven codecs (theora/vorbis/opus), granule-aligned audio encode feed (EAGAIN-tolerant, tail-on-flush), lossless FLAC round-trip; av1 via libdav1d; staged into <build>/plugins/{video,audio}; tests `CodecPlugins/*` + `CodecPluginTest.*` — 321/321 green incl. linux-tsan; dev guide: `docs/developer-guide.md`
+- Test count: 321 total (debug + linux-tsan) — after codec plugins
 
 ## Phase 2: Frontend
 - [ ] Qt6 GUI implemented (bl_ui)
