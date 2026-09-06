@@ -23,11 +23,17 @@ add_custom_command(
            ${BL_MEDIA_STAGE}/test_audio.wav
            ${BL_MEDIA_STAGE}/test_av.mp4
            ${BL_MEDIA_STAGE}/test_video.h264
+           ${BL_MEDIA_STAGE}/test_audio_vorbis.ogg
+           ${BL_MEDIA_STAGE}/test_audio_opus.opus
+           ${BL_MEDIA_STAGE}/test_video_theora.ogv
     COMMAND ${CMAKE_COMMAND} -E make_directory ${BL_MEDIA_STAGE}
     COMMAND ffmpeg -y -loglevel error -f lavfi -i testsrc=duration=1:size=320x240:rate=24 -pix_fmt yuv420p ${BL_MEDIA_STAGE}/test_video.mp4
     COMMAND ffmpeg -y -loglevel error -f lavfi -i sine=frequency=440:duration=1 -ar 48000 -ac 2 ${BL_MEDIA_STAGE}/test_audio.wav
     COMMAND ffmpeg -y -loglevel error -f lavfi -i testsrc=duration=2:size=320x240:rate=24 -f lavfi -i sine=frequency=440:duration=2 -pix_fmt yuv420p -shortest ${BL_MEDIA_STAGE}/test_av.mp4
     COMMAND ffmpeg -y -loglevel error -f lavfi -i testsrc=duration=2:size=320x240:rate=24 -c:v libx264 -preset veryfast -bf 0 -pix_fmt yuv420p -f h264 ${BL_MEDIA_STAGE}/test_video.h264
+    COMMAND ffmpeg -y -loglevel error -f lavfi -i sine=frequency=440:duration=1 -ar 48000 -ac 2 -c:a libvorbis ${BL_MEDIA_STAGE}/test_audio_vorbis.ogg
+    COMMAND ffmpeg -y -loglevel error -f lavfi -i sine=frequency=440:duration=1 -ar 48000 -ac 2 -c:a libopus ${BL_MEDIA_STAGE}/test_audio_opus.opus
+    COMMAND ffmpeg -y -loglevel error -f lavfi -i testsrc=duration=1:size=160x120:rate=24 -c:v libtheora ${BL_MEDIA_STAGE}/test_video_theora.ogv
     COMMENT "Generating synthetic media fixtures with ffmpeg CLI"
     VERBATIM
 )
@@ -37,6 +43,9 @@ add_custom_target(bl_media_fixtures ALL
             ${BL_MEDIA_STAGE}/test_audio.wav
             ${BL_MEDIA_STAGE}/test_av.mp4
             ${BL_MEDIA_STAGE}/test_video.h264
+            ${BL_MEDIA_STAGE}/test_audio_vorbis.ogg
+            ${BL_MEDIA_STAGE}/test_audio_opus.opus
+            ${BL_MEDIA_STAGE}/test_video_theora.ogv
 )
 
 add_subdirectory(unit)

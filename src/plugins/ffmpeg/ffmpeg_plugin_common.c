@@ -51,6 +51,12 @@ typedef struct BlFfmpegCtx {
     int encode_used;
     SwsContext* sws_enc;
     SwrContext* swr_enc;
+
+    /* audio encode: planar f32 slices not yet accepted by the encoder
+     * (audio encoders may EAGAIN while their internal buffers fill). */
+    uint8_t* pend_buf;
+    size_t pend_cap;
+    size_t pend_samples;
 } BlFfmpegCtx;
 
 /* ------------------------------------------------------------------ */
@@ -475,7 +481,14 @@ int ffmpeg_plugin_init(void** ctx_out, const BlCodecConfig* cfg,
                                       (int)cfg->audio.channels);
     }
     configure_decoder_extradata(c, cfg);
-    if (avcodec_open2(c->decoder, dec_codec, NULL) < 0) goto fail;
+    /* The decoder is best-effort: bitstreams like theora/vorbis/opus refuse
+     * to open without container-negotiated extradata, so encode-only callers
+     * must still be able to initialize. Decode attempts without an open
+     * decoder fail cleanly. */
+    if (avcodec_open2(c->decoder, dec_codec, NULL) < 0) {
+        avcodec_free_context(&c->decoder);
+        c->decoder = NULL;
+    }
 
     /* encoder (best effort; absence only disables encode()) */
     c->encode_available = (open_encoder(c, cfg) == BL_OK);
@@ -501,8 +514,9 @@ fail:
 int ffmpeg_plugin_decode(void* ctx_in, const uint8_t* pkt, size_t pkt_size,
                          uint8_t** out, size_t* out_size, BlFrameMeta* meta) {
     BlFfmpegCtx* c = (BlFfmpegCtx*)ctx_in;
-    if (!c || !out || !out_size || !meta || !c->decoder)
+    if (!c || !out || !out_size || !meta)
         return BL_ERR_INVALID_ARGUMENT;
+    if (!c->decoder) return BL_ERR_DECODE_FAILED;
     *out = NULL;
     *out_size = 0;
 
@@ -533,6 +547,92 @@ int ffmpeg_plugin_decode(void* ctx_in, const uint8_t* pkt, size_t pkt_size,
 /* ------------------------------------------------------------------ */
 /* encode                                                              */
 /* ------------------------------------------------------------------ */
+
+/* Feed the pending planar audio batch into the encoder, honoring its
+ * frame_size slicing requirement and stopping when the encoder's buffers are
+ * full (EAGAIN keeps the remainder pending). */
+/* Build, convert and send one audio slice of n samples drawn from the front
+ * of the pending batch. n must be >= 1 and <= pending count. Full-frame
+ * granules guarantee encoders like libopus (which reject mixed-size frames)
+ * and libvorbis (which rejects frames larger than its frame_size) stay happy.
+ * Returns BL_OK, BL_DECODE_NEED_MORE_INPUT (EAGAIN: encoder buffers full),
+ * or a BL error. */
+static int feed_one_audio_slice(BlFfmpegCtx* c,
+                                const AVChannelLayout* in_layout,
+                                uint32_t n) {
+    AVFrame* src = c->enc_in;
+    av_frame_unref(src);
+    src->format = AV_SAMPLE_FMT_FLTP;
+    av_channel_layout_copy(&src->ch_layout, in_layout);
+    src->sample_rate = c->encoder->sample_rate;
+    src->nb_samples = (int)n;
+    src->linesize[0] = (int)c->pend_samples * 4;
+    for (uint32_t k = 0; k < c->enc_channels; ++k)
+        src->data[k] = c->pend_buf + (size_t)k * (size_t)c->pend_samples * 4u;
+
+    int max_out = (int)swr_get_out_samples(c->swr_enc, (int)n);
+    if (max_out <= 0) max_out = (int)n;
+
+    AVFrame* nat = c->conv_frame;
+    av_frame_unref(nat);
+    nat->format = c->encoder->sample_fmt;
+    av_channel_layout_copy(&nat->ch_layout, &c->encoder->ch_layout);
+    nat->sample_rate = c->encoder->sample_rate;
+    nat->nb_samples = max_out;
+    if (av_frame_get_buffer(nat, 32) < 0) return BL_ERR_INTERNAL;
+
+    int conv = swr_convert(c->swr_enc, nat->data, nat->nb_samples,
+                           (const uint8_t**)src->data, (int)n);
+    if (conv < 0) {
+        av_frame_unref(nat);
+        return BL_ERR_INTERNAL;
+    }
+    nat->nb_samples = conv;
+    nat->pts = c->enc_pts;
+    c->enc_pts += n;
+    av_frame_unref(src);
+
+    int ret = avcodec_send_frame(c->encoder, nat);
+    av_frame_unref(nat);
+    if (ret == AVERROR(EAGAIN)) return BL_DECODE_NEED_MORE_INPUT;
+    if (ret < 0 && ret != AVERROR_EOF) return BL_ERR_ENCODE_FAILED;
+    c->encode_used = 1;
+
+    /* consume n samples from every plane, recompacting the batch */
+    for (uint32_t k = 0; k < c->enc_channels; ++k)
+        memmove(c->pend_buf + (size_t)k * (size_t)(c->pend_samples - n) * 4u,
+                c->pend_buf + (size_t)k * (size_t)c->pend_samples * 4u,
+                (size_t)(c->pend_samples - n) * 4u);
+    c->pend_samples -= n;
+    return BL_OK;
+}
+
+/* Push pending audio into the encoder in full frame_size granules only. A
+ * trailing sub-frame remainder stays pending until flush() pushes it as the
+ * final frame. Stops (keeping the rest) when the encoder is full. */
+static int push_pending_samples(BlFfmpegCtx* c,
+                                const AVChannelLayout* in_layout) {
+    if (!c->swr_enc) {
+        if (swr_alloc_set_opts2(&c->swr_enc, &c->encoder->ch_layout,
+                                c->encoder->sample_fmt,
+                                c->encoder->sample_rate, in_layout,
+                                AV_SAMPLE_FMT_FLTP, c->encoder->sample_rate, 0,
+                                NULL) < 0)
+            return BL_ERR_INTERNAL;
+        if (!c->swr_enc) return BL_ERR_INTERNAL;
+        if (swr_init(c->swr_enc) < 0) return BL_ERR_INTERNAL;
+    }
+
+    uint32_t granule =
+        c->encoder->frame_size > 0 ? (uint32_t)c->encoder->frame_size : 1;
+
+    while (c->pend_samples >= granule) {
+        int r = feed_one_audio_slice(c, in_layout, granule);
+        if (r == BL_DECODE_NEED_MORE_INPUT) return BL_OK;
+        if (r != BL_OK) return r;
+    }
+    return BL_OK;
+}
 
 static int encode_feed(BlFfmpegCtx* c, const uint8_t* in,
                        const BlFrameMeta* meta) {
@@ -590,55 +690,24 @@ static int encode_feed(BlFfmpegCtx* c, const uint8_t* in,
     }
     uint32_t frames = meta->sample_count;
 
+    /* Append the incoming planar frames to the pending batch. */
+    size_t need =
+        (c->pend_samples + frames) * (size_t)c->enc_channels * 4u;
+    if (need > c->pend_cap) {
+        uint8_t* nb = (uint8_t*)av_realloc(c->pend_buf, need);
+        if (!nb) return BL_ERR_OUT_OF_MEMORY;
+        c->pend_buf = nb;
+        c->pend_cap = need;
+    }
+    for (uint32_t k = 0; k < c->enc_channels; ++k)
+        memcpy(c->pend_buf + (size_t)k * (c->pend_samples + frames) * 4u,
+               in + (size_t)k * (size_t)frames * 4u, (size_t)frames * 4u);
+    c->pend_samples += frames;
+
     AVChannelLayout in_layout;
     av_channel_layout_default(&in_layout, (int)c->enc_channels);
 
-    c->swr_enc = NULL;
-    if (swr_alloc_set_opts2(&c->swr_enc, &c->encoder->ch_layout,
-                            c->encoder->sample_fmt, c->encoder->sample_rate,
-                            &in_layout, AV_SAMPLE_FMT_FLTP,
-                            c->encoder->sample_rate, 0, NULL) < 0)
-        return BL_ERR_INTERNAL;
-    if (!c->swr_enc) return BL_ERR_INTERNAL;
-    if (swr_init(c->swr_enc) < 0) return BL_ERR_INTERNAL;
-
-    AVFrame* src = c->enc_in;
-    av_frame_unref(src);
-    src->format = AV_SAMPLE_FMT_FLTP;
-    av_channel_layout_copy(&src->ch_layout, &in_layout);
-    src->sample_rate = c->encoder->sample_rate;
-    src->nb_samples = (int)frames;
-    src->linesize[0] = (int)frames * 4;
-    for (uint32_t k = 0; k < c->enc_channels; ++k)
-        src->data[k] = (uint8_t*)in + (size_t)k * (size_t)frames * 4u;
-
-    int max_out = (int)swr_get_out_samples(c->swr_enc, (int)frames);
-    if (max_out <= 0) max_out = (int)frames;
-
-    AVFrame* nat = c->conv_frame;
-    av_frame_unref(nat);
-    nat->format = c->encoder->sample_fmt;
-    av_channel_layout_copy(&nat->ch_layout, &c->encoder->ch_layout);
-    nat->sample_rate = c->encoder->sample_rate;
-    nat->nb_samples = max_out;
-    if (av_frame_get_buffer(nat, 32) < 0) return BL_ERR_INTERNAL;
-
-    int conv = swr_convert(c->swr_enc, nat->data, nat->nb_samples,
-                           (const uint8_t**)src->data, (int)frames);
-    if (conv < 0) {
-        av_frame_unref(nat);
-        return BL_ERR_INTERNAL;
-    }
-    nat->nb_samples = conv;
-    nat->pts = c->enc_pts;
-    c->enc_pts += frames;
-    av_frame_unref(src);
-
-    int ret = avcodec_send_frame(c->encoder, nat);
-    av_frame_unref(nat);
-    if (ret < 0 && ret != AVERROR_EOF) return BL_ERR_ENCODE_FAILED;
-    c->encode_used = 1;
-    return BL_OK;
+    return push_pending_samples(c, &in_layout);
 }
 
 int ffmpeg_plugin_encode(void* ctx_in, const uint8_t* in, size_t in_size,
@@ -685,6 +754,31 @@ static int flush_decoder(BlFfmpegCtx* c, uint8_t** out, size_t* out_size) {
 
 static int flush_encoder(BlFfmpegCtx* c, uint8_t** out, size_t* out_size) {
     if (!c->encoder) return BL_ERR_INVALID_ARGUMENT;
+
+    /* Any audio input the encoder could not accept yet must go in before the
+     * EOF marker, or those samples would be silently dropped. Full granules
+     * first; the sub-frame remainder becomes the final (small) frame. */
+    if (c->pend_samples > 0) {
+        AVChannelLayout il;
+        av_channel_layout_default(&il, (int)c->enc_channels);
+        int pr = push_pending_samples(c, &il);
+        if (pr != BL_OK) return pr;
+
+        int guard = 0;
+        while (c->pend_samples > 0) {
+            int r = feed_one_audio_slice(c, &il,
+                                         (uint32_t)c->pend_samples);
+            if (r == BL_DECODE_NEED_MORE_INPUT) {
+                int rr = receive_encoded(c, out, out_size);
+                if (rr == BL_OK) return BL_OK; /* packet out; retry later */
+                if (rr < 0) return rr;
+                if (++guard > 10000) return BL_ERR_ENCODE_FAILED;
+                continue;
+            }
+            if (r != BL_OK) return r;
+        }
+    }
+
     if (!c->encoder_sent_eof) {
         avcodec_send_frame(c->encoder, NULL);
         c->encoder_sent_eof = 1;
@@ -725,6 +819,7 @@ void ffmpeg_plugin_cleanup(void* ctx_in) {
     sws_freeContext(c->sws_enc);
     if (c->swr_dec) swr_free(&c->swr_dec);
     if (c->swr_enc) swr_free(&c->swr_enc);
+    av_free(c->pend_buf);
 
     if (c->host && c->host->free) c->host->free(c, c->host->userdata);
 }

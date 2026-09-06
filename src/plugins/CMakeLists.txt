@@ -24,17 +24,24 @@ set(BL_PLUGIN_AUDIO_DIR ${BL_PLUGIN_OUTPUT_DIR}/audio)
 add_library(bl_ffmpeg_plugin_common STATIC
     ffmpeg/ffmpeg_plugin_common.c
 )
+set_property(TARGET bl_ffmpeg_plugin_common PROPERTY POSITION_INDEPENDENT_CODE ON)
 target_include_directories(bl_ffmpeg_plugin_common PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../../include
 )
 target_link_libraries(bl_ffmpeg_plugin_common PUBLIC PkgConfig::BL_FFMPEG_PLUGINS)
 target_compile_options(bl_ffmpeg_plugin_common PRIVATE -Wall -Wextra)
 
-# PLG-1 reference pair first; PLG-2..PLG-9 are added by the later commits
-# in this group.
+# PLG-1..PLG-9: the nine FFmpeg-backed codec plugins.
 set(BL_PLUGIN_SOURCES
     video.h264:h264
+    video.vp9:vp9
+    video.av1:av1
+    video.theora:theora
+    video.mpeg4:mpeg4
     audio.aac:aac
+    audio.flac:flac
+    audio.vorbis:vorbis
+    audio.opus:opus
 )
 
 function(bl_add_codec_plugin rel_path output_name)

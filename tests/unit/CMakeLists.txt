@@ -69,11 +69,18 @@ add_custom_command(TARGET bl_core_tests POST_BUILD
 )
 
 if(BL_BUILD_PLUGINS)
-    add_custom_command(TARGET bl_core_tests POST_BUILD
+    add_custom_command(
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/plugins-copied.stamp
         COMMAND ${CMAKE_COMMAND} -E copy_directory
                 ${CMAKE_BINARY_DIR}/plugins
                 $<TARGET_FILE_DIR:bl_core_tests>/plugins
+        COMMAND ${CMAKE_COMMAND} -E touch
+                ${CMAKE_CURRENT_BINARY_DIR}/plugins-copied.stamp
+        DEPENDS h264 vp9 av1 theora mpeg4 aac flac vorbis opus
         COMMENT "Copying codec plugins next to test binary"
         VERBATIM
+    )
+    add_custom_target(bl_core_tests_plugins ALL
+        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/plugins-copied.stamp
     )
 endif()
