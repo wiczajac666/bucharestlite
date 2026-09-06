@@ -279,6 +279,132 @@ public:
             clipId, std::move(style));
     }
 
+    bool setClipNameInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                 std::string name) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].setClipName(
+            clipId, std::move(name));
+    }
+    bool setClipNameInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                 std::string name) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].setClipName(
+            clipId, std::move(name));
+    }
+
+    bool setClipColorLabelInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                       uint32_t label) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].setClipColorLabel(clipId,
+                                                                   label);
+    }
+    bool setClipColorLabelInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                       uint32_t label) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].setClipColorLabel(clipId,
+                                                                   label);
+    }
+
+    bool setClipSourceRangeInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                        Time sourceIn, Time sourceOut) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].setClipSourceRange(
+            clipId, sourceIn, sourceOut);
+    }
+    bool setClipSourceRangeInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                        Time sourceIn, Time sourceOut) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].setClipSourceRange(
+            clipId, sourceIn, sourceOut);
+    }
+
+    bool setClipGainInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                 double gain) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].setClipGain(clipId, gain);
+    }
+    bool setClipGainInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                 double gain) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].setClipGain(clipId, gain);
+    }
+
+    bool setClipPanInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                double pan) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].setClipPan(clipId, pan);
+    }
+    bool setClipPanInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                double pan) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].setClipPan(clipId, pan);
+    }
+
+    bool addClipEffectInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                   EffectInstance effect) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].addClipEffect(
+            clipId, std::move(effect));
+    }
+    bool addClipEffectInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                   EffectInstance effect) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].addClipEffect(
+            clipId, std::move(effect));
+    }
+
+    bool removeClipEffectInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                      size_t index) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].removeClipEffect(clipId,
+                                                                  index);
+    }
+    bool removeClipEffectInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                      size_t index) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].removeClipEffect(clipId,
+                                                                  index);
+    }
+
+    bool reorderClipEffectInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                       size_t from, size_t to) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].reorderClipEffect(clipId, from,
+                                                                  to);
+    }
+    bool reorderClipEffectInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                       size_t from, size_t to) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].reorderClipEffect(clipId, from,
+                                                                   to);
+    }
+
+    bool setEffectEnabledInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                      size_t index, bool enabled) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].setEffectEnabled(
+            clipId, index, enabled);
+    }
+    bool setEffectEnabledInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                      size_t index, bool enabled) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].setEffectEnabled(
+            clipId, index, enabled);
+    }
+
+    bool setEffectParamsInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                     size_t index, nlohmann::json params) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].setEffectParams(
+            clipId, index, std::move(params));
+    }
+    bool setEffectParamsInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                     size_t index, nlohmann::json params) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].setEffectParams(
+            clipId, index, std::move(params));
+    }
+
 private:
     Sequence sequence_;
 };

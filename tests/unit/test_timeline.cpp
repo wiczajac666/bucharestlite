@@ -2307,5 +2307,156 @@ TEST(SubtitleWrappers, TimelineInvalidIndex) {
     EXPECT_FALSE(tl.setSubtitleStyleInAudioTrack(99, "X", SubtitleStyle{}));
 }
 
+namespace {
+
+Clip makeClip(const std::string& id, int startFrame, int durFrames) {
+    Clip c;
+    c.id = id;
+    c.name = "Clip " + id;
+    c.timelineStart = Time::fromFrame(startFrame, fps24());
+    c.timelineDuration = Duration::fromFrames(durFrames, fps24());
+    c.source.mediaItemId = "m1";
+    c.source.sourceIn = Time::fromFrame(0, fps24());
+    c.source.sourceOut = Time::fromFrame(durFrames, fps24());
+    return c;
+}
+
+Timeline clipFixturesTimeline() {
+    Timeline tl;
+    tl.sequence().addVideoTrack("V1");
+    tl.sequence().addAudioTrack("A1");
+    tl.addClipToVideoTrack(0, makeClip("v1", 0, 10));
+    tl.addClipToAudioTrack(0, makeClip("a1", 0, 10));
+    return tl;
+}
+
+const Clip& clipOn(const Timeline& tl, int flat) {
+    if (flat == 0) return tl.sequence().videoTracks[0].clips()[0];
+    return tl.sequence().audioTracks[0].clips()[0];
+}
+
+} // namespace
+
+TEST(ClipInspectorMutators, NameAndColorLabel) {
+    Timeline tl = clipFixturesTimeline();
+    EXPECT_TRUE(tl.setClipNameInVideoTrack(0, "v1", "Renamed"));
+    EXPECT_TRUE(tl.setClipColorLabelInVideoTrack(0, "v1", 3u));
+    EXPECT_EQ(clipOn(tl, 0).name, "Renamed");
+    EXPECT_EQ(clipOn(tl, 0).colorLabel, 3u);
+
+    EXPECT_TRUE(tl.setClipNameInAudioTrack(0, "a1", "Audio Renamed"));
+    EXPECT_TRUE(tl.setClipColorLabelInAudioTrack(0, "a1", 7u));
+    EXPECT_EQ(clipOn(tl, 1).name, "Audio Renamed");
+    EXPECT_EQ(clipOn(tl, 1).colorLabel, 7u);
+
+    EXPECT_FALSE(tl.setClipNameInVideoTrack(0, "nope", "X"));
+    EXPECT_FALSE(tl.setClipNameInVideoTrack(99, "v1", "X"));
+}
+
+TEST(ClipInspectorMutators, SourceRange) {
+    Timeline tl = clipFixturesTimeline();
+    const Time in = Time::fromFrame(2, fps24());
+    const Time out = Time::fromFrame(7, fps24());
+    EXPECT_TRUE(tl.setClipSourceRangeInVideoTrack(0, "v1", in, out));
+    EXPECT_EQ(clipOn(tl, 0).source.sourceIn, in);
+    EXPECT_EQ(clipOn(tl, 0).source.sourceOut, out);
+
+    EXPECT_TRUE(tl.setClipSourceRangeInAudioTrack(0, "a1", in, out));
+    EXPECT_EQ(clipOn(tl, 1).source.sourceIn, in);
+    EXPECT_EQ(clipOn(tl, 1).source.sourceOut, out);
+
+    // sourceIn after sourceOut is rejected.
+    EXPECT_FALSE(tl.setClipSourceRangeInVideoTrack(0, "v1", out, in));
+}
+
+TEST(ClipInspectorMutators, GainAndPan) {
+    Timeline tl = clipFixturesTimeline();
+    EXPECT_TRUE(tl.setClipGainInVideoTrack(0, "v1", 0.5));
+    EXPECT_TRUE(tl.setClipPanInVideoTrack(0, "v1", -0.25));
+    EXPECT_DOUBLE_EQ(clipOn(tl, 0).audio.gain, 0.5);
+    EXPECT_DOUBLE_EQ(clipOn(tl, 0).audio.pan, -0.25);
+
+    EXPECT_TRUE(tl.setClipGainInAudioTrack(0, "a1", 2.0));
+    EXPECT_TRUE(tl.setClipPanInAudioTrack(0, "a1", 1.0));
+    EXPECT_DOUBLE_EQ(clipOn(tl, 1).audio.gain, 2.0);
+    EXPECT_DOUBLE_EQ(clipOn(tl, 1).audio.pan, 1.0);
+
+    EXPECT_FALSE(tl.setClipGainInVideoTrack(0, "nope", 1.0));
+}
+
+TEST(ClipInspectorMutators, EffectStackAddRemove) {
+    Timeline tl = clipFixturesTimeline();
+    EffectInstance e1;
+    e1.effectId = "blur.box";
+    e1.params["radius"] = 2;
+    EffectInstance e2;
+    e2.effectId = "greyscale";
+
+    EXPECT_TRUE(tl.addClipEffectInVideoTrack(0, "v1", e1));
+    EXPECT_TRUE(tl.addClipEffectInVideoTrack(0, "v1", e2));
+    const auto& effs = clipOn(tl, 0).effects;
+    ASSERT_EQ(effs.size(), 2u);
+    EXPECT_EQ(effs[0].effectId, "blur.box");
+    EXPECT_EQ(effs[1].effectId, "greyscale");
+
+    EXPECT_TRUE(tl.addClipEffectInAudioTrack(0, "a1", e1));
+    EXPECT_EQ(clipOn(tl, 1).effects.size(), 1u);
+
+    EXPECT_TRUE(tl.removeClipEffectInVideoTrack(0, "v1", 0));
+    ASSERT_EQ(clipOn(tl, 0).effects.size(), 1u);
+    EXPECT_EQ(clipOn(tl, 0).effects[0].effectId, "greyscale");
+
+    EXPECT_FALSE(tl.removeClipEffectInVideoTrack(0, "v1", 5));
+    EXPECT_FALSE(tl.removeClipEffectInAudioTrack(0, "a1", 5));
+}
+
+TEST(ClipInspectorMutators, EffectReorder) {
+    Timeline tl = clipFixturesTimeline();
+    EffectInstance e1;
+    e1.effectId = "blur.box";
+    EffectInstance e2;
+    e2.effectId = "greyscale";
+    EffectInstance e3;
+    e3.effectId = "transform_2d";
+    tl.addClipEffectInVideoTrack(0, "v1", e1);
+    tl.addClipEffectInVideoTrack(0, "v1", e2);
+    tl.addClipEffectInVideoTrack(0, "v1", e3);
+
+    EXPECT_TRUE(tl.reorderClipEffectInVideoTrack(0, "v1", 0, 2));
+    const auto& effs = clipOn(tl, 0).effects;
+    ASSERT_EQ(effs.size(), 3u);
+    EXPECT_EQ(effs[0].effectId, "greyscale");
+    EXPECT_EQ(effs[1].effectId, "transform_2d");
+    EXPECT_EQ(effs[2].effectId, "blur.box");
+
+    EXPECT_FALSE(tl.reorderClipEffectInVideoTrack(0, "v1", 0, 0));
+    EXPECT_FALSE(tl.reorderClipEffectInVideoTrack(0, "v1", 3, 0));
+}
+
+TEST(ClipInspectorMutators, EffectEnableAndParams) {
+    Timeline tl = clipFixturesTimeline();
+    EffectInstance e;
+    e.effectId = "blur.box";
+    e.params["radius"] = 1;
+    tl.addClipEffectInVideoTrack(0, "v1", e);
+
+    EXPECT_TRUE(tl.setEffectEnabledInVideoTrack(0, "v1", 0, false));
+    EXPECT_FALSE(clipOn(tl, 0).effects[0].enabled);
+
+    nlohmann::json params;
+    params["radius"] = 5;
+    EXPECT_TRUE(tl.setEffectParamsInVideoTrack(0, "v1", 0, params));
+    EXPECT_EQ(clipOn(tl, 0).effects[0].params["radius"].get<int>(), 5);
+
+    // Non-object params are rejected.
+    EXPECT_FALSE(tl.setEffectParamsInVideoTrack(0, "v1", 0, nlohmann::json{1}));
+    EXPECT_FALSE(tl.setEffectParamsInVideoTrack(0, "nope", 0, params));
+    EXPECT_FALSE(tl.setEffectParamsInVideoTrack(0, "v1", 9, params));
+
+    // Bad index fails for enable too.
+    EXPECT_FALSE(tl.setEffectEnabledInVideoTrack(0, "v1", 9, false));
+    EXPECT_FALSE(tl.setEffectEnabledInAudioTrack(0, "a1", 0, true));
+}
+
 } // namespace
 } // namespace bl

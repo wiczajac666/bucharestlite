@@ -176,9 +176,9 @@ Layout:
   `project.extensions["timeline"]` so a `.blproj` round-trips both documents.
   Mutations (rename, media-bin add/remove) are pushed to the undo stack.
 - `app/theme_manager.hpp/.cpp` — dark/light stylesheet builder.
-- `panels/*` — dockable panels. Placeholders remain for UI-5..UI-7 (Inspector,
-  Mixer); the Media Bin (UI-4), Timeline (UI-2) and Preview (UI-3) are real
-  implementations described below.
+- `panels/*` — dockable panels. A placeholder remains for UI-6..UI-7 (Mixer);
+  the Inspector (UI-5), Media Bin (UI-4), Timeline (UI-2) and Preview (UI-3)
+  are real implementations described below.
 
 GUI tests run headless through the offscreen QPA platform:
 
@@ -346,3 +346,60 @@ thumbnails would require async `MediaSource::probe`, also deferred.
 The filter box is a plain substring match (case-insensitive) over the item
 name, implemented in the widget-free `media_bin_detail::matchesFilter` helper so
 it is unit-testable without a QApplication.
+
+## Inspector panel (UI-5)
+
+The Inspector dock replaces the UI-5 placeholder with a clip-property editor.
+Like UI-2 it is built in three layers:
+
+- **Model mutators** on `bl_timeline` (`Track`, then `Sequence`/`Timeline`
+  wrappers, audio+video per method): `setClipName`, `setClipColorLabel`,
+  `setClipSourceRange` (validates `sourceIn <= sourceOut`), `setClipGain`,
+  `setClipPan`, `addClipEffect`/`removeClipEffect`/`reorderClipEffect`, and
+  `setEffectEnabled`/`setEffectParams` (params must be a JSON object). All
+  return a bool, find the clip by id, and reject out-of-range effect indices.
+  Covered by `ClipInspectorMutators.*` in `tests/unit/test_timeline.cpp`.
+- **`panels/clip_edit_controller.hpp/.cpp`** — **Qt-free** controller that
+  mirrors `TimelineEditController`'s contract: flat-track addressing, validate
+  against the model **before** pushing a single `FunctionCommand`, every
+  redo/undo re-applies a model primitive. Signature details that matter for
+  undo correctness:
+  - `removeEffect` reinserts at the *original* index on undo (never appends).
+  - `reorderEffect` undoes with the reversed move `(to, from)`.
+  - `setKeyframe` on an existing frame restores its old value+interp; on a new
+    frame it removes the frame.
+  - `removeKeyframe` restores the exact prior keyframe.
+  No-op mutations (same value) return `false` and push nothing.
+- **`panels/inspector_panel.hpp/.cpp`** — the Qt widget. Constructor takes a
+  `ProjectController*`; `showSelection(const QSet<ClipId>&)` is the entry point
+  wired to `TimelinePanel::selectionChanged` by `MainWindow`. A `QStackedWidget`
+  swaps a "Select a single clip" placeholder with the editor. **Single-clip
+  editing only**: 0 or 2+ selected clips show the placeholder.
+
+Sections built per clip, all driven through `ClipEditController` (thus all
+undoable):
+- **Name**: `QLineEdit` → `setClipName`.
+- **Source/Timeline readouts**: source in/out, timeline start, duration.
+- **Speed**: rate `num / den` spin boxes + reverse checkbox (display; retime
+  command not yet wired).
+- **Audio**: gain (dB → linear) + pan sliders, shown only for audio tracks
+  (flat index >= `videoTracks.size()`).
+- **Label**: 8 checkable color buttons → `setClipColorLabel`.
+- **Keyframes** (list-based, not a curve editor): channel `QComboBox`
+  (7 channels) + a time/value/interpolation table. `Add` appends at the last
+  sample's time + one frame (time 0 when empty), `Remove` deletes the selected
+  row, and editing the value cell calls `setKeyframe` preserving time+interp.
+- **Effects**: `QListWidget` stack with Add (defaults to `blur.box`), Remove,
+  Up/Down reorder, an enable checkbox, and a params JSON `QLineEdit`
+  (invalid/non-object input is ignored).
+
+MainWindow wiring: `inspectorPanel_` is constructed with `controller_` and the
+dock holds it; the placeholder count dropped 4→3 (Mixer only remains).
+
+offscreen QPA coverage: `InspectorPanel.*` (10 tests: placeholder on /multi
+selection, name editing, audio gain/pan for audio clips, add/remove/undo
+keyframes, effect add/remove/toggle) plus the MainWindow system test asserting
+the Inspector dock hosts a real `InspectorPanel`. UI tests run under
+`linux-tsan` via `ctest --preset linux-tsan` (which injects
+`TSAN_OPTIONS=ignore_interceptors_accesses=1` to filter Qt6-internal allocator
+races such as `QArrayData::reallocateUnaligned`).

@@ -2,6 +2,7 @@
 
 #include <app/main_window.hpp>
 #include <app/theme_manager.hpp>
+#include <panels/inspector_panel.hpp>
 
 #include <QApplication>
 #include <QDir>
@@ -67,11 +68,15 @@ TEST(MainWindow, createsAllDockingPanels) {
         EXPECT_NE(window.dock(title), nullptr) << title.toStdString();
     }
 
-    // Inspector and Mixer remain placeholders; the Media Bin, timeline and
-    // preview panels are real widgets, so they must not sport a "placeholder"
-    // label.
-    const auto labels = window.findChildren<QLabel*>(QStringLiteral("placeholder"));
-    EXPECT_EQ(labels.size(), static_cast<int>(dockTitles().size()) - 3);
+    // Only Mixer is a placeholder dock. The Inspector is a real editor whose
+    // (hidden) "select a clip" page also carries the placeholder label, so
+    // assert directly on the Inspector dock's widget instead of a label count.
+    auto* inspectorDock = window.dock(QStringLiteral("Inspector"));
+    ASSERT_NE(inspectorDock, nullptr);
+    auto* inspectorPanel =
+        qobject_cast<bl::ui::InspectorPanel*>(inspectorDock->widget());
+    ASSERT_NE(inspectorPanel, nullptr);
+    EXPECT_TRUE(inspectorPanel->isPlaceholderShown()); // no selection yet
 }
 
 TEST(MainWindow, titleFollowsProjectAndDirtyState) {

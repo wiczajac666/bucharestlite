@@ -375,6 +375,92 @@ public:
         return c;
     }
 
+    bool setClipName(const ClipId& id, std::string name) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        clips_[*idx].name = std::move(name);
+        return true;
+    }
+
+    bool setClipColorLabel(const ClipId& id, uint32_t label) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        clips_[*idx].colorLabel = label;
+        return true;
+    }
+
+    bool setClipSourceRange(const ClipId& id, Time sourceIn, Time sourceOut) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        if (sourceIn > sourceOut) return false;
+        clips_[*idx].source.sourceIn = sourceIn;
+        clips_[*idx].source.sourceOut = sourceOut;
+        return true;
+    }
+
+    bool setClipGain(const ClipId& id, double gain) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        clips_[*idx].audio.gain = gain;
+        return true;
+    }
+
+    bool setClipPan(const ClipId& id, double pan) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        clips_[*idx].audio.pan = pan;
+        return true;
+    }
+
+    bool addClipEffect(const ClipId& id, EffectInstance effect) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        clips_[*idx].effects.push_back(std::move(effect));
+        return true;
+    }
+
+    bool removeClipEffect(const ClipId& id, size_t index) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        ClipType& c = clips_[*idx];
+        if (index >= c.effects.size()) return false;
+        c.effects.erase(c.effects.begin() + static_cast<ptrdiff_t>(index));
+        return true;
+    }
+
+    bool reorderClipEffect(const ClipId& id, size_t from, size_t to) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        ClipType& c = clips_[*idx];
+        if (from >= c.effects.size() || to >= c.effects.size()) return false;
+        if (from == to) return false;
+        EffectInstance effect = std::move(c.effects[from]);
+        c.effects.erase(c.effects.begin() + static_cast<ptrdiff_t>(from));
+        c.effects.insert(c.effects.begin() + static_cast<ptrdiff_t>(to),
+                         std::move(effect));
+        return true;
+    }
+
+    bool setEffectEnabled(const ClipId& id, size_t index, bool enabled) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        ClipType& c = clips_[*idx];
+        if (index >= c.effects.size()) return false;
+        c.effects[index].enabled = enabled;
+        return true;
+    }
+
+    bool setEffectParams(const ClipId& id, size_t index,
+                         nlohmann::json params) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        ClipType& c = clips_[*idx];
+        if (index >= c.effects.size()) return false;
+        if (!params.is_object()) return false;
+        c.effects[index].params = std::move(params);
+        return true;
+    }
+
     bool addTransition(const ClipId& id, TransitionSpec spec) {
         auto idx = findClipById(id);
         if (!idx || *idx + 1 >= clips_.size()) return false;

@@ -7,6 +7,7 @@ add_library(bl_ui STATIC
     panels/timeline_panel.cpp
     panels/timeline_items.cpp
     panels/timeline_edit_controller.cpp
+    panels/clip_edit_controller.cpp
     panels/preview_panel.cpp
     transport/transport_controller.cpp
     panels/media_bin_panel.cpp

@@ -4,10 +4,12 @@ add_executable(bl_ui_tests
     test_project_controller.cpp
     test_main_window.cpp
     test_timeline_edit_controller.cpp
+    test_clip_edit_controller.cpp
     test_timeline_panel.cpp
     test_transport_controller.cpp
     test_preview_panel.cpp
     test_media_bin_panel.cpp
+    test_inspector_panel.cpp
 )
 
 target_link_libraries(bl_ui_tests PRIVATE bl::ui bl::core bl_timeline bl::render GTest::gtest GTest::gtest_main Qt6::Widgets Qt6::Test)

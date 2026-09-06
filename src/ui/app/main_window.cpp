@@ -76,7 +76,8 @@ void MainWindow::buildDocks() {
 
     inspector = new QDockWidget(tr("Inspector"), this);
     inspector->setObjectName(QStringLiteral("InspectorDock"));
-    inspector->setWidget(new InspectorPanel(this));
+    inspectorPanel_ = new InspectorPanel(controller_, this);
+    inspector->setWidget(inspectorPanel_);
     addDockWidget(Qt::RightDockWidgetArea, inspector);
 
     mixer = new QDockWidget(tr("Mixer"), this);
@@ -99,6 +100,11 @@ void MainWindow::buildDocks() {
             &PreviewPanel::setPlayheadFromTimeline);
     connect(timelinePanel_, &TimelinePanel::timelineChanged, previewPanel_,
             &PreviewPanel::onTimelineChanged);
+
+    // Feed timeline clip selection into the inspector.
+    connect(timelinePanel_, &TimelinePanel::selectionChanged, this, [this] {
+        inspectorPanel_->showSelection(timelinePanel_->selection());
+    });
 }
 
 void MainWindow::buildActions() {

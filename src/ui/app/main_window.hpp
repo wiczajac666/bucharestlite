@@ -64,6 +64,7 @@ private:
     QDockWidget* timeline{nullptr};
 
     PreviewPanel* previewPanel_{nullptr};
+    InspectorPanel* inspectorPanel_{nullptr};
     TimelinePanel* timelinePanel_{nullptr};
     MediaBinPanel* mediaBinPanel_{nullptr};
 
