@@ -158,3 +158,36 @@ cmake --preset linux-debug   && cmake --build --preset linux-debug   && ctest --
 cmake --preset linux-release && cmake --build --preset linux-release && ctest --preset linux-release
 cmake --preset linux-tsan    && cmake --build --preset linux-tsan    && ctest --preset linux-tsan
 ```
+## GUI (bl_ui)
+
+The Qt6 frontend lives in `src/ui/` (built when `BL_BUILD_UI=ON` and Qt6 is
+found). `bl_lite` is the application entry point; `bl_ui` is a static library
+holding the application shell.
+
+Layout:
+
+- `app/main.cpp` — `QApplication` entry (`bl_lite`).
+- `app/main_window.hpp/.cpp` — dockable `QMainWindow` shell with action bar,
+  dark/light theme and `QSettings`-backed layout/geometry/theme persistence.
+  Inject a `QSettings*` in the constructor for isolated test state.
+- `app/project_controller.hpp/.cpp` — owns the open document: `bl::ProjectData`,
+  the `bl::Timeline` and the `bl::UndoStack`. Persistence goes through
+  `bl::core::ProjectRepository`; the timeline is serialized inside
+  `project.extensions["timeline"]` so a `.blproj` round-trips both documents.
+  Mutations (rename, media-bin add/remove) are pushed to the undo stack.
+- `app/theme_manager.hpp/.cpp` — dark/light stylesheet builder.
+- `panels/*` — dockable placeholder panels for UI-2..UI-7 (Timeline, Preview,
+  Media Bin, Inspector, Mixer).
+
+GUI tests run headless through the offscreen QPA platform:
+
+```
+cmake --preset linux-debug
+cmake --build --preset linux-debug --target bl_ui_tests bl_lite
+QT_QPA_PLATFORM=offscreen ./build/linux-debug/tests/ui/bl_ui_tests
+```
+
+`MainWindow.*` covers dock creation, dirty-tracking on the window title, undo/
+redo action enablement, and layout/theme persistence across windows.
+`ProjectController.*` covers document creation, undoable mutations, and
+save/load round-trips through `ProjectRepository`.

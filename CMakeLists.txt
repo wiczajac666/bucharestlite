@@ -14,6 +14,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(BL_BUILD_TESTS "Build unit tests" ON)
 option(BL_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
 option(BL_BUILD_PLUGINS "Build dlopen-loadable codec plugins" ON)
+option(BL_BUILD_UI "Build Qt6 GUI (bl_ui)" ON)
 
 if(BL_ENABLE_TSAN)
     if(NOT (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"))
@@ -47,6 +48,13 @@ add_subdirectory(src/audio)
 
 if(BL_BUILD_PLUGINS)
     add_subdirectory(src/plugins)
+endif()
+
+if(BL_BUILD_UI)
+    find_package(Qt6 QUIET COMPONENTS Widgets)
+    if(Qt6_FOUND)
+        add_subdirectory(src/ui)
+    endif()
 endif()
 
 if(BL_BUILD_TESTS)

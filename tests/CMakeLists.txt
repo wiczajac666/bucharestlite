@@ -49,3 +49,7 @@ add_custom_target(bl_media_fixtures ALL
 )
 
 add_subdirectory(unit)
+
+if(TARGET bl_ui)
+    add_subdirectory(ui)
+endif()

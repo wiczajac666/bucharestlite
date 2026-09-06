@@ -30,9 +30,10 @@
 - [x] Audio engine implemented (bl_audio)
 - [x] Codec plugins implemented (h264, vp9, av1, theora, mpeg4, aac, flac, vorbis, opus) — 9 dlopen FFmpeg-backed MODULEs, best-effort decoder init for extradata-driven codecs (theora/vorbis/opus), granule-aligned audio encode feed (EAGAIN-tolerant, tail-on-flush), lossless FLAC round-trip; av1 via libdav1d; staged into <build>/plugins/{video,audio}; tests `CodecPlugins/*` + `CodecPluginTest.*` — 321/321 green incl. linux-tsan; dev guide: `docs/developer-guide.md`
 - Test count: 321 total (debug + linux-tsan) — after codec plugins
+- Test count: 333 total (debug + linux-tsan) — after UI-1 (12 new UI tests)
 
 ## Phase 2: Frontend
-- [ ] Qt6 GUI implemented (bl_ui)
+- [x] UI-1: Qt6 GUI skeleton — `bl_ui` module + `bl_lite` app entry; `ProjectController` (new/open/save-as via ProjectRepository, timeline JSON in `project.extensions["timeline"]`, undoable rename & media-bin mutations); dockable `MainWindow` (Media Bin, Preview, Inspector, Mixer, Timeline docks; action bar; dark/light theme; QSettings layout+geometry+theme persistence; dirty title `*`); placeholder panels for UI-2..UI-7; offscreen QPA coverage `MainWindow.*` + `ProjectController.*` — 333/333 green incl. linux-tsan (12 new UI tests)
 
 ## Phase 3: Export
 - [ ] Export pipeline implemented (bl_export)
