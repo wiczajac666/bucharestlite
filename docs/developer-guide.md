@@ -176,8 +176,9 @@ Layout:
   `project.extensions["timeline"]` so a `.blproj` round-trips both documents.
   Mutations (rename, media-bin add/remove) are pushed to the undo stack.
 - `app/theme_manager.hpp/.cpp` — dark/light stylesheet builder.
-- `panels/*` — dockable placeholder panels for UI-2..UI-7 (Timeline, Preview,
-  Media Bin, Inspector, Mixer).
+- `panels/*` — dockable panels. Placeholders remain for UI-3..UI-7 (Preview,
+  Media Bin, Inspector, Mixer); the Timeline (UI-2) is a real implementation
+  described below.
 
 GUI tests run headless through the offscreen QPA platform:
 
@@ -191,3 +192,74 @@ QT_QPA_PLATFORM=offscreen ./build/linux-debug/tests/ui/bl_ui_tests
 redo action enablement, and layout/theme persistence across windows.
 `ProjectController.*` covers document creation, undoable mutations, and
 save/load round-trips through `ProjectRepository`.
+
+## Timeline panel (UI-2)
+
+The Timeline replaces the UI-2 placeholder. Three layers:
+
+- `panels/timeline_edit_controller.hpp/.cpp` — **Qt-free** edit logic. Every
+  mutation validates on the flat track index (video lanes first, then audio
+  lanes) before pushing a **single** `FunctionCommand` onto the project undo
+  stack; `undoChanged` from the stack triggers a full panel rebuild. Covers
+  move/trim/ripple-trim/split/remove, group-move (keeps relative offsets),
+  and snapping (6 px tolerance). Single-clip drags may land on *any* other
+  track — kind-mismatch drops are validated by `canPlaceAt`, not rejected.
+- `panels/timeline_items.hpp/.cpp` — `QGraphicsItem` scene primitives: `Ruler`
+  (tick marks + non-drop timecode at 1s intervals), `Playhead`, `SnapIndicator`,
+  `Marker`, `Lane`, and `Clip` (6 px left/right trim zones, transition hatch on
+  the out edge when `transitionSpec` is set, `»S«` badge for subtitled clips,
+  live `previewRect` overlay during move/trim).
+- `panels/timeline_panel.hpp/.cpp` — `TimelinePanel` (snap checkbox, zoom
+  buttons/label, playhead, selection `QSet<ClipId>`, time↔x helpers,
+  `rebuildFromModel`) hosting `TimelineView` and `TrackHeader`. `TrackHeader`
+  is a fixed-width lane-titles column whose vertical scrollbar is synced to
+  the view's so titles stay glued to their lanes.
+
+Scene geometry (see `timeline_geometry`): origin at ruler top-left,
+`kRulerHeight = 26`, video lanes 44 px, audio lanes 36 px, view space px =
+`frame * pixelsPerFrame` with the playhead at 0. Zoom clamps to 0.25–64
+px/frame (default 6).
+
+`TimelineView` owns the gesture state machine:
+
+| Input | Action |
+|-------|--------|
+| click | select clip |
+| Ctrl/Shift click | toggle selection |
+| empty-lane drag | marquee (Ctrl/Shift merges) |
+| clip drag | move; drop on any track (undoable) |
+| edge drag | trim; Shift = ripple |
+| ruler drag | scrub playhead |
+| Delete | non-ripple delete |
+| Backspace / Shift+Delete | ripple delete |
+| S | split at playhead |
+| Ctrl+A | select all clips |
+| Ctrl+wheel | zoom (centered on cursor) |
+
+Every gestures triggers `undoChanged` mid-gesture; the rebuilding panel calls
+`TimelineView::cancelActiveGesture()` so a drag/trim releasing into a rebuilt
+scene can't read a stale item.
+
+Keyframe/undo gotchas for gesture tests:
+- **Frame-quantization**: `Time` arithmetic (ripples in particular) produces
+  rational fractions of a frame. Compare by `llround(seconds * fps)`-style
+  frame helpers, never exact `Time` equality.
+- **Flat indexing**: `flat = videoTrackIndex` then `tracks().size() +
+  audioTrackIndex`; the shared test fixture (1 video + 1 audio) therefore has
+  video lane 0 and audio lane 1. `Fixture::find(name)` scans *both* kinds —
+  assert presence via absence on the source lane, not on emptiness of the
+  search.
+
+`TimelinePanel.*`/`TimelineEditController.*` cover: clip/marker rendering,
+click/Ctrl-multi/marquee selection, move (incl. cross-kind to the audio lane)
+with undo, trim/ripple-trim undoability, Delete-vs-Backspace semantics, split
+at playhead, ruler scrub, zoom clamping + rebuild, and scene refresh after
+undo/redo. `TimelineEditController` runs offscreen-free as plain unit tests.
+
+**TSan note**: the offscreen QPA platform and QTest's event machinery spawn
+pooled threads whose internal `QArrayData` allocator traffic races inside
+`libQt6Core`/`libQt6Gui` (not in app code). The `linux-tsan` *test preset*
+sets `TSAN_OPTIONS=ignore_interceptors_accesses=1`, which filters
+interceptor-only allocation races while still reporting any race whose
+accesses have real app/`bl_*` frames. Re-run the full GUI suite under tsan
+after touching the gesture handlers.

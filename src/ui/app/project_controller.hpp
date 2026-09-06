@@ -30,6 +30,7 @@ public:
 
     const ProjectData& project() const { return project_; }
     const Timeline& timeline() const { return timeline_; }
+    Timeline& timeline() { return timeline_; }
     const std::vector<MediaBinItem>& mediaBin() const { return project_.mediaBin; }
 
     bool canUndo() const { return undoStack_.canUndo(); }

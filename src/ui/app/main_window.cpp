@@ -1,5 +1,8 @@
 #include "app/main_window.hpp"
 
+#include "app/project_controller.hpp"
+#include "panels/timeline_panel.hpp"
+
 #include <QAction>
 #include <QApplication>
 #include <QCloseEvent>
@@ -82,7 +85,7 @@ void MainWindow::buildDocks() {
 
     timeline = new QDockWidget(tr("Timeline"), this);
     timeline->setObjectName(QStringLiteral("TimelineDock"));
-    timeline->setWidget(new TimelinePanel(this));
+    timeline->setWidget(new TimelinePanel(controller_, this));
     addDockWidget(Qt::BottomDockWidgetArea, timeline);
 }
 

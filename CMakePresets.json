@@ -61,7 +61,10 @@
         {
             "name": "linux-tsan",
             "configurePreset": "linux-tsan",
-            "output": { "outputOnFailure": true }
+            "output": { "outputOnFailure": true },
+            "environment": {
+                "TSAN_OPTIONS": "ignore_interceptors_accesses=1"
+            }
         }
     ]
 }
