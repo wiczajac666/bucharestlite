@@ -42,6 +42,15 @@ BlCodecPlugin* CodecRegistry::find(std::string_view name) const noexcept {
     for (BlCodecPlugin* p : plugins_) {
         if (name == p->name) return p;
     }
+    // Codecs are also addressable by their FFmpeg decoder name (e.g. plugin
+    // "ffmpeg.theora" -> "theora") so container probes can bind a bridge
+    // straight from avcodec_get_name().
+    for (BlCodecPlugin* p : plugins_) {
+        if ((p->caps.roles & BL_ROLE_DECODE) != 0 && p->caps.ff_decoder &&
+            name == p->caps.ff_decoder) {
+            return p;
+        }
+    }
     return nullptr;
 }
 

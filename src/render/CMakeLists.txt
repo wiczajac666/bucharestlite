@@ -2,6 +2,8 @@ add_library(bl_render STATIC
     effect.cpp
     frame_cache.cpp
     compositor.cpp
+    media_decode_source.cpp
+    preview_engine.cpp
 )
 
 add_library(bl::render ALIAS bl_render)

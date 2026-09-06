@@ -78,6 +78,11 @@ Result<StreamInfo> MediaSource::probe(const MediaLocator& locator) {
             }
             v.pixelAspect = toRational(aspect);
 
+            if (par->extradata_size > 0 && par->extradata) {
+                v.extradata.assign(par->extradata,
+                                   par->extradata + par->extradata_size);
+            }
+
             info.videoStreams.push_back(std::move(v));
         } else if (par->codec_type == AVMEDIA_TYPE_AUDIO) {
             AudioStreamInfo a;
@@ -89,6 +94,12 @@ Result<StreamInfo> MediaSource::probe(const MediaLocator& locator) {
             a.channels = static_cast<uint32_t>(par->channels);
 #endif
             a.codecName = avcodec_get_name(par->codec_id);
+
+            if (par->extradata_size > 0 && par->extradata) {
+                a.extradata.assign(par->extradata,
+                                   par->extradata + par->extradata_size);
+            }
+
             info.audioStreams.push_back(std::move(a));
         }
     }

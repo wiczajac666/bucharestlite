@@ -38,6 +38,7 @@ add_executable(bl_core_tests
     test_persistence.cpp
     test_timeline.cpp
     test_codec_plugins.cpp
+    test_preview_engine.cpp
 )
 
 target_link_libraries(bl_core_tests PRIVATE bl_core bl_timeline bl_render bl_audio GTest::gtest_main)

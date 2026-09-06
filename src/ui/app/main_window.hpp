@@ -63,6 +63,9 @@ private:
     QDockWidget* mixer{nullptr};
     QDockWidget* timeline{nullptr};
 
+    PreviewPanel* previewPanel_{nullptr};
+    TimelinePanel* timelinePanel_{nullptr};
+
     QAction* undoAction_{nullptr};
     QAction* redoAction_{nullptr};
     QAction* darkThemeAction_{nullptr};

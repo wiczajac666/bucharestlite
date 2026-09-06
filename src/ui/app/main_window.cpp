@@ -70,7 +70,8 @@ void MainWindow::buildDocks() {
 
     preview = new QDockWidget(tr("Preview"), this);
     preview->setObjectName(QStringLiteral("PreviewDock"));
-    preview->setWidget(new PreviewPanel(this));
+    previewPanel_ = new PreviewPanel(controller_, this);
+    preview->setWidget(previewPanel_);
     addDockWidget(Qt::LeftDockWidgetArea, preview);
 
     inspector = new QDockWidget(tr("Inspector"), this);
@@ -85,8 +86,19 @@ void MainWindow::buildDocks() {
 
     timeline = new QDockWidget(tr("Timeline"), this);
     timeline->setObjectName(QStringLiteral("TimelineDock"));
-    timeline->setWidget(new TimelinePanel(controller_, this));
+    timelinePanel_ = new TimelinePanel(controller_, this);
+    timeline->setWidget(timelinePanel_);
     addDockWidget(Qt::BottomDockWidgetArea, timeline);
+
+    // Keep the preview transport and the timeline playhead in lockstep: a
+    // ruler scrub pulls the preview along; transport playback pushes the
+    // timeline playhead forward.
+    connect(previewPanel_, &PreviewPanel::playheadChanged, timelinePanel_,
+            &TimelinePanel::setPlayhead);
+    connect(timelinePanel_, &TimelinePanel::playheadChanged, previewPanel_,
+            &PreviewPanel::setPlayheadFromTimeline);
+    connect(timelinePanel_, &TimelinePanel::timelineChanged, previewPanel_,
+            &PreviewPanel::onTimelineChanged);
 }
 
 void MainWindow::buildActions() {

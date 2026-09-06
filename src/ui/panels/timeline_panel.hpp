@@ -174,6 +174,7 @@ public:
 signals:
     void playheadChanged(const bl::Time& current);
     void selectionChanged();
+    void timelineChanged();
 
 private:
     friend class TimelineView;

@@ -176,9 +176,9 @@ Layout:
   `project.extensions["timeline"]` so a `.blproj` round-trips both documents.
   Mutations (rename, media-bin add/remove) are pushed to the undo stack.
 - `app/theme_manager.hpp/.cpp` — dark/light stylesheet builder.
-- `panels/*` — dockable panels. Placeholders remain for UI-3..UI-7 (Preview,
-  Media Bin, Inspector, Mixer); the Timeline (UI-2) is a real implementation
-  described below.
+- `panels/*` — dockable panels. Placeholders remain for UI-4..UI-7 (Media Bin,
+  Inspector, Mixer); the Timeline (UI-2) and Preview (UI-3) are real
+  implementations described below.
 
 GUI tests run headless through the offscreen QPA platform:
 
@@ -263,3 +263,58 @@ sets `TSAN_OPTIONS=ignore_interceptors_accesses=1`, which filters
 interceptor-only allocation races while still reporting any race whose
 accesses have real app/`bl_*` frames. Re-run the full GUI suite under tsan
 after touching the gesture handlers.
+
+## Preview panel (UI-3)
+
+The Preview dock composits the timeline to a `QImage` on the main thread
+(no GPU yet — GL rendering is deferred). Three layers:
+
+- `transport/transport_controller.hpp/.cpp` — **Qt-free** transport state
+  machine. Play/pause/stop, `tick(Duration)` advances the playhead by wall
+  clock (auto-pauses at the end), `stepForward`/`stepBackward` move exactly one
+  frame at the sequence fps (clamped to `[0, duration]`), notify handlers
+  (`setPlayheadHandler`/`setStateHandler`) fire on every change. Drives a
+  33 ms `QTimer` in the panel.
+- `bl_render::PreviewEngine` (`src/render/preview_engine.cpp`) + `MediaDecodeSource`
+  (`src/render/media_decode_source.cpp`) — CPU backend. `FrameCache` keys by
+  `(mediaItemId, frame, outputSize)`; `MediaDecodeSource` lazily opens a
+  `Demuxer` per media item, looks the decoder up in `CodecRegistry` and
+  feeds packets until the requested frame is covered, seeking backward when the
+  requested frame precedes the current position. When a seek lands mid-GOP it
+  decodes from the previous keyframe; an in-flight `DecoderBridge::flush()` is
+  used on divergence so stale decode state can't bleed into the requested
+  frame. Container codecs decode from EXTRA data (`avcodec_parameters`) instead
+  of `AVCodecContext.priv_data` re-initialization.
+- `panels/preview_panel.hpp/.cpp` — `PreviewSurface` + `PreviewPanel`.
+  Compositor output (BGRA `Format_RGB32`) is copied into a `QImage` via
+  `raw.copy()` — BGRA memory order already matches little-endian RGB32, so no
+  channel shuffle is needed. `PreviewPanel` owns a `TransportController`, a
+  33 ms `PreciseTimer` `QElapsedTimer`-driven tick loop, a timecode label
+  (`previewTimecode`), and rebuilds the engine when the project or the base
+  sequence settings change.
+
+Playhead sync is bidirectional and recursion-safe: MainWindow connects
+`PreviewPanel::playheadChanged → TimelinePanel::setPlayhead` and
+`TimelinePanel::playheadChanged → PreviewPanel::setPlayheadFromTimeline`.
+`TransportController::setPlayhead` is a no-op when the position is unchanged,
+so a scrub pushed down to the transport doesn't echo a second `playheadChanged`
+back up. Timeline edits (`TimelinePanel::timelineChanged`) pull
+`PreviewPanel::onTimelineChanged`, which re-derives the sequence duration and
+re-renders the current frame without moving the playhead.
+
+The render backend is intentionally simple today: playhead-tick rendering,
+no dropped-frame policy, no A/V sync (real audio + sync are AUD-3/UI-6), and
+no GPU path (RND-1).
+
+**Time-keeping gotchas** (learnt the hard way):
+- FFmpeg streams report `AVRational time_base` as *seconds per tick*;
+  `bl::Time` stores *ticks per second*. Converting requires
+  `Rational::make(time_base.den, time_base.num)` — swapping `num`/`den`
+  inflates every frame to ~576x its true time, so a seek to frame 12 stalls at
+  frame 0 and every requested time renders the same picture.
+- `avg_frame_rate` can be legitimately unknown (`{0,1}`). `Rational::valid()`
+  only checks the denominator, so decode code must also reject zero rates and
+  fall back (e.g. `{24,1}`) or every cache key collapses to time 0.
+- Stepping one frame at 23.976/29.97 into a microsecond-rate playhead rounds
+  (`roundHalfEven`), so compare stepped positions with `EXPECT_NEAR(..., 1e-6)`,
+  not exact `Time` equality.

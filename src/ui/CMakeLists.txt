@@ -8,6 +8,7 @@ add_library(bl_ui STATIC
     panels/timeline_items.cpp
     panels/timeline_edit_controller.cpp
     panels/preview_panel.cpp
+    transport/transport_controller.cpp
     panels/media_bin_panel.cpp
     panels/inspector_panel.cpp
     panels/mixer_panel.cpp
@@ -26,7 +27,7 @@ set_target_properties(bl_ui PROPERTIES AUTOMOC ON)
 
 target_compile_features(bl_ui PUBLIC cxx_std_17)
 
-target_link_libraries(bl_ui PUBLIC Qt6::Widgets bl::core bl_timeline)
+target_link_libraries(bl_ui PUBLIC Qt6::Widgets bl::core bl_timeline bl::render)
 
 bl_enable_warnings(bl_ui)
 

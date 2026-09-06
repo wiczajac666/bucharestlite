@@ -112,7 +112,7 @@ Result<std::optional<Packet>> Demuxer::nextPacket() {
     out.keyframe = (pkt->flags & AV_PKT_FLAG_KEY) != 0;
 
     const AVRational timeBase = fmt_->streams[pkt->stream_index]->time_base;
-    const Rational rate = Rational::make(timeBase.num, timeBase.den);
+    const Rational rate = Rational::make(timeBase.den, timeBase.num);
 
     if (pkt->pts != AV_NOPTS_VALUE) {
         out.hasPts = true;
@@ -139,7 +139,7 @@ Result<void> Demuxer::seek(Time target) {
 
     const int streamIndex = defaultSeekStream();
     const AVRational timeBase = fmt_->streams[streamIndex]->time_base;
-    const Rational streamRate = Rational::make(timeBase.num, timeBase.den);
+    const Rational streamRate = Rational::make(timeBase.den, timeBase.num);
 
     Time inStreamUnits = Time::fromTicks(0, streamRate) + target;
 

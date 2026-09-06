@@ -639,6 +639,7 @@ void TimelinePanel::onDocumentChanged() {
     if (!controller_ || !editor_.valid()) return;
     editor_.reset(controller_->timeline(), controller_->undoStack());
     rebuildFromModel();
+    emit timelineChanged();
 }
 
 const bl::Sequence& TimelinePanel::sequence() const {

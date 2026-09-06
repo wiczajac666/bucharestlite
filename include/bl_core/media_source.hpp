@@ -3,6 +3,7 @@
 #include <bl_core/result.hpp>
 #include <bl_core/time.hpp>
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,7 @@ struct VideoStreamInfo {
     Rational fps{0, 1};
     Rational pixelAspect{0, 1};
     std::string codecName;
+    std::vector<uint8_t> extradata;
 };
 
 struct AudioStreamInfo {
@@ -26,6 +28,7 @@ struct AudioStreamInfo {
     uint32_t sampleRate{0};
     uint32_t channels{0};
     std::string codecName;
+    std::vector<uint8_t> extradata;
 };
 
 struct StreamInfo {
