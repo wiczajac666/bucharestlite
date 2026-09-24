@@ -10,6 +10,10 @@ add_executable(bl_ui_tests
     test_preview_panel.cpp
     test_media_bin_panel.cpp
     test_inspector_panel.cpp
+    test_export_settings.cpp
+    test_export_runner.cpp
+    test_export_ui.cpp
+    test_export_batch.cpp
 )
 
 target_link_libraries(bl_ui_tests PRIVATE bl::ui bl::core bl_timeline bl::render GTest::gtest GTest::gtest_main Qt6::Widgets Qt6::Test)
@@ -24,6 +28,10 @@ target_compile_definitions(bl_ui_tests PRIVATE
 )
 
 bl_enable_warnings(bl_ui_tests)
+
+# Fixtures must exist before the POST_BUILD copy below stages them next to
+# the test binary; force the generation order regardless of build scheduling.
+add_dependencies(bl_ui_tests bl_media_fixtures)
 
 include(GoogleTest)
 gtest_discover_tests(bl_ui_tests DISCOVERY_TIMEOUT 120)
@@ -51,4 +59,9 @@ if(BL_BUILD_PLUGINS)
     add_custom_target(bl_ui_tests_plugins ALL
         DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/plugins-copied.stamp
     )
+    add_dependencies(bl_ui_tests bl_ui_tests_plugins)
+endif()
+
+if(COMMAND bl_stage_ffmpeg_runtime)
+    bl_stage_ffmpeg_runtime(bl_ui_tests)
 endif()

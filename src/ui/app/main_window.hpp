@@ -2,6 +2,9 @@
 
 #include "app/project_controller.hpp"
 #include "app/theme_manager.hpp"
+#include "dialogs/export_dialog.hpp"
+#include "dialogs/export_progress_dialog.hpp"
+#include "export/export_worker.hpp"
 #include "panels/inspector_panel.hpp"
 #include "panels/media_bin_panel.hpp"
 #include "panels/mixer_panel.hpp"
@@ -11,6 +14,7 @@
 #include <QMainWindow>
 
 class QSettings;
+class QThread;
 
 namespace bl::ui {
 
@@ -48,6 +52,11 @@ private:
     bool doSave();
     bool doSaveAs();
 
+    void startExport();
+    void startBatchExport();
+    void ensureExportWorker();
+    bool exportBusy() const;
+
     void maybeRestoreLayout();
     void saveLayout();
 
@@ -72,6 +81,12 @@ private:
     QAction* redoAction_{nullptr};
     QAction* darkThemeAction_{nullptr};
     QAction* lightThemeAction_{nullptr};
+    QAction* exportAction_{nullptr};
+    QAction* batchExportAction_{nullptr};
+
+    QThread* exportThread_{nullptr};
+    ExportWorker* exportWorker_{nullptr};
+    bool exportBusy_{false};
 };
 
 } // namespace bl::ui

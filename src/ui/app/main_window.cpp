@@ -1,6 +1,9 @@
 #include "app/main_window.hpp"
 
 #include "app/project_controller.hpp"
+#include "dialogs/batch_export_dialog.hpp"
+#include "export/export_queue.hpp"
+#include "export/export_worker.hpp"
 #include "panels/timeline_panel.hpp"
 
 #include <QAction>
@@ -9,17 +12,23 @@
 #include <QDockWidget>
 #include <QFileDialog>
 #include <QInputDialog>
+#include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QMetaObject>
 #include <QSettings>
 #include <QStatusBar>
+#include <QThread>
 #include <QToolBar>
+#include <QVBoxLayout>
 
 #include <memory>
 #include <utility>
+
+Q_DECLARE_METATYPE(bl::ui::ExportWorker::Request)
 
 namespace bl::ui {
 
@@ -34,6 +43,8 @@ QString untitledTitle() {
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent, QSettings* settings) : QMainWindow(parent) {
+    qRegisterMetaType<ExportWorker::Request>();
+
     if (settings) {
         settings_ = settings;
     } else {
@@ -56,6 +67,15 @@ MainWindow::MainWindow(QWidget* parent, QSettings* settings) : QMainWindow(paren
 }
 
 MainWindow::~MainWindow() {
+    if (exportWorker_) {
+        exportWorker_->cancel();
+        exportThread_->quit();
+        exportThread_->wait(3000);
+        delete exportWorker_;
+        delete exportThread_;
+        exportWorker_ = nullptr;
+        exportThread_ = nullptr;
+    }
     if (ownsSettings_) {
         delete settings_;
     }
@@ -145,6 +165,17 @@ void MainWindow::buildActions() {
     saveAs->setShortcut(QKeySequence::SaveAs);
     connect(saveAs, &QAction::triggered, this, [this] { doSaveAs(); });
 
+    exportAction_ = new QAction(tr("Export..."), this);
+    exportAction_->setObjectName(QStringLiteral("actionExport"));
+    exportAction_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_E));
+    connect(exportAction_, &QAction::triggered, this,
+            &MainWindow::startExport);
+
+    batchExportAction_ = new QAction(tr("Batch Export..."), this);
+    batchExportAction_->setObjectName(QStringLiteral("actionBatchExport"));
+    connect(batchExportAction_, &QAction::triggered, this,
+            &MainWindow::startBatchExport);
+
     auto* quit = new QAction(tr("Quit"), this);
     quit->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q));
     connect(quit, &QAction::triggered, this, &QWidget::close);
@@ -170,6 +201,9 @@ void MainWindow::buildActions() {
     fileMenu->addAction(save);
     fileMenu->addAction(saveAs);
     fileMenu->addSeparator();
+    fileMenu->addAction(exportAction_);
+    fileMenu->addAction(batchExportAction_);
+    fileMenu->addSeparator();
     fileMenu->addAction(quit);
 
     auto* editMenu = menuBar()->addMenu(tr("&Edit"));
@@ -193,6 +227,7 @@ void MainWindow::buildActions() {
     toolbar->addAction(open);
     toolbar->addAction(save);
     toolbar->addAction(saveAs);
+    toolbar->addAction(exportAction_);
     toolbar->addSeparator();
     toolbar->addAction(undoAction_);
     toolbar->addAction(redoAction_);
@@ -201,8 +236,92 @@ void MainWindow::buildActions() {
     redoAction_->setEnabled(false);
 }
 
+void MainWindow::startBatchExport() {
+    BatchExportDialog::AppContext context;
+    context.snapshotOf = [this] { return controller_->timeline().snapshot(); };
+    context.mediaBinOf = [this] { return controller_->mediaBin(); };
+    context.pluginSpecOf = [this] {
+        bl::MediaDecodeSource::Spec spec;
+        spec.pluginDirs = previewPanel_->pluginDirs();
+        return spec;
+    };
+    context.exportBusy = [this] { return exportBusy(); };
+    context.queuePath =
+        QString::fromStdString(defaultExportQueuePath());
+
+    BatchExportDialog dialog(context, this);
+    dialog.setJobs(loadExportQueue(context.queuePath.toStdString()));
+    dialog.exec();
+}
+
 void MainWindow::buildMenuAndToolbar() {
     statusBar()->showMessage(QStringLiteral("Ready"));
+}
+
+bool MainWindow::exportBusy() const {
+    return exportBusy_;
+}
+
+void MainWindow::ensureExportWorker() {
+    if (exportWorker_) {
+        return;
+    }
+    exportThread_ = new QThread(this);
+    exportThread_->setObjectName(QStringLiteral("ExportThread"));
+    exportWorker_ = new ExportWorker();
+    exportWorker_->moveToThread(exportThread_);
+    exportThread_->start();
+}
+
+void MainWindow::startExport() {
+    if (exportBusy()) {
+        statusBar()->showMessage(tr("An export is already running."), 3000);
+        return;
+    }
+
+    if (controller_->mediaBin().empty()) {
+        QMessageBox::information(this, tr("Export"),
+                                 tr("Add media to the media bin first."));
+        return;
+    }
+    if (controller_->timeline().sequence().videoTracks.empty()) {
+        QMessageBox::information(this, tr("Export"),
+                                 tr("The timeline has no video tracks yet."));
+        return;
+    }
+
+    ExportDialog dialog(this);
+    dialog.setSequenceDefaults(
+        controller_->timeline().sequence().settings);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    ensureExportWorker();
+    exportBusy_ = true;
+    exportAction_->setEnabled(false);
+
+    ExportWorker::Request request{dialog.settings(),
+                                  controller_->timeline().snapshot(),
+                                  controller_->mediaBin(),
+                                  previewPanel_->pluginDirs()};
+
+    auto* progress = new ExportProgressDialog(this);
+    progress->attach(exportWorker_);
+    QObject::connect(exportWorker_, &ExportWorker::finished, this,
+                     [this, progress](bool ok, const QString&) {
+                         exportBusy_ = false;
+                         exportAction_->setEnabled(true);
+                         statusBar()->showMessage(
+                             ok ? tr("Export complete.")
+                                : tr("Export stopped."),
+                             5000);
+                         progress->deleteLater();
+                     });
+
+    QMetaObject::invokeMethod(exportWorker_, "run", Qt::QueuedConnection,
+                              Q_ARG(ExportWorker::Request, request));
+    progress->exec();
 }
 
 void MainWindow::connectController() {

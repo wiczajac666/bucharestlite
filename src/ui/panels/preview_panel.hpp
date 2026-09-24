@@ -61,6 +61,14 @@ public:
     PreviewSurface* surface() { return surface_; }
     const PreviewSurface* surface() const { return surface_; }
 
+    // Plugin discovery roots this panel was configured with; the export
+    // pipeline (which loads its own plugins) reuses them so the app and the
+    // renderer agree on which codec set is active.
+    const std::vector<std::pair<std::string, bl::PluginOrigin>>& pluginDirs()
+        const {
+        return pluginDirs_;
+    }
+
 signals:
     void playheadChanged(const bl::Time& current);
 

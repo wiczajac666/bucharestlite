@@ -13,7 +13,19 @@ add_library(bl_ui STATIC
     panels/media_bin_panel.cpp
     panels/inspector_panel.cpp
     panels/mixer_panel.cpp
+    export/export_settings.cpp
+    export/export_plan.cpp
+    export/export_runner.cpp
+    export/export_worker.cpp
+    export/export_queue.cpp
+    dialogs/export_dialog.cpp
+    dialogs/export_progress_dialog.cpp
+    dialogs/batch_export_dialog.cpp
 )
+
+if(TARGET bl_export)
+    target_link_libraries(bl_ui PUBLIC bl_export)
+endif()
 add_library(bl::ui ALIAS bl_ui)
 
 target_include_directories(bl_ui PUBLIC
@@ -35,5 +47,7 @@ bl_enable_warnings(bl_ui)
 add_executable(bl_lite app/main.cpp)
 target_link_libraries(bl_lite PRIVATE bl::ui Qt6::Widgets)
 target_include_directories(bl_lite PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-set_target_properties(bl_lite PROPERTIES AUTOMOC ON)
+set_target_properties(bl_lite PROPERTIES AUTOMOC ON OUTPUT_NAME bucharest-lite)
 bl_enable_warnings(bl_lite)
+
+install(TARGETS bl_lite RUNTIME DESTINATION bin)
