@@ -9,7 +9,9 @@ void to_json(nlohmann::json& j, const SequenceSettings& s) {
         {"fps",
          {{"num", s.fps.num}, {"den", s.fps.den}}},
         {"sampleRate", s.sampleRate},
-        {"channelLayout", s.channelLayout}
+        {"channelLayout", s.channelLayout},
+        {"masterGain", s.masterGain},
+        {"masterPan", s.masterPan}
     };
 }
 
@@ -20,6 +22,8 @@ void from_json(const nlohmann::json& j, SequenceSettings& s) {
     s.fps.den = j.at("fps").at("den").get<int64_t>();
     s.sampleRate = j.value("sampleRate", 48000);
     s.channelLayout = j.value("channelLayout", 2);
+    s.masterGain = j.value("masterGain", 1.0);
+    s.masterPan = j.value("masterPan", 0.0);
 }
 
 void to_json(nlohmann::json& j, const Sequence& s) {

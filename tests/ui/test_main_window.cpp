@@ -68,15 +68,21 @@ TEST(MainWindow, createsAllDockingPanels) {
         EXPECT_NE(window.dock(title), nullptr) << title.toStdString();
     }
 
-    // Only Mixer is a placeholder dock. The Inspector is a real editor whose
-    // (hidden) "select a clip" page also carries the placeholder label, so
-    // assert directly on the Inspector dock's widget instead of a label count.
+    // Inspector and Mixer are both real panels now. The Inspector is a
+    // stacked editor whose (hidden) "select a clip" page also carries the
+    // placeholder label, so assert directly on the Inspector dock's widget
+    // and check the Mixer dock hosts a MixerPanel instead of a label count.
     auto* inspectorDock = window.dock(QStringLiteral("Inspector"));
     ASSERT_NE(inspectorDock, nullptr);
     auto* inspectorPanel =
         qobject_cast<bl::ui::InspectorPanel*>(inspectorDock->widget());
     ASSERT_NE(inspectorPanel, nullptr);
     EXPECT_TRUE(inspectorPanel->isPlaceholderShown()); // no selection yet
+
+    auto* mixerDock = window.dock(QStringLiteral("Mixer"));
+    ASSERT_NE(mixerDock, nullptr);
+    EXPECT_NE(mixerDock->widget()->findChild<bl::ui::MixerPanel*>(),
+              nullptr);
 }
 
 TEST(MainWindow, titleFollowsProjectAndDirtyState) {

@@ -6,6 +6,7 @@
 #include "dialogs/export_progress_dialog.hpp"
 #include "export/export_worker.hpp"
 #include "panels/inspector_panel.hpp"
+#include "panels/master_fader_panel.hpp"
 #include "panels/media_bin_panel.hpp"
 #include "panels/mixer_panel.hpp"
 #include "panels/preview_panel.hpp"
@@ -76,6 +77,8 @@ private:
     InspectorPanel* inspectorPanel_{nullptr};
     TimelinePanel* timelinePanel_{nullptr};
     MediaBinPanel* mediaBinPanel_{nullptr};
+    MixerPanel* mixerPanel_{nullptr};
+    MasterFaderPanel* masterFaderPanel_{nullptr};
 
     QAction* undoAction_{nullptr};
     QAction* redoAction_{nullptr};

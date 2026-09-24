@@ -181,16 +181,22 @@ TEST(TrackPropertiesTest, MuteSoloLockHeight) {
     EXPECT_FALSE(track.soloed());
     EXPECT_FALSE(track.locked());
     EXPECT_EQ(track.height(), 60);
+    EXPECT_DOUBLE_EQ(track.gain(), 1.0);
+    EXPECT_DOUBLE_EQ(track.pan(), 0.0);
 
     track.setMuted(true);
     track.setSoloed(true);
     track.setLocked(true);
     track.setHeight(80);
+    track.setGain(0.5);
+    track.setPan(-0.75);
 
     EXPECT_TRUE(track.muted());
     EXPECT_TRUE(track.soloed());
     EXPECT_TRUE(track.locked());
     EXPECT_EQ(track.height(), 80);
+    EXPECT_DOUBLE_EQ(track.gain(), 0.5);
+    EXPECT_DOUBLE_EQ(track.pan(), -0.75);
 }
 
 TEST(ClipEffectiveDurationTest, Identity) {

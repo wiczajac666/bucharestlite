@@ -9,6 +9,8 @@ void to_json(nlohmann::json& j, const VideoTrack& t) {
         {"muted", t.muted()},
         {"soloed", t.soloed()},
         {"locked", t.locked()},
+        {"gain", t.gain()},
+        {"pan", t.pan()},
         {"height", t.height()},
         {"clips", t.clips()}
     };
@@ -19,6 +21,8 @@ void from_json(const nlohmann::json& j, VideoTrack& t) {
     t.setMuted(j.value("muted", false));
     t.setSoloed(j.value("soloed", false));
     t.setLocked(j.value("locked", false));
+    t.setGain(j.value("gain", 1.0));
+    t.setPan(j.value("pan", 0.0));
     t.setHeight(j.value("height", 60));
     if (j.contains("clips")) {
         const auto& arr = j.at("clips");

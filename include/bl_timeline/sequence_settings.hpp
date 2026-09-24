@@ -13,12 +13,15 @@ struct SequenceSettings {
     Rational fps{24000, 1001};
     int32_t sampleRate{48000};
     int32_t channelLayout{2};
+    double masterGain{1.0};
+    double masterPan{0.0};
 };
 
 inline bool operator==(const SequenceSettings& a, const SequenceSettings& b) {
     return a.width == b.width && a.height == b.height &&
            a.fps == b.fps && a.sampleRate == b.sampleRate &&
-           a.channelLayout == b.channelLayout;
+           a.channelLayout == b.channelLayout &&
+           a.masterGain == b.masterGain && a.masterPan == b.masterPan;
 }
 
 inline bool operator!=(const SequenceSettings& a, const SequenceSettings& b) {

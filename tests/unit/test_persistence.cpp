@@ -1,5 +1,6 @@
 #include <bl_core/autosave_ring.hpp>
 #include <bl_core/project_repository.hpp>
+#include <bl_timeline/sequence.hpp>
 
 #include <gtest/gtest.h>
 
@@ -81,7 +82,9 @@ TEST(ProjectRepositoryTest, RoundTripPreservesEverything) {
     ASSERT_EQ(restored.mediaBin.size(), 2u);
     EXPECT_EQ(restored.mediaBin[0].id, "item-1");
     EXPECT_EQ(restored.mediaBin[0].name, "Interview");
-    EXPECT_EQ(restored.mediaBin[1].path, "/absolutely/elsewhere/broll.mp4");
+    EXPECT_EQ(restored.mediaBin[1].path,
+              fs::absolute(fs::path("/absolutely/elsewhere/broll.mp4"))
+                  .generic_string());
     EXPECT_EQ((*loaded).missingMedia.size(), 2u);
 
     const nlohmann::json& ext = restored.extensions;
@@ -312,6 +315,51 @@ TEST(AutosaveRecoveryTest, AutosaveOnlyExistsMeansRecoveryCandidate) {
     EXPECT_FALSE(
         bl::isAutosaveNewerThan(dir.child("ghost.blproj"),
                                 dir.child("anything.blproj")));
+}
+
+TEST(PersistenceTest, TrackMixerStateRoundTrips) {
+    bl::VideoTrack track("A1", bl::TrackKind::Audio);
+    track.setMuted(true);
+    track.setSoloed(false);
+    track.setGain(0.25);
+    track.setPan(-0.5);
+
+    nlohmann::json j = track;
+    bl::VideoTrack restored;
+    from_json(j, restored);
+
+    EXPECT_EQ(restored.name(), "A1");
+    EXPECT_TRUE(restored.muted());
+    EXPECT_FALSE(restored.soloed());
+    EXPECT_DOUBLE_EQ(restored.gain(), 0.25);
+    EXPECT_DOUBLE_EQ(restored.pan(), -0.5);
+
+    // Old projects (no gain/pan keys) must still load with defaults.
+    j.erase("gain");
+    j.erase("pan");
+    bl::VideoTrack legacy;
+    from_json(j, legacy);
+    EXPECT_DOUBLE_EQ(legacy.gain(), 1.0);
+    EXPECT_DOUBLE_EQ(legacy.pan(), 0.0);
+}
+
+TEST(PersistenceTest, SequenceMasterStateRoundTrips) {
+    bl::SequenceSettings s;
+    s.masterGain = 0.7;
+    s.masterPan = 0.2;
+
+    nlohmann::json j = s;
+    bl::SequenceSettings restored;
+    from_json(j, restored);
+    EXPECT_DOUBLE_EQ(restored.masterGain, 0.7);
+    EXPECT_DOUBLE_EQ(restored.masterPan, 0.2);
+
+    j.erase("masterGain");
+    j.erase("masterPan");
+    bl::SequenceSettings legacy;
+    from_json(j, legacy);
+    EXPECT_DOUBLE_EQ(legacy.masterGain, 1.0);
+    EXPECT_DOUBLE_EQ(legacy.masterPan, 0.0);
 }
 
 } // namespace

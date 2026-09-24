@@ -38,12 +38,16 @@ public:
     bool muted() const noexcept { return muted_; }
     bool soloed() const noexcept { return soloed_; }
     bool locked() const noexcept { return locked_; }
+    double gain() const noexcept { return gain_; }
+    double pan() const noexcept { return pan_; }
     int32_t height() const noexcept { return height_; }
 
     void setName(std::string n) { name_ = std::move(n); }
     void setMuted(bool m) { muted_ = m; }
     void setSoloed(bool s) { soloed_ = s; }
     void setLocked(bool l) { locked_ = l; }
+    void setGain(double g) { gain_ = g; }
+    void setPan(double p) { pan_ = p; }
     void setHeight(int32_t h) { height_ = h; }
 
     const std::vector<ClipType>& clips() const noexcept { return clips_; }
@@ -568,6 +572,8 @@ private:
     bool muted_{false};
     bool soloed_{false};
     bool locked_{false};
+    double gain_{1.0};
+    double pan_{0.0};
     int32_t height_{60};
     std::vector<ClipType> clips_;
 

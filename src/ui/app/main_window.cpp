@@ -102,7 +102,14 @@ void MainWindow::buildDocks() {
 
     mixer = new QDockWidget(tr("Mixer"), this);
     mixer->setObjectName(QStringLiteral("MixerDock"));
-    mixer->setWidget(new MixerPanel(this));
+    auto* mixerHost = new QWidget(this);
+    auto* mixerLayout = new QVBoxLayout(mixerHost);
+    mixerLayout->setContentsMargins(0, 0, 0, 0);
+    mixerPanel_ = new MixerPanel(controller_, mixerHost);
+    masterFaderPanel_ = new MasterFaderPanel(controller_, mixerHost);
+    mixerLayout->addWidget(mixerPanel_, 1);
+    mixerLayout->addWidget(masterFaderPanel_, 0);
+    mixer->setWidget(mixerHost);
     addDockWidget(Qt::RightDockWidgetArea, mixer);
 
     timeline = new QDockWidget(tr("Timeline"), this);

@@ -10,6 +10,8 @@ add_executable(bl_ui_tests
     test_preview_panel.cpp
     test_media_bin_panel.cpp
     test_inspector_panel.cpp
+    test_mixer_controller.cpp
+    test_mixer_panel.cpp
     test_export_settings.cpp
     test_export_runner.cpp
     test_export_ui.cpp

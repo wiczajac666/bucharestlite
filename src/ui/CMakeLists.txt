@@ -12,7 +12,9 @@ add_library(bl_ui STATIC
     transport/transport_controller.cpp
     panels/media_bin_panel.cpp
     panels/inspector_panel.cpp
+    panels/mixer_controller.cpp
     panels/mixer_panel.cpp
+    panels/master_fader_panel.cpp
     export/export_settings.cpp
     export/export_plan.cpp
     export/export_runner.cpp
