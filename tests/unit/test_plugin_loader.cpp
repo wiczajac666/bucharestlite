@@ -202,9 +202,11 @@ TEST(PluginLoaderTest, UserLocalOverridesSystemOnDuplicateName) {
         pluginDir() / ("libfixturegood" BL_DYNLIB_SUFFIX);
     ASSERT_TRUE(fs::exists(source)) << source;
 
-    fs::copy_file(source, sysDir / "video" / "liba.so",
+    fs::copy_file(source,
+                  sysDir / "video" / ("liba" BL_DYNLIB_SUFFIX),
                   fs::copy_options::overwrite_existing);
-    fs::copy_file(source, userDir / "video" / "libb.so",
+    fs::copy_file(source,
+                  userDir / "video" / ("libb" BL_DYNLIB_SUFFIX),
                   fs::copy_options::overwrite_existing);
 
     PluginLoader loader;

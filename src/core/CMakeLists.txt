@@ -1,9 +1,4 @@
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(BL_FFMPEG REQUIRED IMPORTED_TARGET
-    libavformat
-    libavcodec
-    libavutil
-)
+find_package(FFmpeg REQUIRED)
 
 add_library(bl_core STATIC
     time.cpp
@@ -42,4 +37,4 @@ if(NOT MSVC)
     target_link_libraries(bl_core PUBLIC ${CMAKE_DL_LIBS})
 endif()
 
-target_link_libraries(bl_core PUBLIC PkgConfig::BL_FFMPEG)
+target_link_libraries(bl_core PUBLIC FFmpeg::avformat FFmpeg::avcodec FFmpeg::avutil)

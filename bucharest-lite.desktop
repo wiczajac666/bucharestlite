@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Bucharest Lite
+Comment=Open-Source Non-Linear Video Editor
+Exec=bucharest-lite
+Icon=bucharest-lite
+Terminal=false
+Categories=AudioVideo;AudioVideoEditing;
+StartupNotify=true
+Keywords=video;editor;nle;timeline;

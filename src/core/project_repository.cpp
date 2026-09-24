@@ -33,7 +33,7 @@ json mediaItemToJson(const MediaBinItem& item,
     if (!ec && !projectDir.empty()) {
         const fs::path relative = fs::relative(absolute, projectDir, ec);
         if (!ec && !relative.empty() &&
-            relative.native().find("..") == std::string::npos) {
+            relative.generic_string().find("..") == std::string::npos) {
             j["path"] = relative.generic_string();
             return j;
         }

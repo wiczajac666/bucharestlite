@@ -7,6 +7,8 @@ namespace bl::platform {
 
 std::string dynamicLibrarySuffix() noexcept;
 
+std::string executableDirectory();
+
 std::string userDataRoot();
 
 std::vector<std::string> pluginRootDirectories();

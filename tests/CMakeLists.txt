@@ -9,12 +9,7 @@ set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(BL_FFMPEG REQUIRED IMPORTED_TARGET
-    libavformat
-    libavcodec
-    libavutil
-)
+find_package(FFmpeg REQUIRED)
 
 set(BL_MEDIA_STAGE ${CMAKE_CURRENT_BINARY_DIR}/media)
 
@@ -47,6 +42,33 @@ add_custom_target(bl_media_fixtures ALL
             ${BL_MEDIA_STAGE}/test_audio_opus.opus
             ${BL_MEDIA_STAGE}/test_video_theora.ogv
 )
+
+if(WIN32 AND DEFINED FFMPEG_BIN_DIR)
+    function(bl_stage_ffmpeg_runtime test_target)
+        file(GLOB _ffmpeg_runtime_glob
+            ${FFMPEG_BIN_DIR}/avcodec-*.dll
+            ${FFMPEG_BIN_DIR}/avformat-*.dll
+            ${FFMPEG_BIN_DIR}/avutil-*.dll
+            ${FFMPEG_BIN_DIR}/swscale-*.dll
+            ${FFMPEG_BIN_DIR}/swresample-*.dll
+            ${FFMPEG_BIN_DIR}/libgcc_s_seh-1.dll
+            ${FFMPEG_BIN_DIR}/libstdc++-6.dll
+            ${FFMPEG_BIN_DIR}/libwinpthread-1.dll
+        )
+        if(NOT _ffmpeg_runtime_glob)
+            message(FATAL_ERROR "No FFmpeg runtime DLLs matched in ${FFMPEG_BIN_DIR}")
+        endif()
+        set(_stage_cmds)
+        foreach(_dll IN LISTS _ffmpeg_runtime_glob)
+            list(APPEND _stage_cmds
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${_dll}" $<TARGET_FILE_DIR:${test_target}>)
+        endforeach()
+        add_custom_command(TARGET ${test_target} POST_BUILD ${_stage_cmds}
+            COMMENT "Staging FFmpeg runtime next to ${test_target}"
+            VERBATIM)
+    endfunction()
+endif()
 
 add_subdirectory(unit)
 

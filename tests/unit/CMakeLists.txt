@@ -18,6 +18,9 @@ foreach(fixture IN LISTS BL_FIXTURES)
         OUTPUT_NAME ${fixture_output}
         PREFIX "lib"
     )
+    if(WIN32)
+        set_property(TARGET ${fixture_name} PROPERTY WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    endif()
 endforeach()
 
 add_executable(bl_core_tests
@@ -52,6 +55,11 @@ target_compile_definitions(bl_core_tests PRIVATE
     BL_TEST_MEDIA_DIR="$<TARGET_FILE_DIR:bl_core_tests>/media"
 )
 
+if(WIN32)
+    target_compile_definitions(bl_core_tests PRIVATE
+        BL_DYNLIB_SUFFIX=".dll")
+endif()
+
 if(MSVC)
     target_compile_options(bl_core_tests PRIVATE /W4 /permissive-)
 else()
@@ -84,4 +92,8 @@ if(BL_BUILD_PLUGINS)
     add_custom_target(bl_core_tests_plugins ALL
         DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/plugins-copied.stamp
     )
+endif()
+
+if(COMMAND bl_stage_ffmpeg_runtime)
+    bl_stage_ffmpeg_runtime(bl_core_tests)
 endif()

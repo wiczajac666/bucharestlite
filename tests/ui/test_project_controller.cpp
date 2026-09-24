@@ -8,6 +8,7 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
 #include <string>
 
 namespace {
@@ -105,7 +106,10 @@ TEST(ProjectController, saveAndOpenRoundTripPreservesDocument) {
         EXPECT_FALSE(controller.dirty());
         EXPECT_EQ(stl(controller.projectName()), "Round Trip");
         ASSERT_EQ(controller.mediaBin().size(), 1u);
-        EXPECT_EQ(controller.mediaBin()[0].path, clipPath);
+        EXPECT_EQ(controller.mediaBin()[0].path,
+                  std::filesystem::absolute(
+                      std::filesystem::path(clipPath))
+                      .generic_string());
 
         const auto& timeline = controller.timeline();
         EXPECT_EQ(timeline.sequence().name, "Round Trip");

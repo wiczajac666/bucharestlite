@@ -1,6 +1,7 @@
 #include <bl_timeline/clip.hpp>
 
 #include <cassert>
+#include <cmath>
 
 #if defined(__SIZEOF_INT128__)
 #define BL_HAS_INT128 1
@@ -40,6 +41,18 @@ static Time advanceSourceTimeWide(Time sourcePos, Duration timelineDelta,
     Time result = sourcePos;
     result.ticks += roundHalfEvenWide(num, den);
     return result;
+}
+
+#else
+
+static int64_t roundHalfEvenDouble(double v) {
+    double fl = std::floor(v);
+    double frac = v - fl;
+    if (frac > 0.5) return static_cast<int64_t>(fl + 1.0);
+    if (frac < 0.5) return static_cast<int64_t>(fl);
+    return (static_cast<int64_t>(fl) % 2 == 0)
+               ? static_cast<int64_t>(fl)
+               : static_cast<int64_t>(fl + 1.0);
 }
 
 #endif
@@ -268,7 +281,7 @@ Time advanceSourceTime(Time sourcePos, Duration timelineDelta,
     double srcTicks = tlSec * factor *
                       static_cast<double>(sourcePos.rate.num) /
                       static_cast<double>(sourcePos.rate.den);
-    result.ticks += static_cast<int64_t>(srcTicks);
+    result.ticks += roundHalfEvenDouble(srcTicks);
     return result;
 #endif
 }
@@ -298,8 +311,8 @@ Duration retimedTimelineDuration(Duration timelineDuration, SpeedRemap from,
         (static_cast<double>(to.rateDen) / static_cast<double>(to.rateNum)) *
         (static_cast<double>(from.rateNum) / static_cast<double>(from.rateDen));
     return Duration::fromTicks(
-        static_cast<int64_t>(static_cast<double>(timelineDuration.ticks) *
-                             factor),
+        roundHalfEvenDouble(static_cast<double>(timelineDuration.ticks) *
+                            factor),
         timelineDuration.rate);
 #endif
 }
@@ -318,7 +331,7 @@ std::optional<Clip> makeThreePointClip(const SourceRef& source,
     double factor = static_cast<double>(speed.rateDen) /
                     static_cast<double>(speed.rateNum);
     clip.timelineDuration = Duration::fromTicks(
-        static_cast<int64_t>(static_cast<double>(span.ticks) * factor),
+        roundHalfEvenDouble(static_cast<double>(span.ticks) * factor),
         span.rate);
 #endif
     return clip;

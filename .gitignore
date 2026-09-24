@@ -1,6 +1,18 @@
 build/
 build-*/
+obj-*/
 .cache/
 compile_commands.json
 *.user
 .DS_Store
+
+# packaging artifacts
+debian/staging/
+doc-pak/
+description-pak
+*.deb
+*.rpm
+*.tar.gz
+packaging/windows/*.exe
+packaging/windows/*.zip
+!bucharest-lite-app.json

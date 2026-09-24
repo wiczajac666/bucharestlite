@@ -4,6 +4,10 @@
 #include <cstdlib>
 #include <string>
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
 namespace bl::platform {
 
 std::string dynamicLibrarySuffix() noexcept {
@@ -42,9 +46,32 @@ std::string userDataRoot() {
 #endif
 }
 
+std::string executableDirectory() {
+#if defined(_WIN32)
+    wchar_t buf[MAX_PATH];
+    DWORD len = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+    if (len == 0 || len >= MAX_PATH) {
+        return {};
+    }
+    for (DWORD i = len; i > 0; --i) {
+        if (buf[i - 1] == L'\\' || buf[i - 1] == L'/') {
+            std::wstring dir(buf, i - 1);
+            return std::string(dir.begin(), dir.end());
+        }
+    }
+    return {};
+#else
+    return {};
+#endif
+}
+
 std::vector<std::string> pluginRootDirectories() {
     std::vector<std::string> roots;
 #if defined(_WIN32)
+    const std::string exeDir = executableDirectory();
+    if (!exeDir.empty()) {
+        roots.push_back(exeDir + "\\plugins");
+    }
     const char* appdata = std::getenv("APPDATA");
     if (appdata && *appdata) {
         roots.push_back(std::string(appdata) + "\\BucharestLite\\plugins");

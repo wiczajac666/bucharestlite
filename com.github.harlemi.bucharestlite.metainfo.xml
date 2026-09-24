@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.github.harlemi.bucharestlite</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Bucharest Lite</name>
+  <summary>Open-source non-linear video editor (NLE)</summary>
+  <description>
+    <p>Bucharest Lite is an open-source non-linear video editor (NLE) built with Qt6/C++17 and FFmpeg, featuring a multi-track timeline and GPU-accelerated compositing.</p>
+    <p>Features include timeline editing (trim, split, ripple, 3-point editing), frame-accurate playback, speed/time remapping, keyframeable clip properties, transitions, video effects (color correction, chroma key), layer-based compositing, titles and subtitles, multi-track audio mixing, scopes, modular FFmpeg-backed codec plugins (h264, vp9, av1, theora, mpeg4, aac, flac, vorbis, opus), proxy editing, project auto-save, unlimited undo/redo, and a custom export pipeline.</p>
+  </description>
+  <launchable type="desktop-id">bucharest-lite.desktop</launchable>
+  <url type="homepage">https://github.com/wiczajac666/bucharestlite</url>
+  <url type="bugtracker">https://github.com/wiczajac666/bucharestlite/issues</url>
+  <provides>
+    <binary>bucharest-lite</binary>
+  </provides>
+  <keywords>
+    <keyword>video</keyword>
+    <keyword>editor</keyword>
+    <keyword>nle</keyword>
+    <keyword>montage</keyword>
+  </keywords>
+</component>

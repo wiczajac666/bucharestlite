@@ -8,14 +8,7 @@ if(NOT BL_BUILD_PLUGINS)
     return()
 endif()
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(BL_FFMPEG_PLUGINS REQUIRED IMPORTED_TARGET
-    libavcodec
-    libavformat
-    libavutil
-    libswscale
-    libswresample
-)
+find_package(FFmpeg REQUIRED)
 
 set(BL_PLUGIN_OUTPUT_DIR ${CMAKE_BINARY_DIR}/plugins)
 set(BL_PLUGIN_VIDEO_DIR ${BL_PLUGIN_OUTPUT_DIR}/video)
@@ -28,8 +21,13 @@ set_property(TARGET bl_ffmpeg_plugin_common PROPERTY POSITION_INDEPENDENT_CODE O
 target_include_directories(bl_ffmpeg_plugin_common PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../../include
 )
-target_link_libraries(bl_ffmpeg_plugin_common PUBLIC PkgConfig::BL_FFMPEG_PLUGINS)
-target_compile_options(bl_ffmpeg_plugin_common PRIVATE -Wall -Wextra)
+target_link_libraries(bl_ffmpeg_plugin_common PUBLIC
+    FFmpeg::avformat FFmpeg::avcodec FFmpeg::avutil
+    FFmpeg::swscale FFmpeg::swresample
+)
+if(NOT MSVC)
+    target_compile_options(bl_ffmpeg_plugin_common PRIVATE -Wall -Wextra)
+endif()
 
 # PLG-1..PLG-9: the nine FFmpeg-backed codec plugins.
 set(BL_PLUGIN_SOURCES
@@ -52,7 +50,9 @@ function(bl_add_codec_plugin rel_path output_name)
         ${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg
     )
     target_link_libraries(${output_name} PRIVATE bl_ffmpeg_plugin_common)
-    target_compile_options(${output_name} PRIVATE -Wall -Wextra)
+    if(NOT MSVC)
+        target_compile_options(${output_name} PRIVATE -Wall -Wextra)
+    endif()
     get_filename_component(type_dir ${rel_dirs} DIRECTORY)
     set_target_properties(${output_name} PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${type_dir}
@@ -60,6 +60,9 @@ function(bl_add_codec_plugin rel_path output_name)
         OUTPUT_NAME ${output_name}
         PREFIX "bl"
     )
+    if(WIN32)
+        set_property(TARGET ${output_name} PROPERTY WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    endif()
 endfunction()
 
 foreach(spec IN LISTS BL_PLUGIN_SOURCES)
@@ -93,3 +96,15 @@ foreach(spec IN LISTS BL_PLUGIN_SOURCES)
     )
     add_dependencies(bl_codec_plugins ${output_name})
 endforeach()
+
+if(WIN32)
+    install(DIRECTORY ${BL_PLUGIN_OUTPUT_DIR}/video ${BL_PLUGIN_OUTPUT_DIR}/audio
+        DESTINATION share/bucharest-lite/plugins
+        FILES_MATCHING PATTERN "*.dll"
+    )
+else()
+    install(DIRECTORY ${BL_PLUGIN_OUTPUT_DIR}/video ${BL_PLUGIN_OUTPUT_DIR}/audio
+        DESTINATION share/bucharest-lite/plugins
+        FILES_MATCHING PATTERN "*.so"
+    )
+endif()

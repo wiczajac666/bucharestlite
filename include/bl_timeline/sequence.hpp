@@ -15,13 +15,13 @@ struct Sequence {
     std::vector<AudioTrack> audioTracks;
     std::vector<Marker> markers;
 
-    VideoTrack& addVideoTrack(const std::string& name = "") {
-        videoTracks.emplace_back(name, TrackKind::Video);
+    VideoTrack& addVideoTrack(const std::string& trackName = "") {
+        videoTracks.emplace_back(trackName, TrackKind::Video);
         return videoTracks.back();
     }
 
-    AudioTrack& addAudioTrack(const std::string& name = "") {
-        audioTracks.emplace_back(name, TrackKind::Audio);
+    AudioTrack& addAudioTrack(const std::string& trackName = "") {
+        audioTracks.emplace_back(trackName, TrackKind::Audio);
         return audioTracks.back();
     }
 
@@ -145,13 +145,13 @@ struct Sequence {
         return audioTracks[t].setSubtitleStyle(id, std::move(style));
     }
 
-    bool setClipNameInVideoTrack(size_t t, const ClipId& id, std::string name) {
+    bool setClipNameInVideoTrack(size_t t, const ClipId& id, std::string newName) {
         if (t >= videoTracks.size()) return false;
-        return videoTracks[t].setClipName(id, std::move(name));
+        return videoTracks[t].setClipName(id, std::move(newName));
     }
-    bool setClipNameInAudioTrack(size_t t, const ClipId& id, std::string name) {
+    bool setClipNameInAudioTrack(size_t t, const ClipId& id, std::string newName) {
         if (t >= audioTracks.size()) return false;
-        return audioTracks[t].setClipName(id, std::move(name));
+        return audioTracks[t].setClipName(id, std::move(newName));
     }
 
     bool setClipColorLabelInVideoTrack(size_t t, const ClipId& id,

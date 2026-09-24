@@ -7,7 +7,8 @@
             "generator": "Unix Makefiles",
             "binaryDir": "${sourceDir}/build/${presetName}",
             "cacheVariables": {
-                "BL_BUILD_TESTS": "ON"
+                "BL_BUILD_TESTS": "ON",
+                "BL_BUILD_EXPORT": "ON"
             }
         },
         {
@@ -31,6 +32,33 @@
                 "CMAKE_BUILD_TYPE": "RelWithDebInfo",
                 "BL_ENABLE_TSAN": "ON"
             }
+        },
+        {
+            "name": "windows-base",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/windows/${presetName}",
+            "cacheVariables": {
+                "BL_BUILD_TESTS": "ON",
+                "BL_BUILD_EXPORT": "ON",
+                "FFMPEG_ROOT": "$env{FFMPEG_ROOT}"
+            }
+        },
+        {
+            "name": "windows-debug",
+            "inherits": "windows-base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_PREFIX_PATH": "$env{QT_ROOT}"
+            }
+        },
+        {
+            "name": "windows-release",
+            "inherits": "windows-base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_PREFIX_PATH": "$env{QT_ROOT}"
+            }
         }
     ],
     "buildPresets": [
@@ -45,6 +73,14 @@
         {
             "name": "linux-tsan",
             "configurePreset": "linux-tsan"
+        },
+        {
+            "name": "windows-debug",
+            "configurePreset": "windows-debug"
+        },
+        {
+            "name": "windows-release",
+            "configurePreset": "windows-release"
         }
     ],
     "testPresets": [
@@ -64,6 +100,22 @@
             "output": { "outputOnFailure": true },
             "environment": {
                 "TSAN_OPTIONS": "ignore_interceptors_accesses=1"
+            }
+        },
+        {
+            "name": "windows-debug",
+            "configurePreset": "windows-debug",
+            "output": { "outputOnFailure": true },
+            "environment": {
+                "QT_QPA_PLATFORM": "offscreen"
+            }
+        },
+        {
+            "name": "windows-release",
+            "configurePreset": "windows-release",
+            "output": { "outputOnFailure": true },
+            "environment": {
+                "QT_QPA_PLATFORM": "offscreen"
             }
         }
     ]
