@@ -3,8 +3,10 @@
 #include <QDateTime>
 
 #include <algorithm>
+#include <fstream>
 #include <functional>
 #include <memory>
+#include <sstream>
 #include <utility>
 
 namespace bl::ui {
@@ -40,7 +42,10 @@ std::string fileBaseName(const std::string& path) {
 } // namespace
 
 ProjectController::ProjectController(QObject* parent) : QObject(parent) {
-    undoStack_.setStateCallback([this] { emit undoChanged(); });
+    undoStack_.setStateCallback([this] {
+        recomputeDirty();
+        emit undoChanged();
+    });
 }
 
 QString ProjectController::projectName() const {
@@ -102,8 +107,8 @@ Result<void> ProjectController::doSave(const std::string& path) {
         return result;
     }
     filePath_ = path;
-    dirty_ = false;
-    emit dirtyChanged(false);
+    savedIndex_ = undoStack_.index();
+    recomputeDirty();
     emit statusMessage(QStringLiteral("Saved %1").arg(QString::fromStdString(path)));
     return result;
 }
@@ -119,13 +124,11 @@ void ProjectController::renameProject(const QString& name) {
         [this, newName] {
             project_.settings.name = newName;
             timeline_.sequence().name = newName;
-            markDirty();
             emit projectChanged();
         },
         [this, oldName] {
             project_.settings.name = oldName;
             timeline_.sequence().name = oldName;
-            markDirty();
             emit projectChanged();
         }));
 }
@@ -144,7 +147,6 @@ bool ProjectController::addToMediaBin(const QString& path) {
         QStringLiteral("Add media to bin").toStdString(),
         [this, item] {
             project_.mediaBin.push_back(item);
-            markDirty();
             emit projectChanged();
         },
         [this, item] {
@@ -152,7 +154,6 @@ bool ProjectController::addToMediaBin(const QString& path) {
                 std::remove_if(project_.mediaBin.begin(), project_.mediaBin.end(),
                                [&item](const MediaBinItem& it) { return it.id == item.id; }),
                 project_.mediaBin.end());
-            markDirty();
             emit projectChanged();
         }));
     return true;
@@ -175,13 +176,11 @@ bool ProjectController::removeFromMediaBin(const QString& id) {
                 std::remove_if(project_.mediaBin.begin(), project_.mediaBin.end(),
                                [&item](const MediaBinItem& it) { return it.id == item.id; }),
                 project_.mediaBin.end());
-            markDirty();
             emit projectChanged();
         },
         [this, item, index] {
             const auto after = std::min(index, project_.mediaBin.size());
             project_.mediaBin.insert(project_.mediaBin.begin() + static_cast<ptrdiff_t>(after), item);
-            markDirty();
             emit projectChanged();
         }));
     return true;
@@ -191,6 +190,7 @@ void ProjectController::adopt(ProjectData data, Timeline timeline, std::string f
     project_ = std::move(data);
     timeline_ = std::move(timeline);
     filePath_ = std::move(filePath);
+    savedIndex_ = 0;
     undoStack_.clear();
     dirty_ = false;
     emit dirtyChanged(false);
@@ -201,12 +201,17 @@ void ProjectController::syncTimelineToExtensions() {
     project_.extensions["timeline"] = timeline_;
 }
 
-void ProjectController::markDirty(const QString& message) {
-    dirty_ = true;
-    emit dirtyChanged(true);
-    if (!message.isEmpty()) {
-        emit statusMessage(message);
+void ProjectController::recomputeDirty() {
+    const bool dirty = undoStack_.index() != savedIndex_;
+    if (dirty != dirty_) {
+        dirty_ = dirty;
+        emit dirtyChanged(dirty);
     }
+}
+
+void ProjectController::forceDirty() {
+    savedIndex_ = undoStack_.index() + 1;
+    recomputeDirty();
 }
 
 } // namespace bl::ui

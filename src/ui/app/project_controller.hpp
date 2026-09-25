@@ -7,6 +7,8 @@
 #include <bl_timeline/sequence.hpp>
 #include <bl_timeline/timeline.hpp>
 
+#include <nlohmann/json.hpp>
+
 #include <QObject>
 #include <QString>
 
@@ -57,11 +59,17 @@ private:
     Result<void> doSave(const std::string& path);
     void adopt(ProjectData data, Timeline timeline, std::string filePath);
     void syncTimelineToExtensions();
-    void markDirty(const QString& message = QString());
+    void recomputeDirty();
+    void forceDirty();
 
     ProjectData project_;
     Timeline timeline_;
     std::string filePath_;
+    // A project is dirty when the undo index has moved away from the index the
+    // document was last saved/adopted at; every mutation goes through the undo
+    // stack, so this stays exact for all edit kinds (including clip/mixer edits
+    // that never call an explicit mark-dirty).
+    size_t savedIndex_{0};
     bool dirty_{false};
     UndoStack undoStack_;
     size_t idSeed_{0};

@@ -4,9 +4,13 @@
 #include <app/project_controller.hpp>
 
 #include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QTemporaryDir>
 
 #include <gtest/gtest.h>
+
+#include <nlohmann/json.hpp>
 
 #include <filesystem>
 #include <string>
@@ -49,7 +53,7 @@ TEST(ProjectController, renameProjectIsUndoable) {
     EXPECT_TRUE(controller.canUndo());
 
     controller.undoStack().undo();
-    EXPECT_TRUE(controller.dirty());
+    EXPECT_FALSE(controller.dirty());
     EXPECT_EQ(stl(controller.projectName()), "Demo");
 
     controller.undoStack().redo();
@@ -72,13 +76,42 @@ TEST(ProjectController, mediaBinMutatorsAreUndoable) {
     const QString id = QString::fromStdString(controller.mediaBin()[0].id);
     ASSERT_TRUE(controller.removeFromMediaBin(id));
     EXPECT_TRUE(controller.mediaBin().empty());
+    EXPECT_TRUE(controller.dirty());
 
     controller.undoStack().undo();
     ASSERT_FALSE(controller.mediaBin().empty());
     EXPECT_EQ(controller.mediaBin()[0].path, "/media/clip.mp4");
+    EXPECT_TRUE(controller.dirty());
 
     controller.undoStack().undo();
     EXPECT_TRUE(controller.mediaBin().empty());
+    EXPECT_FALSE(controller.dirty());
+}
+
+TEST(ProjectController, dirtyClearsWhenUndoReturnsToSavedState) {
+    ProjectController controller;
+    controller.newProject(QStringLiteral("Demo"));
+    ASSERT_FALSE(controller.dirty());
+
+    controller.addToMediaBin(QStringLiteral("/media/a.mp4"));
+    controller.addToMediaBin(QStringLiteral("/media/b.mp4"));
+    controller.renameProject(QStringLiteral("Renamed"));
+    EXPECT_TRUE(controller.dirty());
+    EXPECT_TRUE(controller.canUndo());
+
+    // Undo only part of the way: still dirty.
+    controller.undoStack().undo();
+    EXPECT_TRUE(controller.dirty());
+
+    // Undo everything: back to the pristine adopted state.
+    controller.undoStack().undo();
+    controller.undoStack().undo();
+    EXPECT_FALSE(controller.dirty());
+    EXPECT_TRUE(controller.mediaBin().empty());
+
+    // Redo past the saved state marks it dirty again.
+    controller.undoStack().redo();
+    EXPECT_TRUE(controller.dirty());
 }
 
 TEST(ProjectController, saveAndOpenRoundTripPreservesDocument) {
