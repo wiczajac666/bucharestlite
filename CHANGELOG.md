@@ -3,6 +3,16 @@
 ## Unreleased
 
 ### Added
+- **UI-11 Live mixer level meters**: each audio strip and the master bus now
+  show classic L/R peak-dB bars (green/amber/red zones + decaying peak hold)
+  driven by the playhead. Per-source audio is decoded once in the background
+  (`bl_audio::AudioMeterEngine`, backed by the JobManager) into 60 Hz
+  peak/RMS envelopes, and the meter reads are mix-accurate at any playhead
+  position — clip and track gain/pan, mute/solo and master gain/pan all shape
+  the reading, mirroring the renderer's `TrackStrip` constant-power mapping.
+  Meters follow playback ticks and ruler scrubs alike
+  (`PreviewPanel::playheadChanged`); analysis is reconciled with the media bin
+  on every project change.
 - **UI-6 Export + Batch UI**: Export…/Export jobs… actions with worker-thread
   export (MP4/WebM only), batch queue persisted to `export_queue.json`, inline
   progress/cancel, codec set shared with the preview pipeline via

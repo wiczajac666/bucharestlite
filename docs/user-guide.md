@@ -62,7 +62,7 @@ During export, a progress window shows:
 
 ### Known UI limitations (v1)
 
-- Live audio level meters are not available yet: the mixer shows gain/pan/M-S
-  controls with dB readouts and the master strip is functional, but there is no
-  peak/VU metering because the v1 pipeline has no playback-time audio feed to
-  tap.
+- Live meters reflect the playhead position, so they are snapshots rather than
+  a real-time audio-path reading: volume follows the clip/track/master settings
+  but no audible playback is tied to them in v1 (further per-clip or
+  time-ranged metering is deferred).

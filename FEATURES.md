@@ -149,7 +149,8 @@ These are the **must-have** features — the baseline for any functional NLE:
 11. **Built-in title editor** — text with fonts, colors, basic animation
 12. **Subtitle support** — SRT/ASS import, burn-in
 13. **Multi-track audio** — waveform display, mixing, per-clip volume
-14. **Scopes** — audio meters, histogram, waveform
+14. **Scopes** — audio meters, histogram, waveform (v1 ships playhead-driven
+    peak-dB meters on the mixer strips and master bus)
 15. **Modular codec support** — plugin-based encoder/decoder loading
 16. **Proxy editing** — auto-generated low-res for smooth editing
 17. **Project auto-save** — crash recovery
