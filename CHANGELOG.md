@@ -29,6 +29,13 @@
   radius slider, and spec-less effects keep the raw JSON editor. The registry
   registers builtins on first use so the running app serves a populated
   catalog.
+- **UI-10 Media bin → timeline drag-and-drop**: media rows drag out of the bin
+  carrying their id (`application/x-bucharest-media`); dragging onto the
+  timeline probes the source once for duration and stream kind, snaps the
+  start, shows a placement ghost (green for valid, red on overlap), routes
+  video/audio to matching lanes (A/V sources to either), and commits one
+  undoable "Add clip" command per drop via the new
+  `TimelineEditController::addClip` mutator.
 
 ### Fixed
 - Project title ` *` and the close prompt now appear for clip/mixer edits too,
