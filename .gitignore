@@ -20,3 +20,6 @@ packaging/flatpak/*.flatpak
 
 # generated Doxygen output
 docs/api/
+
+# flatpak sandbox build tree (persistent host dir for `flatpak build`)
+.flatpak-build/

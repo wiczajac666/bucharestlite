@@ -36,6 +36,15 @@
   video/audio to matching lanes (A/V sources to either), and commits one
   undoable "Add clip" command per drop via the new
   `TimelineEditController::addClip` mutator.
+- **Flatpak packaging**: `bucharest-lite-app.json` is a buildable flatpak-builder
+  manifest (org.kde.Platform/Sdk 6.8) that bundles FFmpeg 8.0.1 (with
+  libaom/libopus/libtheora/libvorbis) since the freedesktop SDK's FFmpeg 7
+  predates the codec plugins' `avcodec_get_supported_config`/`SwsContext` API;
+  `packaging/linux/build_flatpak.sh` drives the same build with only the
+  `flatpak` CLI (no flatpak-builder dependency). Verified end-to-end: bundle
+  built, installed from the `.flatpak`, and launched offscreen in the sandbox.
+  h264 falls back to FFmpeg's native encoder (no libx264) and VP9 encode is
+  unavailable (no libvpx) in this build.
 
 ### Fixed
 - Project title ` *` and the close prompt now appear for clip/mixer edits too,
