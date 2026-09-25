@@ -5,6 +5,7 @@
 #include "export/export_queue.hpp"
 #include "export/export_worker.hpp"
 #include "panels/timeline_panel.hpp"
+#include "shortcuts/shortcuts_dialog.hpp"
 
 #include <QAction>
 #include <QApplication>
@@ -144,8 +145,13 @@ void MainWindow::buildDocks() {
 }
 
 void MainWindow::buildActions() {
+    auto registerAction = [this](QAction* action, const QString& id,
+                                 const QString& label,
+                                 const QKeySequence& sequence) {
+        actionRegistry_.registerAction(action, id, label, sequence);
+    };
+
     auto* newProject = new QAction(tr("New Project"), this);
-    newProject->setShortcut(QKeySequence::New);
     connect(newProject, &QAction::triggered, this, [this] {
         if (!confirmClose()) {
             return;
@@ -158,9 +164,10 @@ void MainWindow::buildActions() {
             maybePromptRecovery();
         }
     });
+    registerAction(newProject, "file.new", tr("New Project"),
+                   QKeySequence::New);
 
     auto* open = new QAction(tr("Open..."), this);
-    open->setShortcut(QKeySequence::Open);
     connect(open, &QAction::triggered, this, [this] {
         if (!confirmClose()) {
             return;
@@ -174,37 +181,53 @@ void MainWindow::buildActions() {
             }
         }
     });
+    registerAction(open, "file.open", tr("Open..."), QKeySequence::Open);
 
     auto* save = new QAction(tr("Save"), this);
-    save->setShortcut(QKeySequence::Save);
     connect(save, &QAction::triggered, this, [this] { doSave(); });
+    registerAction(save, "file.save", tr("Save"), QKeySequence::Save);
 
     auto* saveAs = new QAction(tr("Save As..."), this);
-    saveAs->setShortcut(QKeySequence::SaveAs);
     connect(saveAs, &QAction::triggered, this, [this] { doSaveAs(); });
+    registerAction(saveAs, "file.save_as", tr("Save As..."),
+                   QKeySequence::SaveAs);
 
     exportAction_ = new QAction(tr("Export..."), this);
     exportAction_->setObjectName(QStringLiteral("actionExport"));
-    exportAction_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_E));
     connect(exportAction_, &QAction::triggered, this,
             &MainWindow::startExport);
+    registerAction(exportAction_, "file.export", tr("Export..."),
+                   QKeySequence(Qt::CTRL | Qt::Key_E));
 
     batchExportAction_ = new QAction(tr("Batch Export..."), this);
     batchExportAction_->setObjectName(QStringLiteral("actionBatchExport"));
     connect(batchExportAction_, &QAction::triggered, this,
             &MainWindow::startBatchExport);
+    registerAction(batchExportAction_, "file.export_batch",
+                   tr("Batch Export..."),
+                   QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E));
 
     auto* quit = new QAction(tr("Quit"), this);
-    quit->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q));
     connect(quit, &QAction::triggered, this, &QWidget::close);
+    registerAction(quit, "file.quit", tr("Quit"),
+                   QKeySequence(Qt::CTRL | Qt::Key_Q));
 
     undoAction_ = new QAction(tr("Undo"), this);
-    undoAction_->setShortcut(QKeySequence::Undo);
     connect(undoAction_, &QAction::triggered, this, [this] { controller_->undoStack().undo(); });
+    registerAction(undoAction_, "edit.undo", tr("Undo"), QKeySequence::Undo);
 
     redoAction_ = new QAction(tr("Redo"), this);
-    redoAction_->setShortcut(QKeySequence::Redo);
     connect(redoAction_, &QAction::triggered, this, [this] { controller_->undoStack().redo(); });
+    registerAction(redoAction_, "edit.redo", tr("Redo"), QKeySequence::Redo);
+
+    playPauseAction_ = new QAction(tr("Play/Pause"), this);
+    connect(playPauseAction_, &QAction::triggered, this, [this] {
+        if (previewPanel_) {
+            previewPanel_->transport().togglePlay();
+        }
+    });
+    registerAction(playPauseAction_, "playback.toggle", tr("Play/Pause"),
+                   QKeySequence(Qt::Key_Space));
 
     darkThemeAction_ = new QAction(tr("Dark Theme"), this);
     darkThemeAction_->setCheckable(true);
@@ -212,21 +235,49 @@ void MainWindow::buildActions() {
     lightThemeAction_->setCheckable(true);
     connect(darkThemeAction_, &QAction::triggered, this, [this] { applyTheme(Theme::Dark); });
     connect(lightThemeAction_, &QAction::triggered, this, [this] { applyTheme(Theme::Light); });
+    registerAction(darkThemeAction_, "theme.dark", tr("Dark Theme"),
+                   QKeySequence());
+    registerAction(lightThemeAction_, "theme.light", tr("Light Theme"),
+                   QKeySequence());
 
+    const std::vector<std::pair<QDockWidget*, std::pair<QString, QKeySequence>>> docks = {
+        {mediaBin, {"view.toggle.media_bin", QKeySequence(Qt::CTRL | Qt::Key_1)}},
+        {preview, {"view.toggle.preview", QKeySequence(Qt::CTRL | Qt::Key_2)}},
+        {inspector, {"view.toggle.inspector", QKeySequence(Qt::CTRL | Qt::Key_3)}},
+        {mixer, {"view.toggle.mixer", QKeySequence(Qt::CTRL | Qt::Key_4)}},
+        {timeline, {"view.toggle.timeline", QKeySequence(Qt::CTRL | Qt::Key_5)}},
+    };
+    for (const auto& [dock, spec] : docks) {
+        QAction* toggle = dock->toggleViewAction();
+        const QString& id = spec.first;
+        const QKeySequence& sequence = spec.second;
+        registerAction(toggle, id, dock->windowTitle(), sequence);
+    }
+
+    applyActionsFromRegistry();
+}
+
+void MainWindow::applyActionsFromRegistry() {
+    actionRegistry_.loadOverrides(*settings_, QStringLiteral("shortcuts"));
+}
+
+void MainWindow::buildMenuAndToolbar() {
     auto* fileMenu = menuBar()->addMenu(tr("&File"));
-    fileMenu->addAction(newProject);
-    fileMenu->addAction(open);
-    fileMenu->addAction(save);
-    fileMenu->addAction(saveAs);
+    fileMenu->addAction(actionRegistry_.action("file.new"));
+    fileMenu->addAction(actionRegistry_.action("file.open"));
+    fileMenu->addAction(actionRegistry_.action("file.save"));
+    fileMenu->addAction(actionRegistry_.action("file.save_as"));
     fileMenu->addSeparator();
     fileMenu->addAction(exportAction_);
     fileMenu->addAction(batchExportAction_);
     fileMenu->addSeparator();
-    fileMenu->addAction(quit);
+    fileMenu->addAction(actionRegistry_.action("file.quit"));
 
     auto* editMenu = menuBar()->addMenu(tr("&Edit"));
     editMenu->addAction(undoAction_);
     editMenu->addAction(redoAction_);
+    editMenu->addSeparator();
+    editMenu->addAction(playPauseAction_);
 
     auto* viewMenu = menuBar()->addMenu(tr("&View"));
     viewMenu->addAction(mediaBin->toggleViewAction());
@@ -238,26 +289,33 @@ void MainWindow::buildActions() {
     viewMenu->addAction(darkThemeAction_);
     viewMenu->addAction(lightThemeAction_);
 
+    auto* helpMenu = menuBar()->addMenu(tr("&Help"));
+    auto* shortcutsAction = new QAction(tr("Keyboard Shortcuts..."), this);
+    connect(shortcutsAction, &QAction::triggered, this,
+            &MainWindow::showShortcutsDialog);
+    helpMenu->addAction(shortcutsAction);
+
     auto* toolbar = addToolBar(tr("Main"));
     toolbar->setObjectName(QStringLiteral("MainToolBar"));
     toolbar->setMovable(false);
-    toolbar->addAction(newProject);
-    toolbar->addAction(open);
-    toolbar->addAction(save);
-    toolbar->addAction(saveAs);
+    toolbar->addAction(actionRegistry_.action("file.new"));
+    toolbar->addAction(actionRegistry_.action("file.open"));
+    toolbar->addAction(actionRegistry_.action("file.save"));
+    toolbar->addAction(actionRegistry_.action("file.save_as"));
     toolbar->addAction(exportAction_);
     toolbar->addSeparator();
     toolbar->addAction(undoAction_);
     toolbar->addAction(redoAction_);
+    toolbar->addAction(playPauseAction_);
 
     undoAction_->setEnabled(false);
     redoAction_->setEnabled(false);
 }
 
-void MainWindow::buildMenuAndToolbar() {
-    statusBar()->showMessage(QStringLiteral("Ready"));
+void MainWindow::showShortcutsDialog() {
+    ShortcutsDialog dialog(actionRegistry_, *settings_, this);
+    dialog.exec();
 }
-
 void MainWindow::startBatchExport() {
     BatchExportDialog::AppContext context;
     context.snapshotOf = [this] { return controller_->timeline().snapshot(); };
@@ -385,6 +443,7 @@ void MainWindow::persistLayout() {
     settings_->setValue(kGeometryKey, saveGeometry());
     settings_->setValue(kStateKey, saveState());
     settings_->setValue(kThemeKey, themeKey(theme_));
+    actionRegistry_.saveOverrides(*settings_, QStringLiteral("shortcuts"));
 }
 
 void MainWindow::maybeRestoreLayout() {

@@ -24,6 +24,8 @@ add_library(bl_ui STATIC
     dialogs/export_dialog.cpp
     dialogs/export_progress_dialog.cpp
     dialogs/batch_export_dialog.cpp
+    shortcuts/action_registry.cpp
+    shortcuts/shortcuts_dialog.cpp
 )
 
 if(TARGET bl_export)

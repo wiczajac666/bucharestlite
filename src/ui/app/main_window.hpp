@@ -12,6 +12,7 @@
 #include "panels/mixer_panel.hpp"
 #include "panels/preview_panel.hpp"
 #include "panels/timeline_panel.hpp"
+#include "shortcuts/action_registry.hpp"
 
 #include <QMainWindow>
 
@@ -58,6 +59,7 @@ protected:
 private:
     void buildDocks();
     void buildActions();
+    void applyActionsFromRegistry();
     void buildMenuAndToolbar();
     void connectController();
     void updateTitle();
@@ -65,6 +67,7 @@ private:
     bool confirmClose();
     bool doSave();
     bool doSaveAs();
+    void showShortcutsDialog();
 
     void startExport();
     void startBatchExport();
@@ -81,6 +84,7 @@ private:
     bool promptOnClose_{true};
     std::function<bool()> recoveryDecider_;
     Theme theme_{Theme::Dark};
+    ActionRegistry actionRegistry_;
 
     QDockWidget* mediaBin{nullptr};
     QDockWidget* preview{nullptr};
@@ -101,6 +105,7 @@ private:
     QAction* lightThemeAction_{nullptr};
     QAction* exportAction_{nullptr};
     QAction* batchExportAction_{nullptr};
+    QAction* playPauseAction_{nullptr};
 
     QThread* exportThread_{nullptr};
     ExportWorker* exportWorker_{nullptr};

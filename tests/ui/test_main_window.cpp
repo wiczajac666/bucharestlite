@@ -264,3 +264,51 @@ TEST(MainWindow, autosaveFlushesOnWindowDeactivate) {
                       "Focus" / "autosave_01.blproj";
     EXPECT_TRUE(fs::exists(slot));
 }
+
+TEST(MainWindow, registryBindsNewAndExistingShortcuts) {
+    ensureApp();
+    QTemporaryDir dir;
+    TempSettings storage(dir);
+    bl::ui::MainWindow window(nullptr, &storage.settings);
+    window.setPromptOnCloseEnabled(false);
+
+    QAction* batch =
+        findAction(window, QStringLiteral("Batch Export..."));
+    ASSERT_NE(batch, nullptr);
+    EXPECT_EQ(batch->shortcut(),
+              QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E));
+
+    QAction* play =
+        findAction(window, QStringLiteral("Play/Pause"));
+    ASSERT_NE(play, nullptr);
+    EXPECT_EQ(play->shortcut(), QKeySequence(Qt::Key_Space));
+
+    const std::vector<QKeySequence> toggleShortcuts = {
+        QKeySequence(Qt::CTRL | Qt::Key_1), QKeySequence(Qt::CTRL | Qt::Key_2),
+        QKeySequence(Qt::CTRL | Qt::Key_3), QKeySequence(Qt::CTRL | Qt::Key_4),
+        QKeySequence(Qt::CTRL | Qt::Key_5)};
+    for (size_t i = 0; i < dockTitles().size(); ++i) {
+        EXPECT_EQ(window.dock(dockTitles()[i])->toggleViewAction()->shortcut(),
+                  toggleShortcuts[i]);
+    }
+
+    QAction* help = findAction(window, QStringLiteral("Keyboard Shortcuts..."));
+    EXPECT_NE(help, nullptr);
+}
+
+TEST(MainWindow, persistedShortcutOverrideIsApplied) {
+    ensureApp();
+    QTemporaryDir dir;
+    TempSettings storage(dir);
+    storage.settings.setValue(QStringLiteral("shortcuts/file.export"),
+                              QStringLiteral("Ctrl+Alt+E"));
+
+    bl::ui::MainWindow window(nullptr, &storage.settings);
+    window.setPromptOnCloseEnabled(false);
+
+    QAction* exportAction = window.findChild<QAction*>(
+        QStringLiteral("actionExport"));
+    ASSERT_NE(exportAction, nullptr);
+    EXPECT_EQ(exportAction->shortcut(),
+              QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_E));
+}
