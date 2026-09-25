@@ -21,6 +21,14 @@
   remappable (new defaults include Ctrl+Shift+E batch export, Ctrl+1..5 panel
   toggles, Space playback); overrides persist to QSettings; Help → Keyboard
   Shortcuts… opens the inline-capture editor.
+- **UI-9 Video effects**: the Inspector's Add… menu lists every built-in effect
+  from the `EffectRegistry` and seeds identity-by-default params; each effect's
+  parameters now have a schema (`ParamSpec`: key/label/range/default) rendered
+  as sliders that commit one undoable command per drag gesture. Color
+  Correction (brightness/contrast/gamma) ships with specs, Box Blur exposes a
+  radius slider, and spec-less effects keep the raw JSON editor. The registry
+  registers builtins on first use so the running app serves a populated
+  catalog.
 
 ### Fixed
 - Project title ` *` and the close prompt now appear for clip/mixer edits too,
@@ -29,6 +37,9 @@
 - Recovery decision no longer misses a snapshot when the manual save and the
   autosave share a modification-time tick (NTFS updates timestamps lazily);
   ties fall back to a content comparison.
+- Built-in effects are registered on first use of the `EffectRegistry`, so the
+  effect catalog and per-clip effect processing work in the running app (they
+  had only been populated inside unit tests).
 - Staged test fixtures/plugins before `gtest_discover_tests` so incremental
   UI runs don't spuriously fail.
 - `bl_lite` target outputs `bucharest-lite` and is installed to `bin`.
