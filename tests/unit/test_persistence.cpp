@@ -338,6 +338,29 @@ TEST(AutosaveRecoveryTest, AutosaveOnlyExistsMeansRecoveryCandidate) {
                                 dir.child("anything.blproj")));
 }
 
+TEST(AutosaveRecoveryTest, TiedModificationTimesFallBackToContent) {
+    TempDir dir;
+    const std::string main = dir.child("main.blproj");
+    const std::string autosave = dir.child("auto.blproj");
+
+    { std::ofstream(main) << "saved state"; }
+    { std::ofstream(autosave) << "unsaved edits"; }
+    const auto pinned =
+        std::filesystem::file_time_type::clock::now() -
+        std::chrono::seconds(120);
+    std::error_code ec;
+    std::filesystem::last_write_time(main, pinned, ec);
+    std::filesystem::last_write_time(autosave, pinned, ec);
+    ASSERT_FALSE(ec);
+
+    EXPECT_TRUE(bl::isAutosaveNewerThan(autosave, main));
+
+    { std::ofstream(main) << "unsaved edits"; }
+    std::filesystem::last_write_time(main, pinned, ec);
+    ASSERT_FALSE(ec);
+    EXPECT_FALSE(bl::isAutosaveNewerThan(autosave, main));
+}
+
 TEST(PersistenceTest, TrackMixerStateRoundTrips) {
     bl::VideoTrack track("A1", bl::TrackKind::Audio);
     track.setMuted(true);

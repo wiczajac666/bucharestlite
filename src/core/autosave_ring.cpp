@@ -32,6 +32,16 @@ uint64_t fileSizeOf(const fs::path& p) {
     return ec ? 0u : static_cast<uint64_t>(size);
 }
 
+std::string fileContentsOf(const fs::path& p) {
+    std::ifstream in(p, std::ios::binary);
+    if (!in) {
+        return std::string();
+    }
+    std::ostringstream buffer;
+    buffer << in.rdbuf();
+    return buffer.str();
+}
+
 Result<void> writeAtomic(const fs::path& target,
                          const std::string& contents) {
     std::error_code ec;
@@ -200,7 +210,17 @@ bool isAutosaveNewerThan(const std::string& autosavePath,
     if (!fs::exists(autosavePath, ec)) return false;
     if (!fs::exists(mainPath, ec)) return true;
 
-    return modificationKey(autosavePath) > modificationKey(mainPath);
+    const int64_t autosaveKey = modificationKey(autosavePath);
+    const int64_t mainKey = modificationKey(mainPath);
+    if (autosaveKey > mainKey) return true;
+    if (autosaveKey < mainKey) return false;
+
+    // Modification times landed in the same tick (NTFS caches and refreshes
+    // timestamps lazily, so rapid consecutive writes frequently tie even when
+    // the autosave happened after the manual save). Break the tie on content:
+    // offer recovery only when the snapshot actually holds changes the saved
+    // file does not.
+    return fileContentsOf(autosavePath) != fileContentsOf(mainPath);
 }
 
 } // namespace bl
