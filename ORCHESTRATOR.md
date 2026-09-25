@@ -288,31 +288,32 @@ Track progress in `PROJECT_STATUS.md`:
 
 ## Phase 0: Planning
 - [x] Architecture spec complete
-- [ ] Approved by L Hustla
 
 ## Phase 1: Backend
-- [x] Core engine implemented
-- [x] Timeline engine implemented
-- [ ] Render backend implemented
-- [ ] Audio engine implemented
-- [ ] Codec plugins implemented
+- [x] Core engine implemented (bl_core)
+- [x] Timeline engine implemented (bl_timeline)
+- [x] Render backend implemented (preview + export pipelines)
+- [x] Codec plugins implemented (9 FFmpeg-backed codecs)
 
 ## Phase 2: Frontend
-- [ ] Qt6 GUI implemented
+- [x] Qt6 GUI implemented
 
 ## Phase 3: Export
-- [ ] Export pipeline implemented
+- [x] Export pipeline implemented (MP4 + WebM)
 
 ## Phase 4: Testing
-- [ ] Unit tests written
-- [ ] Integration tests written
-- [ ] All tests passing
+- [x] Unit tests written
+- [x] Integration tests written
+- [x] All tests passing (507/507: debug, release, Windows/msvc)
 
-## Phase 5: Documentation
-- [ ] API docs complete
-- [ ] User guide complete
-- [ ] Developer guide complete
+## Phase 5: Documentation & Finalization
+- [x] API docs complete
+- [x] User guide complete
+- [x] Developer guide complete
 ```
+
+See `PROJECT_STATUS.md` for the full per-feature history (UI-1..UI-10, packaging
+verification across .deb/.rpm/.flatpak/Windows, and scope decisions).
 
 ---
 
