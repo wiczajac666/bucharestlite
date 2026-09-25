@@ -2,11 +2,13 @@
 
 #include "app/project_controller.hpp"
 
+#include <QDrag>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMimeData>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -38,15 +40,33 @@ constexpr int kIdRole = Qt::UserRole;
 
 } // namespace
 
+MediaBinList::MediaBinList(QWidget* parent) : QListWidget(parent) {}
+
+QMimeData* MediaBinList::dragData(const QModelIndex& index) const {
+    const QVariant id = model()->data(index, kIdRole);
+    if (!id.isValid() || id.toString().isEmpty()) return nullptr;
+    auto* mime = new QMimeData;
+    mime->setData(QString::fromLatin1(kMediaBinMime), id.toString().toUtf8());
+    return mime;
+}
+
+void MediaBinList::startDrag(Qt::DropActions supportedActions) {
+    QMimeData* mime = dragData(currentIndex());
+    if (!mime) return;
+    auto* drag = new QDrag(this);
+    drag->setMimeData(mime);
+    drag->exec(supportedActions, Qt::CopyAction);
+}
+
 MediaBinPanel::MediaBinPanel(ProjectController* controller, QWidget* parent)
     : QWidget(parent), controller_(controller) {
     setObjectName(QStringLiteral("MediaBinPanel"));
 
-    list_ = new QListWidget(this);
+    list_ = new MediaBinList(this);
     list_->setObjectName(QStringLiteral("mediaBinList"));
     list_->setSelectionMode(QAbstractItemView::SingleSelection);
     list_->setAlternatingRowColors(true);
-    list_->setDragEnabled(false);
+    list_->setDragDropMode(QAbstractItemView::DragOnly);
     list_->setContextMenuPolicy(Qt::CustomContextMenu);
 
     filter_ = new QLineEdit(this);

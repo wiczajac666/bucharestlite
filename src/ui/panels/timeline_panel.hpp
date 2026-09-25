@@ -1,5 +1,6 @@
 #pragma once
 
+#include <bl_core/media_source.hpp>
 #include <bl_core/time.hpp>
 #include <bl_timeline/sequence.hpp>
 
@@ -11,9 +12,14 @@
 #include <QWidget>
 
 #include <map>
+#include <optional>
 #include <string>
 
 class QCheckBox;
+class QDragEnterEvent;
+class QDragLeaveEvent;
+class QDragMoveEvent;
+class QDropEvent;
 class QGraphicsLineItem;
 class QGraphicsRectItem;
 class QGraphicsScene;
@@ -75,9 +81,25 @@ protected:
     void mouseReleaseEvent(QMouseEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dragMoveEvent(QDragMoveEvent* event) override;
+    void dragLeaveEvent(QDragLeaveEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
 private:
     friend class TimelinePanel;
+
+    // In-progress external drop (media bin → timeline) session.
+    struct DropSession {
+        std::string mediaId;
+        std::optional<bl::StreamInfo> probe;
+    };
+    struct DropTarget {
+        int flat{-1};
+        bl::Time start{0, {1'000'000, 1}};
+        bl::Clip clip;
+        bool valid{false};
+    };
 
     struct PendingMove {
         ClipId id;
@@ -98,6 +120,13 @@ private:
     void updateHoverCursor(const QPointF& scenePos);
     void clearSnapIndicator();
 
+    // External drop (media bin → timeline) session handling.
+    bool startDropSession(const std::string& mediaId);
+    void updateDropSession(const QPointF& scenePos);
+    void finishDropSession(const QPointF& scenePos);
+    void clearDropSession();
+    void dropTargetAt(const QPointF& scenePos, DropTarget& target) const;
+
     void performDelete(bool ripple);
     void performSplit();
     void performSelectAll();
@@ -113,6 +142,11 @@ private:
     QGraphicsRectItem* marqueeItem_{nullptr};
     std::vector<PendingMove> pendingMoves_;
     bool dragging_{false};
+
+    // External drop session state.
+    DropSession dropSession_;
+    DropTarget dropTarget_;
+    QGraphicsRectItem* dropGhost_{nullptr};
 
     // Trim scratch state.
     bool trimRipple_{false};

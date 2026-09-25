@@ -1,6 +1,8 @@
+#include <QAbstractItemView>
 #include <QApplication>
 #include <QListWidget>
 #include <QLineEdit>
+#include <QMimeData>
 #include <QPushButton>
 
 #include <app/project_controller.hpp>
@@ -8,6 +10,7 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <string>
 
 namespace {
@@ -113,6 +116,33 @@ TEST(MediaBinPanel, RemoveButtonDisabledWithoutSelection) {
         f.panel.findChild<QPushButton*>(QStringLiteral("mediaBinRemove"));
     ASSERT_NE(removeButton, nullptr);
     EXPECT_FALSE(removeButton->isEnabled());
+}
+
+TEST(MediaBinPanel, DragSourceCarriesMediaId) {
+    Fixture f;
+    addMedia(f, QStringLiteral("/media/a.mp4"));
+
+    auto* list = f.panel.findChild<bl::ui::MediaBinList*>(
+        QStringLiteral("mediaBinList"));
+    ASSERT_NE(list, nullptr);
+    EXPECT_TRUE(list->dragEnabled());
+    EXPECT_EQ(list->dragDropMode(), QAbstractItemView::DragOnly);
+
+    const QModelIndex row = list->model()->index(0, 0);
+    std::unique_ptr<QMimeData> mime(list->dragData(row));
+    ASSERT_NE(mime, nullptr);
+    const QString type = QString::fromLatin1(bl::ui::kMediaBinMime);
+    EXPECT_TRUE(mime->hasFormat(type));
+    EXPECT_EQ(QString::fromUtf8(mime->data(type)),
+              QString::fromStdString(f.controller.mediaBin()[0].id));
+}
+
+TEST(MediaBinPanel, DragDataAbsentWithoutMedia) {
+    Fixture f;
+    auto* list = f.panel.findChild<bl::ui::MediaBinList*>(
+        QStringLiteral("mediaBinList"));
+    ASSERT_NE(list, nullptr);
+    EXPECT_EQ(list->dragData(list->model()->index(0, 0)), nullptr);
 }
 
 TEST(MediaBinPanel, FilterNarrowsAndRestores) {

@@ -3,11 +3,18 @@
 #include <bl_timeline/sequence.hpp>
 
 #include <app/project_controller.hpp>
+#include <panels/media_bin_panel.hpp>
 #include <panels/timeline_panel.hpp>
 
 #include <QApplication>
+#include <QDragEnterEvent>
+#include <QDragLeaveEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QGraphicsRectItem>
 #include <QGraphicsScene>
 #include <QGraphicsView>
+#include <QMimeData>
 #include <QPoint>
 #include <QtTest/QTest>
 
@@ -15,6 +22,7 @@
 
 #include <algorithm>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -391,4 +399,212 @@ TEST(TimelinePanel, undoRedoCommandsRefreshScene) {
     fx.controller.undoStack().undo();
     EXPECT_EQ(fx.panel.clipItemCount(), 1);
     EXPECT_TRUE(fx.panel.selection().isEmpty());
+}
+
+// ---------------------------------------------------------------------------
+// Media bin → timeline drag-and-drop.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+#ifndef BL_TEST_MEDIA_DIR
+#define BL_TEST_MEDIA_DIR "."
+#endif
+
+std::string addMediaToBin(Fixture& f, const char* name) {
+    f.controller.addToMediaBin(
+        QString::fromLatin1(BL_TEST_MEDIA_DIR "/") + QString::fromLatin1(name));
+    QApplication::processEvents();
+    return f.controller.mediaBin().back().id;
+}
+
+void fillMediaMime(QMimeData& mime, const std::string& mediaId) {
+    mime.setData(QString::fromLatin1(bl::ui::kMediaBinMime),
+                 QString::fromStdString(mediaId).toUtf8());
+}
+
+QPoint lanePoint(const Fixture& f, int flat, int64_t frame) {
+    const QRectF lane = f.panel.laneRect(flat);
+    const QPointF scene(f.panel.xForTime(fr(frame)), lane.center().y());
+    return f.panel.view()->mapFromScene(scene);
+}
+
+QGraphicsRectItem* findDropGhost(QGraphicsView* view) {
+    for (QGraphicsItem* item : view->scene()->items()) {
+        if (item->data(0).toString() ==
+            QStringLiteral("timelineDropGhost")) {
+            return qgraphicsitem_cast<QGraphicsRectItem*>(item);
+        }
+    }
+    return nullptr;
+}
+
+} // namespace
+
+TEST(TimelinePanel, DropMediaAddsClipUndoably) {
+    Fixture f;
+    const std::string mediaId = addMediaToBin(f, "test_av.mp4");
+    QWidget* target = f.panel.view()->viewport();
+
+    const QPoint pos = lanePoint(f, 0, 10);
+    QMimeData mime;
+    fillMediaMime(mime, mediaId);
+
+    QDragEnterEvent enter(QPoint(), Qt::CopyAction, &mime, Qt::LeftButton,
+                          Qt::NoModifier);
+    QApplication::sendEvent(target, &enter);
+    EXPECT_TRUE(enter.isAccepted());
+
+    QDragMoveEvent move(pos, Qt::CopyAction, &mime, Qt::LeftButton,
+                        Qt::NoModifier, QEvent::DragMove);
+    QApplication::sendEvent(target, &move);
+    EXPECT_TRUE(move.isAccepted());
+    EXPECT_NE(findDropGhost(f.panel.view()), nullptr);
+
+    QDropEvent drop(QPointF(pos), Qt::CopyAction, &mime, Qt::LeftButton,
+                    Qt::NoModifier, QEvent::Drop);
+    QApplication::sendEvent(target, &drop);
+    EXPECT_TRUE(drop.isAccepted());
+
+    const auto& track = f.seq().videoTracks[0];
+    ASSERT_EQ(track.clips().size(), 1u);
+    const bl::Clip& clip = track.clips().front();
+    EXPECT_EQ(clip.source.mediaItemId, mediaId);
+    EXPECT_EQ(frameOf(clip.timelineStart), 10);
+    // Whole-source drop: 2s of test_av at 24fps = 48 frames.
+    EXPECT_EQ(frameOf(clip.timelineDuration), 48);
+    EXPECT_EQ(frameOf(clip.source.sourceOut), 48);
+
+    f.controller.undoStack().undo();
+    EXPECT_EQ(f.seq().videoTracks[0].clips().size(), 0u);
+    f.controller.undoStack().redo();
+    EXPECT_EQ(f.seq().videoTracks[0].clips().size(), 1u);
+}
+
+TEST(TimelinePanel, DropOnOverlappingSlotIsRejected) {
+    Fixture f;
+    f.addClip(0, makeClip("existing", 0, 10));
+    const std::string mediaId = addMediaToBin(f, "test_av.mp4");
+    QWidget* target = f.panel.view()->viewport();
+
+    QStringList messages;
+    QObject context;
+    QObject::connect(&f.controller, &bl::ui::ProjectController::statusMessage,
+                     &context, [&messages](const QString& m) {
+                         messages.push_back(m);
+                     });
+
+    const QPoint pos = lanePoint(f, 0, 5);
+    QMimeData mime;
+    fillMediaMime(mime, mediaId);
+    const size_t commandCountBefore = f.controller.undoStack().count();
+
+    QDragEnterEvent enter(QPoint(), Qt::CopyAction, &mime, Qt::LeftButton,
+                          Qt::NoModifier);
+    QApplication::sendEvent(target, &enter);
+    EXPECT_TRUE(enter.isAccepted());
+
+    QDragMoveEvent move(pos, Qt::CopyAction, &mime, Qt::LeftButton,
+                        Qt::NoModifier, QEvent::DragMove);
+    QApplication::sendEvent(target, &move);
+    EXPECT_FALSE(move.isAccepted());
+
+    QDropEvent drop(QPointF(pos), Qt::CopyAction, &mime, Qt::LeftButton,
+                    Qt::NoModifier, QEvent::Drop);
+    QApplication::sendEvent(target, &drop);
+
+    ASSERT_EQ(f.seq().videoTracks[0].clips().size(), 1u);
+    EXPECT_EQ(f.seq().videoTracks[0].clips().front().id,
+              QStringLiteral("existing").toStdString());
+    EXPECT_EQ(f.controller.undoStack().count(), commandCountBefore);
+    EXPECT_FALSE(messages.isEmpty());
+}
+
+TEST(TimelinePanel, DropAudioMediaRoutesToAudioLane) {
+    Fixture f;
+    const std::string mediaId = addMediaToBin(f, "test_audio.wav");
+    QWidget* target = f.panel.view()->viewport();
+    QMimeData mime;
+    fillMediaMime(mime, mediaId);
+
+    // Video lane: audio-only source has no video stream → rejected.
+    const QPoint videoPos = lanePoint(f, 0, 5);
+    QDragEnterEvent enter(QPoint(), Qt::CopyAction, &mime, Qt::LeftButton,
+                          Qt::NoModifier);
+    QApplication::sendEvent(target, &enter);
+    EXPECT_TRUE(enter.isAccepted());
+    QDragMoveEvent rejectMove(videoPos, Qt::CopyAction, &mime,
+                              Qt::LeftButton, Qt::NoModifier,
+                              QEvent::DragMove);
+    QApplication::sendEvent(target, &rejectMove);
+    EXPECT_FALSE(rejectMove.isAccepted());
+    QDropEvent videoDrop(QPointF(videoPos), Qt::CopyAction, &mime,
+                         Qt::LeftButton, Qt::NoModifier, QEvent::Drop);
+    QApplication::sendEvent(target, &videoDrop);
+    EXPECT_EQ(f.seq().videoTracks[0].clips().size(), 0u);
+
+    // A fresh drag session begins for the audio-lane landing.
+    QDragEnterEvent enterAgain(QPoint(), Qt::CopyAction, &mime,
+                               Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(target, &enterAgain);
+    EXPECT_TRUE(enterAgain.isAccepted());
+
+    // Audio lane: accepted, 1s of WAV = 24 frames at 24fps.
+    const QPoint audioPos = lanePoint(f, 1, 3);
+    QDragMoveEvent acceptMove(audioPos, Qt::CopyAction, &mime,
+                              Qt::LeftButton, Qt::NoModifier, QEvent::DragMove);
+    QApplication::sendEvent(target, &acceptMove);
+    EXPECT_TRUE(acceptMove.isAccepted());
+    QDropEvent audioDrop(QPointF(audioPos), Qt::CopyAction, &mime,
+                         Qt::LeftButton, Qt::NoModifier, QEvent::Drop);
+    QApplication::sendEvent(target, &audioDrop);
+
+    const auto& track = f.seq().audioTracks[0];
+    ASSERT_EQ(track.clips().size(), 1u);
+    EXPECT_EQ(track.clips().front().source.mediaItemId, mediaId);
+    EXPECT_EQ(frameOf(track.clips().front().timelineStart), 3);
+    EXPECT_EQ(frameOf(track.clips().front().timelineDuration), 24);
+
+    f.controller.undoStack().undo();
+    EXPECT_EQ(f.seq().audioTracks[0].clips().size(), 0u);
+}
+
+TEST(TimelinePanel, DropGhostTracksCursorAndClearsOnLeave) {
+    Fixture f;
+    const std::string mediaId = addMediaToBin(f, "test_av.mp4");
+    QWidget* target = f.panel.view()->viewport();
+    QMimeData mime;
+    fillMediaMime(mime, mediaId);
+
+    const QPoint pos = lanePoint(f, 0, 10);
+    QDragEnterEvent enter(QPoint(), Qt::CopyAction, &mime, Qt::LeftButton,
+                          Qt::NoModifier);
+    QApplication::sendEvent(target, &enter);
+    QDragMoveEvent move(pos, Qt::CopyAction, &mime, Qt::LeftButton,
+                        Qt::NoModifier, QEvent::DragMove);
+    QApplication::sendEvent(target, &move);
+    EXPECT_TRUE(move.isAccepted());
+
+    QGraphicsRectItem* ghost = findDropGhost(f.panel.view());
+    ASSERT_NE(ghost, nullptr);
+    EXPECT_TRUE(ghost->isVisible());
+    EXPECT_NEAR(ghost->rect().x(), f.panel.xForTime(fr(10)), 0.5);
+    EXPECT_NEAR(ghost->rect().top(), f.panel.laneRect(0).top(), 0.5);
+
+    QDragLeaveEvent leave;
+    QApplication::sendEvent(target, &leave);
+    EXPECT_EQ(findDropGhost(f.panel.view()), nullptr);
+}
+
+TEST(TimelinePanel, DragEnterRejectsForeignMime) {
+    Fixture f;
+    QWidget* target = f.panel.view()->viewport();
+    QMimeData mime;
+    mime.setText(QStringLiteral("hello"));
+
+    QDragEnterEvent enter(f.panel.view()->mapFromScene(QPointF(0, 0)),
+                          Qt::CopyAction, &mime, Qt::LeftButton,
+                          Qt::NoModifier);
+    QApplication::sendEvent(target, &enter);
+    EXPECT_FALSE(enter.isAccepted());
 }

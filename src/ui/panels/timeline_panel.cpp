@@ -1,15 +1,21 @@
 #include "panels/timeline_panel.hpp"
 
 #include "app/project_controller.hpp"
+#include "panels/media_bin_panel.hpp"
 #include "panels/timeline_edit_controller.hpp"
 #include "panels/timeline_items.hpp"
 
 #include <QCheckBox>
+#include <QDragEnterEvent>
+#include <QDragLeaveEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QGraphicsRectItem>
 #include <QGraphicsScene>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QMimeData>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QScrollBar>
@@ -38,6 +44,9 @@ const QColor kRulerFill{0x2a, 0x2d, 0x30};
 const QColor kHeaderFill{0x26, 0x28, 0x2b};
 const QColor kBorder{0x3a, 0x3d, 0x40};
 const QColor kText{0xc8, 0xcc, 0xd1};
+const QColor kDropGhostValid{0x3f, 0xa9, 0x5a};
+const QColor kDropGhostInvalid{0xc0, 0x4a, 0x4a};
+const char kDropGhostObjectName[] = "timelineDropGhost";
 
 int64_t toFrame(const bl::Time& t, const bl::Rational& fps) {
     return static_cast<int64_t>(
@@ -134,6 +143,7 @@ TimelineView::TimelineView(TimelinePanel* host, QWidget* parent)
     setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     setDragMode(QGraphicsView::NoDrag);
+    setAcceptDrops(true);
     viewport()->setCursor(Qt::ArrowCursor);
 }
 
@@ -154,6 +164,7 @@ void TimelineView::cancelActiveGesture() {
         delete marqueeItem_;
         marqueeItem_ = nullptr;
     }
+    clearDropSession();
     pendingMoves_.clear();
     mode_ = Mode::None;
     dragging_ = false;
@@ -435,6 +446,176 @@ void TimelineView::clearSnapIndicator() {
     if (host_->snapIndicator_) {
         host_->snapIndicator_->setActive(false);
     }
+}
+
+// ---------------------------------------------------------------------------
+// External drop (media bin → timeline).
+// ---------------------------------------------------------------------------
+
+bool TimelineView::startDropSession(const std::string& mediaId) {
+    clearDropSession();
+    ProjectController* controller = host_ ? host_->controller() : nullptr;
+    if (!controller || mediaId.empty()) return false;
+
+    const MediaBinItem* entry = nullptr;
+    for (const auto& item : controller->mediaBin()) {
+        if (item.id == mediaId) {
+            entry = &item;
+            break;
+        }
+    }
+    if (!entry) return false;
+
+    auto probe = MediaSource::probe(MediaLocator{entry->path});
+    if (!probe) return false;
+
+    dropSession_.mediaId = mediaId;
+    dropSession_.probe = std::move(probe.value());
+    return true;
+}
+
+void TimelineView::dropTargetAt(const QPointF& scenePos, DropTarget& target) const {
+    target = DropTarget{};
+    if (!host_ || !dropSession_.probe) return;
+
+    const int flat = host_->flatAtY(scenePos.y());
+    if (flat < 0 || flat >= host_->trackCount()) return;
+
+    const bl::Sequence& seq = host_->sequence();
+    const bool videoLane = host_->editor().isVideoTrack(seq, flat);
+    const bool hasVideo = !dropSession_.probe->videoStreams.empty();
+    const bool hasAudio = !dropSession_.probe->audioStreams.empty();
+    if (videoLane && !hasVideo) return;
+    if (!videoLane && !hasAudio) return;
+
+    const bl::Duration mediaDuration = dropSession_.probe->duration;
+    if (mediaDuration.ticks <= 0) return;
+
+    const bl::Time start = host_->timeAtX(scenePos.x());
+    auto clipOpt = makeThreePointClip(
+        SourceRef{dropSession_.mediaId, bl::Time{},
+                  bl::Time{mediaDuration.ticks, mediaDuration.rate}},
+        SpeedRemap{}, std::string());
+    if (!clipOpt) return;
+    bl::Clip clip = *clipOpt;
+    clip.timelineStart = start;
+
+    target.flat = flat;
+    target.start = start;
+    target.clip = std::move(clip);
+    target.valid = host_->editor().canPlaceAt(seq, flat, target.clip,
+                                              target.start);
+}
+
+void TimelineView::updateDropSession(const QPointF& scenePos) {
+    if (!dropSession_.probe) return;
+
+    DropTarget target;
+    dropTargetAt(scenePos, target);
+    dropTarget_ = target;
+
+    if (!target.valid) {
+        if (dropGhost_) dropGhost_->setVisible(false);
+        return;
+    }
+
+    const QRectF lane = host_->laneRect(target.flat);
+    const qreal x0 = host_->xForTime(target.start);
+    const qreal x1 = host_->xForTime(target.start + target.clip.timelineDuration);
+    const QRectF ghostRect(x0, lane.top(), std::max<qreal>(1.0, x1 - x0),
+                           lane.height());
+    if (!dropGhost_) {
+        dropGhost_ = new QGraphicsRectItem;
+        dropGhost_->setData(0, QString::fromLatin1(kDropGhostObjectName));
+        dropGhost_->setPen(QPen(kDropGhostValid, 2));
+        dropGhost_->setBrush(QBrush(kDropGhostValid));
+        dropGhost_->setOpacity(0.35);
+        dropGhost_->setZValue(2000);
+        scene()->addItem(dropGhost_);
+    }
+    dropGhost_->setRect(ghostRect);
+    dropGhost_->setVisible(true);
+}
+
+void TimelineView::finishDropSession(const QPointF& scenePos) {
+    if (!dropSession_.probe) {
+        clearDropSession();
+        return;
+    }
+
+    DropTarget target;
+    dropTargetAt(scenePos, target);
+    const bool placed =
+        target.valid && host_->controller() &&
+        host_->editor().addClip(target.flat, target.clip);
+
+    if (placed) {
+        if (host_->controller()) {
+            emit host_->controller()->statusMessage(
+                QStringLiteral("Added %1").arg(QString::fromStdString(
+                    target.clip.name.empty()
+                        ? dropSession_.mediaId
+                        : target.clip.name)));
+        }
+    } else {
+        if (host_->controller()) {
+            emit host_->controller()->statusMessage(
+                QStringLiteral("Cannot place clip here"));
+        }
+        host_->rebuildFromModel();
+    }
+    clearDropSession();
+}
+
+void TimelineView::clearDropSession() {
+    if (dropGhost_) {
+        if (scene()) scene()->removeItem(dropGhost_);
+        delete dropGhost_;
+        dropGhost_ = nullptr;
+    }
+    dropSession_ = DropSession{};
+    dropTarget_ = DropTarget{};
+}
+
+void TimelineView::dragEnterEvent(QDragEnterEvent* event) {
+    if (event->mimeData()->hasFormat(QString::fromLatin1(kMediaBinMime))) {
+        const std::string mediaId =
+            QString::fromLatin1(event->mimeData()->data(
+                                    QString::fromLatin1(kMediaBinMime)))
+                .toStdString();
+        if (startDropSession(mediaId)) {
+            event->acceptProposedAction();
+            return;
+        }
+    }
+    event->ignore();
+}
+
+void TimelineView::dragMoveEvent(QDragMoveEvent* event) {
+    if (event->mimeData()->hasFormat(QString::fromLatin1(kMediaBinMime))) {
+        updateDropSession(mapToScene(event->position().toPoint()));
+        if (dropTarget_.valid) {
+            event->acceptProposedAction();
+        } else {
+            event->ignore();
+        }
+        return;
+    }
+    event->ignore();
+}
+
+void TimelineView::dragLeaveEvent(QDragLeaveEvent* event) {
+    clearDropSession();
+    QGraphicsView::dragLeaveEvent(event);
+}
+
+void TimelineView::dropEvent(QDropEvent* event) {
+    if (event->mimeData()->hasFormat(QString::fromLatin1(kMediaBinMime))) {
+        finishDropSession(mapToScene(event->position().toPoint()));
+        event->acceptProposedAction();
+        return;
+    }
+    event->ignore();
 }
 
 void TimelineView::mouseReleaseEvent(QMouseEvent* event) {
