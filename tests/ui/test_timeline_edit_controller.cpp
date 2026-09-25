@@ -124,6 +124,60 @@ TEST(TimelineEditController, moveClipAcrossTracksIsUndoable) {
     EXPECT_EQ(f.clip(kAudio0, "a"), nullptr);
 }
 
+TEST(TimelineEditController, addClipGeneratesIdAndIsUndoable) {
+    Fixture f;
+    Clip c = makeClip("", 10, 20);
+    ASSERT_TRUE(f.editor.addClip(kVideo0, c));
+
+    const Clip* placed = nullptr;
+    for (const auto& clip : f.timeline.sequence().videoTracks[0].clips()) {
+        if (clip.source.mediaItemId == c.source.mediaItemId) placed = &clip;
+    }
+    ASSERT_NE(placed, nullptr);
+    EXPECT_FALSE(placed->id.empty());
+    EXPECT_TIME_EQ(placed->timelineStart, 10);
+    EXPECT_DUR_EQ(placed->timelineDuration, 20);
+    EXPECT_TRUE(f.undoStack.canUndo());
+    EXPECT_EQ(f.undoStack.undoText(), "Add clip");
+
+    const ClipId generatedId = placed->id;
+    f.undoStack.undo();
+    EXPECT_EQ(f.clip(kVideo0, generatedId), nullptr);
+
+    f.undoStack.redo();
+    const Clip* restored = f.clip(kVideo0, generatedId);
+    ASSERT_NE(restored, nullptr);
+    EXPECT_TIME_EQ(restored->timelineStart, 10);
+}
+
+TEST(TimelineEditController, addClipKeepsExplicitId) {
+    Fixture f;
+    Clip c = makeClip("explicit", 0, 10);
+    ASSERT_TRUE(f.editor.addClip(kVideo0, c));
+    EXPECT_NE(f.clip(kVideo0, "explicit"), nullptr);
+}
+
+TEST(TimelineEditController, addClipRejectsOverlap) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));
+
+    Clip c = makeClip("b", 5, 10);
+    EXPECT_FALSE(f.editor.addClip(kVideo0, c));
+    EXPECT_FALSE(f.undoStack.canUndo());
+    EXPECT_EQ(f.clip(kVideo0, "b"), nullptr);
+}
+
+TEST(TimelineEditController, addClipOnAudioTrack) {
+    Fixture f;
+    Clip c = makeClip("a", 5, 8);
+    c.source.mediaItemId = "audio-source";
+    ASSERT_TRUE(f.editor.addClip(kAudio0, c));
+    EXPECT_NE(f.clip(kAudio0, "a"), nullptr);
+
+    f.undoStack.undo();
+    EXPECT_EQ(f.clip(kAudio0, "a"), nullptr);
+}
+
 TEST(TimelineEditController, groupMovePreservesOffsets) {
     Fixture f;
     ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));

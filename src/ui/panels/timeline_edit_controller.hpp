@@ -73,6 +73,8 @@ public:
     // Mutators (all validated; push one undoable command each).
     bool moveClip(int fromTrack, int toTrack, const ClipId& id, Time newStart);
     bool groupMove(const std::vector<MoveEntry>& entries);
+    // Adds a new clip, generating an id when the caller left it empty.
+    bool addClip(int flatTrack, Clip clip);
     bool trimLeft(int flatTrack, const ClipId& id, Time newStart, bool ripple);
     bool trimRight(int flatTrack, const ClipId& id, Time newEnd, bool ripple);
     bool splitClip(int flatTrack, const ClipId& id, Time at);

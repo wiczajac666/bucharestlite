@@ -160,6 +160,19 @@ void TimelineEditController::removeClipAt(int flatTrack, const ClipId& id) {
     }
 }
 
+bool TimelineEditController::addClip(int flatTrack, Clip clip) {
+    if (!valid()) return false;
+    const Sequence& seq = timeline_->sequence();
+    if (clip.id.empty()) clip.id = "ui:" + std::to_string(++idSeed_);
+    if (!canPlaceAt(seq, flatTrack, clip, clip.timelineStart)) return false;
+
+    undoStack_->push(std::make_unique<FunctionCommand>(
+        "Add clip",
+        [this, flatTrack, clip] { addClipAt(flatTrack, clip); },
+        [this, flatTrack, clip] { removeClipAt(flatTrack, clip.id); }));
+    return true;
+}
+
 bool TimelineEditController::moveClip(int fromTrack, int toTrack,
                                       const ClipId& id, Time newStart) {
     if (!valid()) return false;
