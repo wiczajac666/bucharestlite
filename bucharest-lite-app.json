@@ -1,0 +1,44 @@
+{
+  "app-id": "com.github.harlemi.bucharestlite",
+  "runtime": "org.kde.Platform",
+  "runtime-version": "6",
+  "sdk": "org.kde.Sdk",
+  "finish-args": [
+    "--share=ipc",
+    "--device=dri",
+    "--socket=x11",
+    "--talk-name=org.freedesktop.Notifications"
+  ],
+  "command": "bucharest-lite",
+  "add-flatpak-permissions": [
+    {
+      "name": "org.freedesktop.Notifications"
+    }
+  ],
+  "modules": [
+    {
+      "name": "bucharest-lite-source",
+      "sources": [
+        {
+          "type": "archive",
+          "url": "https://github.com/your-repo/bucharest-lite/archive/1.0.1.tar.gz",
+          "sha256": "placeholder-checksum"
+        }
+      ]
+    },
+    {
+      "name": "bucharest-lite-build",
+      "sources": [
+        {
+          "type": "directory",
+          "path": "."
+        }
+      ],
+      "build-commands": [
+        "mkdir -p build && cd build",
+        "cmake .. -DBL_BUILD_TESTS=OFF -DBL_BUILD_UI=ON -DBL_BUILD_PLUGINS=ON -DBL_BUILD_EXPORT=ON",
+        "make -j$(nproc)"
+      ]
+    }
+  ]
+}

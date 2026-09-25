@@ -1,0 +1,12 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		-DBL_BUILD_TESTS=OFF \
+		-DBL_BUILD_UI=ON \
+		-DBL_BUILD_PLUGINS=ON \
+		-DBL_BUILD_EXPORT=ON
+
+override_dh_auto_test:

@@ -1,0 +1,42 @@
+#include <winver.h>
+
+#define BL_VERSION_MAJOR 1
+#define BL_VERSION_MINOR 0
+#define BL_VERSION_PATCH 1
+#define BL_VERSION_BUILD 0
+#define BL_VERSION_STR "1.0.1"
+
+IDI_ICON1 ICON DISCARDABLE "bucharest-lite.ico"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION BL_VERSION_MAJOR,BL_VERSION_MINOR,BL_VERSION_PATCH,BL_VERSION_BUILD
+ PRODUCTVERSION BL_VERSION_MAJOR,BL_VERSION_MINOR,BL_VERSION_PATCH,BL_VERSION_BUILD
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "BucharestLite"
+            VALUE "FileDescription", "BucharestLite non-linear video editor"
+            VALUE "FileVersion", BL_VERSION_STR
+            VALUE "InternalName", "bucharest-lite"
+            VALUE "LegalCopyright", "Copyright (C) 2026 BucharestLite contributors"
+            VALUE "OriginalFilename", "bucharest-lite.exe"
+            VALUE "ProductName", "BucharestLite"
+            VALUE "ProductVersion", BL_VERSION_STR
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

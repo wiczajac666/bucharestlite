@@ -15,4 +15,8 @@ description-pak
 *.tar.gz
 packaging/windows/*.exe
 packaging/windows/*.zip
+packaging/flatpak/*.flatpak
 !bucharest-lite-app.json
+
+# generated Doxygen output
+docs/api/

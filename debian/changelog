@@ -1,0 +1,20 @@
+bucharest-lite (1.0.1-1) unstable; urgency=medium
+
+  * Rebuild with modern debhelper 13 packaging.
+  * Wire bl_export module, desktop entry, AppStream metainfo and hicolor icons.
+  * Depends generated via shlibdeps to span Debian 12/13 and Ubuntu 24.04/26.04.
+
+ -- Wictoria Zajac <wiczajac666@github.com>  Mon, 21 Sep 2026 12:00:00 +0000
+
+bucharest-lite (1.0.1) unstable; urgency=low
+
+  * Patch release 1.0.1 — duplicate CMake option fixed, redundant
+    BL_BUILD_EXPORT removed.
+
+ -- harlemi <harlemi@www>  Tue, 15 Sep 2026 21:05:08 +0300
+
+bucharest-lite (1.0.0) unstable; urgency=low
+
+  * Initial release.
+
+ -- harlemi <harlemi@www>  Tue, 15 Sep 2026 21:05:08 +0300
