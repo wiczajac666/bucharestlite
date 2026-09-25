@@ -2,6 +2,8 @@ add_library(bl_audio STATIC
     track_strip.cpp
     mixer.cpp
     audio_engine.cpp
+    audio_meter_analysis.cpp
+    audio_meter_engine.cpp
 )
 
 add_library(bl::audio ALIAS bl_audio)

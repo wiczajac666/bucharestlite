@@ -37,6 +37,7 @@ add_executable(bl_core_tests
     test_frame_cache.cpp
     test_compositor.cpp
     test_audio_mixer.cpp
+    test_audio_meter_analysis.cpp
     test_media_jobs.cpp
     test_persistence.cpp
     test_timeline.cpp
