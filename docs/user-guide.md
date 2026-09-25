@@ -59,3 +59,10 @@ During export, a progress window shows:
 - Nested compositions are not supported — flat sequences only
 - Multi-cam source clips are not supported for export
 - Hardware acceleration (NVDEC/VAAPI/VideoToolbox) is not available in v1
+
+### Known UI limitations (v1)
+
+- Live audio level meters are not available yet: the mixer shows gain/pan/M-S
+  controls with dB readouts and the master strip is functional, but there is no
+  peak/VU metering because the v1 pipeline has no playback-time audio feed to
+  tap.

@@ -108,6 +108,8 @@
 - .rpm package with gnome application drawer icons and and kde application meno items
 - .flatpak package with gnome application drawer icons and and kde application meno items
 - Windows 10 22H2 build verified with NSIS installer + portable zip (`packaging/windows/build_installer.ps1` → `bucharest-lite-1.0.1-windows-x64-setup.exe`, `bucharest-lite-1.0.1-windows-x64-portable.zip`; MSVC x64, Qt 6.8.3, windeployqt runtime, 9 codec plugins shipped under `plugins/{video,audio}`)
+- Flatpak bundle built and launch-verified on org.kde.Platform 6.8 with bundled FFmpeg 8 (`bucharest-lite-app.json` + `packaging/linux/build_flatpak.sh`)
+- **macOS: removed from scope** — no `.dmg`/`.app` distribution is planned or was ever released; this is a scope decision, not a gap. The codebase's generic platform layer (`src/core/platform/`, FFmpeg/CMake branches) is unaffected and remains cross-platform by construction.
 
 ### Modular Codec Plugin List
 
@@ -153,4 +155,4 @@ These are the **must-have** features — the baseline for any functional NLE:
 17. **Project auto-save** — crash recovery
 18. **Unlimited undo/redo**
 19. **Custom export** — format selection, quality presets, batch render
-20. **Cross-platform** — Linux, Windows, macOS
+20. **Cross-platform** — Linux and Windows (macOS packaging is out of scope; see Packaging)
