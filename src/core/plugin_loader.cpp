@@ -3,7 +3,7 @@
 #include <bl_core/logger.hpp>
 #include <bl_plugins/codec_plugin.h>
 #include "platform/dynamic_library.hpp"
-#include "platform/paths.hpp"
+#include <bl_core/platform/paths.hpp>
 #include "plugin_validation.hpp"
 
 #include <algorithm>

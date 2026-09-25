@@ -166,3 +166,69 @@ TEST(ProjectController, saveWithoutPathGivesInvalidArgument) {
     EXPECT_FALSE(saved.ok());
     EXPECT_EQ(saved.code(), bl::Err::InvalidArgument);
 }
+
+TEST(ProjectController, restoreFromAutosaveAdoptsDocumentAsDirty) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString dirPath = dir.path();
+    const QString mediaPath = QDir(dirPath).filePath(QStringLiteral("interview.mp4"));
+    const QString mainPath = QDir(dirPath).filePath(QStringLiteral("demo.blproj"));
+
+    std::string autosaveText;
+    {
+        ProjectController source;
+        source.newProject(QStringLiteral("Demo"));
+        ASSERT_TRUE(source.addToMediaBin(mediaPath));
+        ASSERT_TRUE(source.saveAs(mainPath).ok());
+        // A crash after this edit leaves only the autosave with the change.
+        source.renameProject(QStringLiteral("Recovered"));
+        autosaveText = source.serializeDocument().dump(2);
+    }
+
+    const QString autosavePath = QDir(dirPath).filePath(QStringLiteral("autosave.blproj"));
+    {
+        QFile file(autosavePath);
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+        file.write(autosaveText.c_str());
+    }
+
+    {
+        ProjectController recovered;
+        const auto result =
+            recovered.restoreFromAutosave(autosavePath, mainPath);
+        ASSERT_TRUE(result.ok()) << result.message();
+
+        EXPECT_EQ(stl(recovered.projectName()), "Recovered");
+        EXPECT_EQ(stl(recovered.filePath()), stl(mainPath));
+        EXPECT_TRUE(recovered.dirty());
+        ASSERT_EQ(recovered.mediaBin().size(), 1u);
+        // Media stored relative to the original project dir resolves against it.
+        EXPECT_EQ(recovered.mediaBin()[0].path,
+                  stl(QFileInfo(mediaPath).absoluteFilePath()));
+
+        // A save writes the recovered content to the real project file and
+        // returns the document to a clean state.
+        ASSERT_TRUE(recovered.save().ok());
+        EXPECT_FALSE(recovered.dirty());
+    }
+
+    {
+        ProjectController reopened;
+        ASSERT_TRUE(reopened.open(mainPath).ok());
+        EXPECT_EQ(stl(reopened.projectName()), "Recovered");
+        EXPECT_FALSE(reopened.dirty());
+    }
+}
+
+TEST(ProjectController, serializeDocumentIncludesTimelineExtension) {
+    ProjectController controller;
+    controller.newProject(QStringLiteral("Doc"));
+    const nlohmann::json doc = controller.serializeDocument();
+
+    ASSERT_TRUE(doc.contains("settings"));
+    EXPECT_EQ(doc["settings"]["name"], "Doc");
+    ASSERT_TRUE(doc.contains("extensionTraceable") == false ||
+                doc.contains("extensions"));
+    ASSERT_TRUE(doc.at("extensions").is_object());
+    EXPECT_TRUE(doc["extensions"].contains("timeline"));
+}

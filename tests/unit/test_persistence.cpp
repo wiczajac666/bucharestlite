@@ -94,6 +94,27 @@ TEST(ProjectRepositoryTest, RoundTripPreservesEverything) {
     EXPECT_EQ(ext["futureMarker"], true);
 }
 
+TEST(ProjectRepositoryTest, ToJsonRoundTripsWithRelativeBase) {
+    TempDir dir;
+    ProjectRepository repo;
+    const std::string file = dir.child("project.blproj");
+
+    ProjectData data = sampleProject();
+    data.mediaBin[0].path = dir.child("media/interview.mp4");
+
+    const nlohmann::json doc = repo.toJson(data, file);
+    EXPECT_EQ(doc["schemaVersion"], 1);
+    ASSERT_TRUE(doc["mediaBin"].is_array());
+    EXPECT_EQ(doc["mediaBin"][0]["path"], "media/interview.mp4");
+
+    auto loaded = repo.fromDocument(doc.dump(2), file);
+    ASSERT_TRUE(loaded.ok()) << loaded.message();
+    EXPECT_EQ((*loaded).project.settings.name, "My Documentary");
+    ASSERT_EQ((*loaded).project.mediaBin.size(), 2u);
+    EXPECT_EQ((*loaded).project.mediaBin[0].path,
+              (dir.path() / "media/interview.mp4").generic_string());
+}
+
 TEST(ProjectRepositoryTest, SavedDocumentIsReadableJson) {
     TempDir dir;
     ProjectRepository repo;

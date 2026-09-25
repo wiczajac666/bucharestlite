@@ -1,3 +1,4 @@
+#include <bl_core/autosave_ring.hpp>
 #include <bl_core/undo_stack.hpp>
 
 #include <app/main_window.hpp>
@@ -7,16 +8,23 @@
 #include <QApplication>
 #include <QDir>
 #include <QDockWidget>
+#include <QEvent>
 #include <QLabel>
 #include <QSettings>
 #include <QTemporaryDir>
 
 #include <gtest/gtest.h>
 
+#include <nlohmann/json.hpp>
+
+#include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
 namespace {
+
+namespace fs = std::filesystem;
 
 QApplication* ensureApp() {
     static QApplication* app = [] {
@@ -52,6 +60,17 @@ QAction* findAction(const QWidget& window, const QString& text) {
         }
     }
     return nullptr;
+}
+
+QString autosaveRoot(const QTemporaryDir& dir) {
+    return QDir(dir.path()).filePath(QStringLiteral("root"));
+}
+
+void seedAutosave(const QString& root, const std::string& project,
+                  const nlohmann::json& document) {
+    bl::AutosaveRing ring(project, 10, root.toStdString());
+    const auto result = ring.rotate(document);
+    ASSERT_TRUE(result.ok()) << result.message();
 }
 
 } // namespace
@@ -179,4 +198,69 @@ TEST(MainWindow, closeWithCleanProjectPersistsLayout) {
 
     EXPECT_TRUE(storage.settings.contains(QStringLiteral("window/state")));
     EXPECT_TRUE(storage.settings.contains(QStringLiteral("window/geometry")));
+}
+
+TEST(MainWindow, recoveryPromptRestoresNewerAutosave) {
+    ensureApp();
+    QTemporaryDir dir;
+    TempSettings storage(dir);
+    const QString root = autosaveRoot(dir);
+    const QString main = QDir(dir.path()).filePath(QStringLiteral("main.blproj"));
+
+    {
+        bl::ui::ProjectController seed;
+        seed.newProject(QStringLiteral("Recoverable"));
+        ASSERT_TRUE(seed.addToMediaBin(QStringLiteral("/media/a.mp4")));
+        ASSERT_TRUE(seed.saveAs(main).ok());
+        // The crash happens after this rename, leaving only the autosave with it.
+        seed.renameProject(QStringLiteral("Recovered"));
+        seedAutosave(root, "Recoverable", seed.serializeDocument());
+    }
+
+    {
+        bl::ui::MainWindow window(nullptr, &storage.settings);
+        window.setPromptOnCloseEnabled(false);
+        window.setAutosaveRoot(root);
+        window.setRecoveryDecider([] { return true; });
+
+        ASSERT_TRUE(window.controller()->open(main).ok());
+        EXPECT_FALSE(window.controller()->dirty());
+        EXPECT_TRUE(window.maybePromptRecovery());
+        EXPECT_EQ(window.controller()->projectName(),
+                  QStringLiteral("Recovered"));
+        EXPECT_TRUE(window.controller()->dirty());
+        EXPECT_EQ(window.controller()->filePath(), main);
+    }
+
+    {
+        bl::ui::MainWindow window(nullptr, &storage.settings);
+        window.setPromptOnCloseEnabled(false);
+        window.setAutosaveRoot(root);
+        window.setRecoveryDecider([] { return false; });
+
+        ASSERT_TRUE(window.controller()->open(main).ok());
+        EXPECT_FALSE(window.maybePromptRecovery());
+        EXPECT_EQ(window.controller()->projectName(),
+                  QStringLiteral("Recoverable"));
+        EXPECT_FALSE(window.controller()->dirty());
+    }
+}
+
+TEST(MainWindow, autosaveFlushesOnWindowDeactivate) {
+    ensureApp();
+    QTemporaryDir dir;
+    TempSettings storage(dir);
+    bl::ui::MainWindow window(nullptr, &storage.settings);
+    window.setPromptOnCloseEnabled(false);
+    window.setAutosaveRoot(autosaveRoot(dir));
+
+    window.controller()->newProject(QStringLiteral("Focus"));
+    window.controller()->addToMediaBin(QStringLiteral("/media/a.mp4"));
+
+    std::unique_ptr<QEvent> deactivate(new QEvent(QEvent::WindowDeactivate));
+    QApplication::sendEvent(&window, deactivate.get());
+
+    const auto slot = fs::path(autosaveRoot(dir).toStdString()) / "autosave" /
+                      "Focus" / "autosave_01.blproj";
+    EXPECT_TRUE(fs::exists(slot));
 }

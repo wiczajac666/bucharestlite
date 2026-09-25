@@ -1,7 +1,7 @@
 #include <bl_core/autosave_ring.hpp>
 
 #include <bl_core/logger.hpp>
-#include "platform/paths.hpp"
+#include <bl_core/platform/paths.hpp>
 
 #include <nlohmann/json.hpp>
 

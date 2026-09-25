@@ -98,6 +98,47 @@ Result<void> ProjectController::saveAs(const QString& path) {
     return doSave(path.toStdString());
 }
 
+nlohmann::json ProjectController::serializeDocument() {
+    syncTimelineToExtensions();
+    return ProjectRepository::toJson(project_, filePath_);
+}
+
+Result<void> ProjectController::restoreFromAutosave(
+    const QString& autosavePath, const QString& originalPath) {
+    std::ifstream in(autosavePath.toStdString(), std::ios::binary);
+    if (!in) {
+        emit statusMessage(QStringLiteral("Autosave restore failed: cannot open %1")
+                               .arg(autosavePath));
+        return Result<void>::err(Err::FileNotFound,
+                                 "cannot open autosave '" + autosavePath.toStdString() + "'");
+    }
+    std::ostringstream buffer;
+    buffer << in.rdbuf();
+
+    ProjectRepository repository;
+    Result<LoadReport> load =
+        repository.fromDocument(buffer.str(), originalPath.toStdString());
+    if (!load.ok()) {
+        emit statusMessage(
+            QStringLiteral("Autosave restore failed: %1")
+                .arg(QString::fromStdString(load.message())));
+        return Result<void>::err(load.code(), load.message());
+    }
+
+    ProjectData data = std::move(load->project);
+    Timeline timeline;
+    if (!extractTimelineFromExtensions(data.extensions, timeline)) {
+        timeline = defaultTimeline(data.settings.name.empty()
+                                       ? QStringLiteral("Untitled").toStdString()
+                                       : data.settings.name);
+    }
+    adopt(std::move(data), std::move(timeline), originalPath.toStdString());
+    forceDirty();
+    emit statusMessage(
+        QStringLiteral("Recovered from autosave: %1").arg(autosavePath));
+    return Result<void>();
+}
+
 Result<void> ProjectController::doSave(const std::string& path) {
     syncTimelineToExtensions();
     ProjectRepository repository;
@@ -109,6 +150,7 @@ Result<void> ProjectController::doSave(const std::string& path) {
     filePath_ = path;
     savedIndex_ = undoStack_.index();
     recomputeDirty();
+    emit saved();
     emit statusMessage(QStringLiteral("Saved %1").arg(QString::fromStdString(path)));
     return result;
 }

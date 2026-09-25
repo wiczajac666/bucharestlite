@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app/autosave_manager.hpp"
 #include "app/project_controller.hpp"
 #include "app/theme_manager.hpp"
 #include "dialogs/export_dialog.hpp"
@@ -13,6 +14,8 @@
 #include "panels/timeline_panel.hpp"
 
 #include <QMainWindow>
+
+#include <functional>
 
 class QSettings;
 class QThread;
@@ -39,8 +42,18 @@ public:
 
     void setPromptOnCloseEnabled(bool enabled) { promptOnClose_ = enabled; }
 
+    void setAutosaveRoot(const QString& root);
+    void setRecoveryDecider(std::function<bool()> decider);
+    AutosaveManager* autosaveManager() const { return autosaveManager_; }
+
+    // After a project is opened or created, checks the autosave ring of the
+    // now-active project and, when a newer snapshot exists, asks (via the
+    // injected decider or a message box) whether to restore it.
+    bool maybePromptRecovery();
+
 protected:
     void closeEvent(QCloseEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void buildDocks();
@@ -62,9 +75,11 @@ private:
     void saveLayout();
 
     ProjectController* controller_{nullptr};
+    AutosaveManager* autosaveManager_{nullptr};
     QSettings* settings_{nullptr};
     bool ownsSettings_{false};
     bool promptOnClose_{true};
+    std::function<bool()> recoveryDecider_;
     Theme theme_{Theme::Dark};
 
     QDockWidget* mediaBin{nullptr};

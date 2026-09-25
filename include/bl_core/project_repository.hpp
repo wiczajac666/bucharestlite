@@ -3,6 +3,8 @@
 #include <bl_core/project_data.hpp>
 #include <bl_core/result.hpp>
 
+#include <nlohmann/json.hpp>
+
 #include <string>
 #include <vector>
 
@@ -23,6 +25,8 @@ public:
 
     static std::string toDocument(const ProjectData& data,
                                   const std::string& projectFilePath);
+    static nlohmann::json toJson(const ProjectData& data,
+                                 const std::string& projectFilePath);
     static Result<LoadReport> fromDocument(
         const std::string& jsonText, const std::string& projectFilePath);
 };

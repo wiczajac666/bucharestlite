@@ -172,7 +172,12 @@ Result<json> normalizeDocumentVersion(json doc) {
 
 std::string ProjectRepository::toDocument(const ProjectData& data,
                                           const std::string& projectFilePath) {
-    return buildDocument(data, projectFilePath).dump(2);
+    return toJson(data, projectFilePath).dump(2);
+}
+
+nlohmann::json ProjectRepository::toJson(const ProjectData& data,
+                                         const std::string& projectFilePath) {
+    return buildDocument(data, projectFilePath);
 }
 
 Result<LoadReport> ProjectRepository::fromDocument(

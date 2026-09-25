@@ -44,6 +44,17 @@ public:
     Result<void> save();
     Result<void> saveAs(const QString& path);
 
+    // Serializes the open document (project + timeline extension) as JSON, the
+    // exact format AutosaveRing::rotate persists and ProjectRepository loads.
+    nlohmann::json serializeDocument();
+
+    // Loads a recovered autosave document. Adopts it with `originalPath` as the
+    // file path (so a subsequent save writes the recovered content to the real
+    // project) and forces dirty; media paths are resolved relative to the
+    // original project directory.
+    Result<void> restoreFromAutosave(const QString& autosavePath,
+                                     const QString& originalPath = QString());
+
     // Undoable project mutations (wired into UndoStack::push).
     void renameProject(const QString& name);
     bool addToMediaBin(const QString& path);
@@ -54,6 +65,8 @@ signals:
     void dirtyChanged(bool dirty);
     void undoChanged();
     void statusMessage(const QString& message);
+    // Emitted after a successful explicit save (Save/Save As).
+    void saved();
 
 private:
     Result<void> doSave(const std::string& path);

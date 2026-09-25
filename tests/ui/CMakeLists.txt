@@ -3,6 +3,7 @@ find_package(Qt6 REQUIRED COMPONENTS Test)
 add_executable(bl_ui_tests
     test_project_controller.cpp
     test_main_window.cpp
+    test_autosave_manager.cpp
     test_timeline_edit_controller.cpp
     test_clip_edit_controller.cpp
     test_timeline_panel.cpp

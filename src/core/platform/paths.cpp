@@ -1,4 +1,4 @@
-#include "paths.hpp"
+#include <bl_core/platform/paths.hpp>
 
 #include <algorithm>
 #include <cstdlib>

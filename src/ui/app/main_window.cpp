@@ -10,6 +10,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDockWidget>
+#include <QEvent>
 #include <QFileDialog>
 #include <QInputDialog>
 #include <QKeySequence>
@@ -56,12 +57,20 @@ MainWindow::MainWindow(QWidget* parent, QSettings* settings) : QMainWindow(paren
     setWindowTitle(QStringLiteral("Bucharest Lite"));
 
     controller_ = new ProjectController(this);
+    autosaveManager_ = new AutosaveManager(controller_, this);
+    autosaveManager_->setIntervalSeconds(
+        settings_->value(QStringLiteral("autosave/intervalSeconds"), 60).toInt());
+    connect(autosaveManager_, &AutosaveManager::snapshotFailed,
+            this, [this](const QString& message) {
+        statusBar()->showMessage(tr("Autosave failed: %1").arg(message), 8000);
+    });
 
     buildDocks();
     buildActions();
     buildMenuAndToolbar();
     connectController();
 
+    installEventFilter(this);
     maybeRestoreLayout();
     updateTitle();
 }
@@ -146,6 +155,7 @@ void MainWindow::buildActions() {
                                                    untitledTitle());
         if (!name.isEmpty()) {
             controller_->newProject(name);
+            maybePromptRecovery();
         }
     });
 
@@ -159,8 +169,9 @@ void MainWindow::buildActions() {
             QFileDialog::getOpenFileName(this, tr("Open Project"), QString(),
                                          tr("Bucharest Projects (*.blproj);;All Files (*)"));
         if (!path.isEmpty()) {
-            const auto result = controller_->open(path);
-            static_cast<void>(result);
+            if (controller_->open(path).ok()) {
+                maybePromptRecovery();
+            }
         }
     });
 
@@ -243,6 +254,10 @@ void MainWindow::buildActions() {
     redoAction_->setEnabled(false);
 }
 
+void MainWindow::buildMenuAndToolbar() {
+    statusBar()->showMessage(QStringLiteral("Ready"));
+}
+
 void MainWindow::startBatchExport() {
     BatchExportDialog::AppContext context;
     context.snapshotOf = [this] { return controller_->timeline().snapshot(); };
@@ -259,10 +274,6 @@ void MainWindow::startBatchExport() {
     BatchExportDialog dialog(context, this);
     dialog.setJobs(loadExportQueue(context.queuePath.toStdString()));
     dialog.exec();
-}
-
-void MainWindow::buildMenuAndToolbar() {
-    statusBar()->showMessage(QStringLiteral("Ready"));
 }
 
 bool MainWindow::exportBusy() const {
@@ -400,6 +411,9 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 }
 
 bool MainWindow::confirmClose() {
+    // Flush the latest state to the autosave ring before any discard prompt,
+    // so a crash while closing still leaves recoverable work behind.
+    autosaveManager_->maybeAutosave();
     if (!promptOnClose_ || !controller_->dirty()) {
         return true;
     }
@@ -432,6 +446,53 @@ bool MainWindow::doSaveAs() {
         return false;
     }
     return controller_->saveAs(path).ok();
+}
+
+void MainWindow::setAutosaveRoot(const QString& root) {
+    autosaveManager_->setAutosaveRoot(root);
+}
+
+void MainWindow::setRecoveryDecider(std::function<bool()> decider) {
+    recoveryDecider_ = std::move(decider);
+}
+
+bool MainWindow::maybePromptRecovery() {
+    const QString autosave = autosaveManager_->autosaveNewerThanMain();
+    if (autosave.isEmpty()) {
+        return false;
+    }
+
+    bool restore = false;
+    if (recoveryDecider_) {
+        restore = recoveryDecider_();
+    } else {
+        const QMessageBox::StandardButton choice = QMessageBox::question(
+            this, tr("Recover unsaved changes"),
+            tr("An autosave of this project is newer than the last saved "
+               "version. Restore the autosaved changes?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        restore = choice == QMessageBox::Yes;
+    }
+    if (!restore) {
+        return false;
+    }
+
+    const auto result = controller_->restoreFromAutosave(
+        autosave, controller_->filePath());
+    if (!result.ok()) {
+        statusBar()->showMessage(
+            tr("Recovery failed: %1").arg(QString::fromStdString(result.message())),
+            8000);
+        return false;
+    }
+    return true;
+}
+
+bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == this && event->type() == QEvent::WindowDeactivate) {
+        autosaveManager_->maybeAutosave();
+    }
+    return QMainWindow::eventFilter(watched, event);
 }
 
 int MainWindow::dockCount() const {
