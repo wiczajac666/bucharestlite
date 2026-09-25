@@ -2,6 +2,7 @@
 
 #include "app/project_controller.hpp"
 #include "panels/mixer_controller.hpp"
+#include "widgets/level_meter.hpp"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -66,6 +67,11 @@ MasterFaderPanel::MasterFaderPanel(ProjectController* controller, QWidget* paren
     fader_->setRange(0, kFaderMax);
     columnLayout->addWidget(fader_, 1);
 
+    masterMeter_ = new LevelMeterWidget(column);
+    masterMeter_->setObjectName(QStringLiteral("masterMeter"));
+    masterMeter_->setFixedHeight(56);
+    columnLayout->insertWidget(0, masterMeter_);
+
     dbLabel_ = new QLabel(fmtDb(1.0), column);
     dbLabel_->setObjectName(QStringLiteral("masterDb"));
     dbLabel_->setAlignment(Qt::AlignCenter);
@@ -126,6 +132,30 @@ void MasterFaderPanel::refresh() {
     panLabel_->setText(fmtPan(masterPan));
 
     refreshing_ = false;
+}
+
+void MasterFaderPanel::setMeterResolver(bl::SourceMeterResolver resolver) {
+    resolver_ = std::move(resolver);
+}
+
+void MasterFaderPanel::onPlayheadChanged(const bl::Time& playhead) {
+    playhead_ = playhead;
+    onUpdateMeters();
+}
+
+void MasterFaderPanel::onUpdateMeters() {
+    if (!controller_) return;
+    if (!resolver_) {
+        if (masterMeter_) masterMeter_->setLevels(0.0f, 0.0f);
+        return;
+    }
+
+    const bl::MeterLevels levels =
+        bl::meterLevelsAt(controller_->timeline().sequence(), playhead_,
+                          resolver_);
+    if (masterMeter_) {
+        masterMeter_->setLevels(levels.master.left, levels.master.right);
+    }
 }
 
 void MasterFaderPanel::applyGain(int value) {

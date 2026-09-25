@@ -27,6 +27,7 @@
 #include <QToolBar>
 #include <QVBoxLayout>
 
+#include <algorithm>
 #include <memory>
 #include <utility>
 
@@ -77,6 +78,11 @@ MainWindow::MainWindow(QWidget* parent, QSettings* settings) : QMainWindow(paren
 }
 
 MainWindow::~MainWindow() {
+    if (meterEngine_) {
+        // Stop callbacks and cancel in-flight analysis before panels tear down.
+        meterEngine_->onAnalyzed = nullptr;
+        meterEngine_->clear();
+    }
     if (exportWorker_) {
         exportWorker_->cancel();
         exportThread_->quit();
@@ -142,6 +148,60 @@ void MainWindow::buildDocks() {
     connect(timelinePanel_, &TimelinePanel::selectionChanged, this, [this] {
         inspectorPanel_->showSelection(timelinePanel_->selection());
     });
+
+    setupMeterEngine();
+}
+
+void MainWindow::setupMeterEngine() {
+    meterEngine_ = std::make_unique<bl::AudioMeterEngine>();
+    meterEngine_->configure(previewPanel_->pluginDirs());
+    meterEngine_->onAnalyzed = [this](const std::string&) {
+        // Analysis settled on a worker thread; marshal repaints onto the panel
+        // objects' thread (the GUI thread).
+        QMetaObject::invokeMethod(mixerPanel_, [this] {
+            if (mixerPanel_) mixerPanel_->onUpdateMeters();
+        }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(masterFaderPanel_, [this] {
+            if (masterFaderPanel_) masterFaderPanel_->onUpdateMeters();
+        }, Qt::QueuedConnection);
+    };
+
+    const auto resolver =
+        [this](const std::string& mediaItemId)
+        -> std::shared_ptr<const bl::AudioMeterEnvelope> {
+        return meterEngine_ ? meterEngine_->envelopeFor(mediaItemId) : nullptr;
+    };
+    mixerPanel_->setMeterResolver(resolver);
+    masterFaderPanel_->setMeterResolver(resolver);
+
+    // Meters follow every playhead move (playback ticks and ruler scrubs alike
+    // funnel through PreviewPanel::playheadChanged).
+    connect(previewPanel_, &PreviewPanel::playheadChanged, mixerPanel_,
+            &MixerPanel::onPlayheadChanged);
+    connect(previewPanel_, &PreviewPanel::playheadChanged, masterFaderPanel_,
+            &MasterFaderPanel::onPlayheadChanged);
+
+    syncMeterAnalysis();
+}
+
+void MainWindow::syncMeterAnalysis() {
+    if (!meterEngine_ || !controller_) return;
+
+    const auto& mediaBin = controller_->mediaBin();
+    const auto requested = [&mediaBin] {
+        std::vector<std::string> ids;
+        ids.reserve(mediaBin.size());
+        for (const auto& item : mediaBin) ids.push_back(item.id);
+        return ids;
+    }();
+
+    for (const auto& id : meterEngine_->mediaIds()) {
+        if (std::find(requested.begin(), requested.end(), id) ==
+            requested.end()) {
+            meterEngine_->remove(id);
+        }
+    }
+    meterEngine_->analyzeMedia(mediaBin);
 }
 
 void MainWindow::buildActions() {
@@ -402,6 +462,7 @@ void MainWindow::startExport() {
 
 void MainWindow::connectController() {
     connect(controller_, &ProjectController::projectChanged, this, &MainWindow::updateTitle);
+    connect(controller_, &ProjectController::projectChanged, this, &MainWindow::syncMeterAnalysis);
     connect(controller_, &ProjectController::dirtyChanged, this, &MainWindow::updateTitle);
     connect(controller_, &ProjectController::undoChanged, this, [this] {
         undoAction_->setEnabled(controller_->canUndo());

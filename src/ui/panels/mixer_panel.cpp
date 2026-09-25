@@ -2,6 +2,7 @@
 
 #include "app/project_controller.hpp"
 #include "panels/mixer_controller.hpp"
+#include "widgets/level_meter.hpp"
 
 #include <bl_timeline/sequence.hpp>
 
@@ -76,6 +77,43 @@ void MixerPanel::refresh() {
     rebuild();
 }
 
+void MixerPanel::setMeterResolver(bl::SourceMeterResolver resolver) {
+    resolver_ = std::move(resolver);
+}
+
+LevelMeterWidget* MixerPanel::meter(int strip) const {
+    if (strip < 0 || strip >= static_cast<int>(meterWidgets_.size())) {
+        return nullptr;
+    }
+    return meterWidgets_[static_cast<size_t>(strip)];
+}
+
+void MixerPanel::onPlayheadChanged(const bl::Time& playhead) {
+    playhead_ = playhead;
+    onUpdateMeters();
+}
+
+void MixerPanel::onUpdateMeters() {
+    if (!controller_) return;
+    if (!resolver_) {
+        for (LevelMeterWidget* meter : meterWidgets_) {
+            meter->setLevels(0.0f, 0.0f);
+        }
+        return;
+    }
+
+    const bl::MeterLevels levels =
+        bl::meterLevelsAt(controller_->timeline().sequence(), playhead_,
+                          resolver_);
+    for (size_t i = 0; i < meterWidgets_.size(); ++i) {
+        const float left =
+            i < levels.tracks.size() ? levels.tracks[i].left : 0.0f;
+        const float right =
+            i < levels.tracks.size() ? levels.tracks[i].right : 0.0f;
+        meterWidgets_[i]->setLevels(left, right);
+    }
+}
+
 void MixerPanel::rebuild() {
     if (!controller_) return;
     refreshing_ = true;
@@ -87,6 +125,7 @@ void MixerPanel::rebuild() {
         delete item;
     }
     emptyLabel_ = nullptr;
+    meterWidgets_.clear();
 
     const auto& seq = controller_->timeline().sequence();
     const int audioCount = static_cast<int>(seq.audioTracks.size());
@@ -117,6 +156,12 @@ void MixerPanel::rebuild() {
         name->setObjectName(QStringLiteral("trackName_%1").arg(i));
         name->setAlignment(Qt::AlignCenter);
         stripLayout->addWidget(name);
+
+        auto* meter = new LevelMeterWidget(strip);
+        meter->setObjectName(QStringLiteral("meter_%1").arg(i));
+        meter->setFixedHeight(56);
+        stripLayout->addWidget(meter, 0);
+        meterWidgets_.push_back(meter);
 
         auto* fader = new QSlider(Qt::Vertical, strip);
         fader->setObjectName(QStringLiteral("fader_%1").arg(i));

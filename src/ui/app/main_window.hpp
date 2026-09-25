@@ -14,9 +14,12 @@
 #include "panels/timeline_panel.hpp"
 #include "shortcuts/action_registry.hpp"
 
+#include <bl_audio/audio_meter_engine.hpp>
+
 #include <QMainWindow>
 
 #include <functional>
+#include <memory>
 
 class QSettings;
 class QThread;
@@ -68,6 +71,8 @@ private:
     bool doSave();
     bool doSaveAs();
     void showShortcutsDialog();
+    void setupMeterEngine();
+    void syncMeterAnalysis();
 
     void startExport();
     void startBatchExport();
@@ -110,6 +115,8 @@ private:
     QThread* exportThread_{nullptr};
     ExportWorker* exportWorker_{nullptr};
     bool exportBusy_{false};
+
+    std::unique_ptr<bl::AudioMeterEngine> meterEngine_;
 };
 
 } // namespace bl::ui

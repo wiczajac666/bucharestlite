@@ -17,6 +17,7 @@ add_library(bl_ui STATIC
     panels/mixer_panel.cpp
     panels/master_fader_panel.cpp
     panels/param_slider.cpp
+    widgets/level_meter.cpp
     export/export_settings.cpp
     export/export_plan.cpp
     export/export_runner.cpp
@@ -46,7 +47,7 @@ set_target_properties(bl_ui PROPERTIES AUTOMOC ON)
 
 target_compile_features(bl_ui PUBLIC cxx_std_17)
 
-target_link_libraries(bl_ui PUBLIC Qt6::Widgets bl::core bl_timeline bl::render)
+target_link_libraries(bl_ui PUBLIC Qt6::Widgets bl::core bl_timeline bl::render bl::audio)
 
 bl_enable_warnings(bl_ui)
 

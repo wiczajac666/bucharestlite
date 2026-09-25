@@ -15,6 +15,7 @@ add_executable(bl_ui_tests
     test_inspector_panel.cpp
     test_mixer_controller.cpp
     test_mixer_panel.cpp
+    test_mixer_meters.cpp
     test_export_settings.cpp
     test_export_runner.cpp
     test_export_ui.cpp
