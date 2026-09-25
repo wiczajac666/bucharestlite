@@ -25,9 +25,33 @@ IEffect* EffectRegistry::find(std::string_view name) const noexcept {
     return nullptr;
 }
 
+std::vector<std::string> EffectRegistry::catalog() const {
+    std::vector<std::string> names;
+    names.reserve(effects_.size());
+    for (const auto& e : effects_) {
+        names.emplace_back(e->name());
+    }
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
 size_t EffectRegistry::count() const noexcept { return effects_.size(); }
 
 void EffectRegistry::clear() noexcept { effects_.clear(); }
+
+// --- IEffect defaults ---
+
+std::string_view IEffect::displayName() const { return name(); }
+
+std::vector<ParamSpec> IEffect::paramSpecs() const { return {}; }
+
+nlohmann::json makeDefaultParams(const std::vector<ParamSpec>& specs) {
+    nlohmann::json params = nlohmann::json::object();
+    for (const auto& spec : specs) {
+        params[spec.key] = spec.def;
+    }
+    return params;
+}
 
 // --- Box Blur ---
 
@@ -100,6 +124,10 @@ static void boxBlur(std::vector<uint8_t>& data, uint32_t width, uint32_t height,
 class BoxBlurEffect : public IEffect {
 public:
     std::string_view name() const override { return "blur.box"; }
+    std::string_view displayName() const override { return "Box Blur"; }
+    std::vector<ParamSpec> paramSpecs() const override {
+        return {{"radius", "Radius", 0.0, 20.0, 1.0}};
+    }
     void apply(std::vector<uint8_t>& data, uint32_t width, uint32_t height,
                uint32_t linesize, const nlohmann::json& params) override {
         int radius = (params.is_object()) ? params.value("radius", 1) : 1;
@@ -113,6 +141,14 @@ public:
 class BrightnessContrastGammaEffect : public IEffect {
 public:
     std::string_view name() const override { return "brightness_contrast_gamma"; }
+    std::string_view displayName() const override { return "Color Correction"; }
+    std::vector<ParamSpec> paramSpecs() const override {
+        return {
+            {"brightness", "Brightness", -1.0, 1.0, 0.0},
+            {"contrast", "Contrast", 0.0, 3.0, 1.0},
+            {"gamma", "Gamma", 0.1, 5.0, 1.0},
+        };
+    }
     void apply(std::vector<uint8_t>& data, uint32_t width, uint32_t height,
                uint32_t linesize, const nlohmann::json& params) override {
         const bool hasParams = params.is_object();
@@ -153,6 +189,7 @@ public:
 class GreyscaleEffect : public IEffect {
 public:
     std::string_view name() const override { return "greyscale"; }
+    std::string_view displayName() const override { return "Greyscale"; }
     void apply(std::vector<uint8_t>& data, uint32_t width, uint32_t height,
                uint32_t linesize, const nlohmann::json&) override {
         for (uint32_t y = 0; y < height; ++y) {
@@ -175,6 +212,7 @@ public:
 class Transform2DEffect : public IEffect {
 public:
     std::string_view name() const override { return "transform_2d"; }
+    std::string_view displayName() const override { return "Transform 2D"; }
     void apply(std::vector<uint8_t>& data, uint32_t width, uint32_t height,
                uint32_t linesize, const nlohmann::json& params) override {
         const bool hasParams = params.is_object();

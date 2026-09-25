@@ -93,4 +93,73 @@ TEST_F(EffectsTest, Transform2DIdentityIsNoop) {
     EXPECT_EQ(data, original);
 }
 
+TEST_F(EffectsTest, CatalogListsRegisteredEffects) {
+    auto& reg = EffectRegistry::instance();
+    const auto names = reg.catalog();
+    ASSERT_EQ(names.size(), 4u);
+    EXPECT_EQ(names[0], "blur.box");
+    EXPECT_EQ(names[1], "brightness_contrast_gamma");
+    EXPECT_EQ(names[2], "greyscale");
+    EXPECT_EQ(names[3], "transform_2d");
+}
+
+TEST_F(EffectsTest, DisplayNamesAreHumanReadable) {
+    auto& reg = EffectRegistry::instance();
+    EXPECT_EQ(reg.find("blur.box")->displayName(), "Box Blur");
+    EXPECT_EQ(reg.find("brightness_contrast_gamma")->displayName(),
+              "Color Correction");
+    EXPECT_EQ(reg.find("greyscale")->displayName(), "Greyscale");
+    EXPECT_EQ(reg.find("transform_2d")->displayName(), "Transform 2D");
+}
+
+TEST_F(EffectsTest, ColorEffectExposesParamSpecs) {
+    auto& reg = EffectRegistry::instance();
+    IEffect* bcg = reg.find("brightness_contrast_gamma");
+    ASSERT_NE(bcg, nullptr);
+
+    const auto specs = bcg->paramSpecs();
+    ASSERT_EQ(specs.size(), 3u);
+
+    EXPECT_EQ(specs[0].key, "brightness");
+    EXPECT_EQ(specs[0].min, -1.0);
+    EXPECT_EQ(specs[0].max, 1.0);
+    EXPECT_EQ(specs[0].def, 0.0);
+
+    EXPECT_EQ(specs[1].key, "contrast");
+    EXPECT_EQ(specs[1].def, 1.0);
+
+    EXPECT_EQ(specs[2].key, "gamma");
+    EXPECT_NEAR(specs[2].min, 0.1, 1e-9);
+    EXPECT_NEAR(specs[2].def, 1.0, 1e-9);
+}
+
+TEST_F(EffectsTest, MakeDefaultParamsMatchesSpecs) {
+    const std::vector<bl::ParamSpec> specs = {
+        {"brightness", "Brightness", -1.0, 1.0, 0.0},
+        {"contrast", "Contrast", 0.0, 3.0, 1.0},
+        {"gamma", "Gamma", 0.1, 5.0, 1.0},
+    };
+    const nlohmann::json params = bl::makeDefaultParams(specs);
+    EXPECT_EQ(params["brightness"], 0.0);
+    EXPECT_EQ(params["contrast"], 1.0);
+    EXPECT_EQ(params["gamma"], 1.0);
+}
+
+TEST_F(EffectsTest, MakeDefaultParamsEmptyForNoSpecs) {
+    EXPECT_TRUE(bl::makeDefaultParams({}).empty());
+}
+
+TEST_F(EffectsTest, BrightnessLiftsPixelValues) {
+    std::vector<uint8_t> data = {128, 100, 64, 255};
+    uint32_t width = 1, height = 1, linesize = 4;
+    nlohmann::json params = {{"brightness", 0.2}, {"contrast", 1.0},
+                             {"gamma", 1.0}};
+
+    IEffect* bcg = EffectRegistry::instance().find("brightness_contrast_gamma");
+    ASSERT_NE(bcg, nullptr);
+    bcg->apply(data, width, height, linesize, params);
+
+    EXPECT_GT(data[2], 64); // red lifted from 64
+}
+
 } // namespace
