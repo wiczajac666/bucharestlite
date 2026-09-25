@@ -176,7 +176,7 @@ TEST(ExportRunner, ExportsMp4FromTimeline) {
     if (QFileInfo::exists(QString::fromStdString(out + ".keep"))) {
         std::remove((out + ".keep").c_str());
     }
-    if (std::getenv("BL_KEEP_EXPORT")) {
+    if (qEnvironmentVariableIsSet("BL_KEEP_EXPORT")) {
         QFile::copy(QString::fromStdString(out),
                     QString::fromStdString(out + ".keep"));
     }
