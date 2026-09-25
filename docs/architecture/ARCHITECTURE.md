@@ -634,7 +634,7 @@ Benchmark harness in `tests/performance/`: scripted timeline builds, render-thro
 | GL | desktop 3.3 | WGL 3.3 | CGL 3.3 (Metal via MoltenVK later) |
 | FFmpeg | distro packages | vendored shared builds (GPL) | homebrew/vendored |
 | CI | GitHub Actions ubuntu | windows-latest | macos-latest |
-| Packaging | AppImage + deb | installer (NSIS) + portable zip | signed dmg (best-effort, unsigned allowed) |
+| Packaging | AppImage + deb | installer (NSIS) + portable zip | — |
 
 Platform-specific code confined to `src/core/platform/` (paths, dynamic libs, high-res timers).
 

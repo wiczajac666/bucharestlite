@@ -11,8 +11,24 @@
   −1…1, M/S toggles) and a functional master strip; new track-level
   `gain`/`pan` and `SequenceSettings` `masterGain`/`masterPan` with
   backward-compatible serialization; drag = one undoable `FunctionCommand`.
+- **UI-8 Autosave + crash recovery**: dirty state now derives from the undo
+  index (all edit kinds mark the project dirty), and an `AutosaveManager`
+  snapshots on a 60s timer and on window focus-loss into a rolling
+  `AutosaveRing` (10 slots, keyed by project name); opening/creating a project
+  offers to restore a newer snapshot, adopting it against the original project
+  dir so a later save rewrites the real file.
+- **UI-8 Keyboard shortcuts**: centralized `ActionRegistry` makes every action
+  remappable (new defaults include Ctrl+Shift+E batch export, Ctrl+1..5 panel
+  toggles, Space playback); overrides persist to QSettings; Help → Keyboard
+  Shortcuts… opens the inline-capture editor.
 
 ### Fixed
+- Project title ` *` and the close prompt now appear for clip/mixer edits too,
+  not only rename and media-bin changes; undo-to-pristine clears dirty.
+- Undo/redo shortcuts are registered through the same remappable registry.
+- Recovery decision no longer misses a snapshot when the manual save and the
+  autosave share a modification-time tick (NTFS updates timestamps lazily);
+  ties fall back to a content comparison.
 - Staged test fixtures/plugins before `gtest_discover_tests` so incremental
   UI runs don't spuriously fail.
 - `bl_lite` target outputs `bucharest-lite` and is installed to `bin`.

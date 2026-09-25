@@ -103,6 +103,12 @@
 - Plugin architecture (frei0r, OpenFX, LADSPA)
 - Portable / standalone builds
 
+**Packaging:**
+- .deb package with gnome application drawer icons and and kde application meno items
+- .rpm package with gnome application drawer icons and and kde application meno items
+- .flatpak package with gnome application drawer icons and and kde application meno items
+- Windows 10 22H2 build verified with NSIS installer + portable zip (`packaging/windows/build_installer.ps1` → `bucharest-lite-1.0.1-windows-x64-setup.exe`, `bucharest-lite-1.0.1-windows-x64-portable.zip`; MSVC x64, Qt 6.8.3, windeployqt runtime, 9 codec plugins shipped under `plugins/{video,audio}`)
+
 ### Modular Codec Plugin List
 
 **Video codecs:**
@@ -119,8 +125,10 @@
 - Opus
 
 Each codec is a loadable plugin — the core ships with a codec registry and plugin loader. New codecs are added by dropping in a plugin binary + metadata.
+- framework for users to add own plugins, specifications and instructions for it.
 
 ---
+
 
 ### Essential Features for Bucharest Lite
 
