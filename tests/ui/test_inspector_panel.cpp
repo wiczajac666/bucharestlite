@@ -3,12 +3,15 @@
 #include <QGroupBox>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMenu>
+#include <QSlider>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QTest>
 
 #include <app/project_controller.hpp>
 #include <panels/inspector_panel.hpp>
+#include <panels/param_slider.hpp>
 
 #include <gtest/gtest.h>
 
@@ -245,20 +248,113 @@ TEST(InspectorPanel, AddEffectAppearsInList) {
     Fixture f;
     f.selectVideo();
     ASSERT_NE(f.effectList, nullptr);
+    f.panel.addEffectById(QStringLiteral("blur.box"));
+    ASSERT_EQ(f.effectList->count(), 1);
+    EXPECT_EQ(f.video()->effects.size(), 1u);
+}
+
+TEST(InspectorPanel, EffectAddMenuListsCatalog) {
+    Fixture f;
+    f.selectVideo();
+    ASSERT_NE(f.effectList, nullptr);
     auto* add =
         f.panel.findChild<QPushButton*>(QStringLiteral("inspectorEffectAdd"));
     ASSERT_NE(add, nullptr);
-    add->click();
-    ASSERT_EQ(f.effectList->count(), 1);
+    auto* menu = add->menu();
+    ASSERT_NE(menu, nullptr);
+
+    QSet<QString> labels;
+    QSet<QString> ids;
+    for (QAction* action : menu->actions()) {
+        labels.insert(action->text());
+        ids.insert(action->data().toString());
+    }
+    EXPECT_TRUE(labels.contains(QStringLiteral("Box Blur")));
+    EXPECT_TRUE(labels.contains(QStringLiteral("Color Correction")));
+    EXPECT_TRUE(labels.contains(QStringLiteral("Greyscale")));
+    EXPECT_TRUE(labels.contains(QStringLiteral("Transform 2D")));
+    EXPECT_TRUE(ids.contains(QStringLiteral("blur.box")));
+    EXPECT_TRUE(ids.contains(QStringLiteral("brightness_contrast_gamma")));
+
+    menu->actions().at(1)->trigger();
     EXPECT_EQ(f.video()->effects.size(), 1u);
+    EXPECT_EQ(f.video()->effects[0].effectId,
+              "brightness_contrast_gamma");
+}
+
+TEST(InspectorPanel, AddColorEffectSeedsDefaultParamsAndSliders) {
+    Fixture f;
+    f.selectVideo();
+    f.panel.addEffectById(QStringLiteral("brightness_contrast_gamma"));
+    ASSERT_EQ(f.video()->effects.size(), 1u);
+    const auto& params = f.video()->effects[0].params;
+    EXPECT_EQ(params.value("brightness", -999.0), 0.0);
+    EXPECT_EQ(params.value("contrast", -999.0), 1.0);
+    EXPECT_EQ(params.value("gamma", -999.0), 1.0);
+
+    auto* bright =
+        f.panel.findChild<bl::ui::ParamSlider*>(
+            QStringLiteral("inspectorParam_brightness"));
+    auto* contrast =
+        f.panel.findChild<bl::ui::ParamSlider*>(
+            QStringLiteral("inspectorParam_contrast"));
+    auto* gamma =
+        f.panel.findChild<bl::ui::ParamSlider*>(
+            QStringLiteral("inspectorParam_gamma"));
+    ASSERT_NE(bright, nullptr);
+    ASSERT_NE(contrast, nullptr);
+    ASSERT_NE(gamma, nullptr);
+    EXPECT_DOUBLE_EQ(bright->value(), 0.0);
+    EXPECT_DOUBLE_EQ(contrast->value(), 1.0);
+    EXPECT_DOUBLE_EQ(gamma->value(), 1.0);
+}
+
+TEST(InspectorPanel, ParamSliderCommitWritesUndoableParams) {
+    Fixture f;
+    f.selectVideo();
+    f.panel.addEffectById(QStringLiteral("brightness_contrast_gamma"));
+    ASSERT_EQ(f.video()->effects.size(), 1u);
+
+    auto* bright =
+        f.panel.findChild<bl::ui::ParamSlider*>(
+            QStringLiteral("inspectorParam_brightness"));
+    ASSERT_NE(bright, nullptr);
+    auto* slider = bright->findChild<QSlider*>();
+    ASSERT_NE(slider, nullptr);
+
+    // Brightness range [-1, 1]; request 0.5 -> position 750 of 1000.
+    slider->setValue(750);
+    bright->commit();
+
+    EXPECT_NEAR(f.video()->effects[0].params.value("brightness", -999.0),
+                0.5, 1e-6);
+    EXPECT_TRUE(f.controller.canUndo());
+
+    f.controller.undoStack().undo();
+    EXPECT_NEAR(f.video()->effects[0].params.value("brightness", -999.0),
+                0.0, 1e-9);
+}
+
+TEST(InspectorPanel, ParamSlidersHiddenForSpecLessEffect) {
+    Fixture f;
+    f.selectVideo();
+    f.panel.addEffectById(QStringLiteral("transform_2d"));
+    ASSERT_EQ(f.video()->effects.size(), 1u);
+
+    auto* sliders =
+        f.panel.findChild<QWidget*>(QStringLiteral("inspectorEffectSliders"));
+    auto* paramsJson =
+        f.panel.findChild<QLineEdit*>(QStringLiteral("inspectorEffectParams"));
+    ASSERT_NE(sliders, nullptr);
+    ASSERT_NE(paramsJson, nullptr);
+    EXPECT_TRUE(sliders->isHidden());
+    EXPECT_FALSE(paramsJson->isHidden());
 }
 
 TEST(InspectorPanel, RemoveEffectRemovesFromModel) {
     Fixture f;
     f.selectVideo();
-    auto* add =
-        f.panel.findChild<QPushButton*>(QStringLiteral("inspectorEffectAdd"));
-    add->click();
+    f.panel.addEffectById(QStringLiteral("blur.box"));
     EXPECT_EQ(f.video()->effects.size(), 1u);
 
     ASSERT_NE(f.effectList, nullptr);
@@ -273,9 +369,7 @@ TEST(InspectorPanel, RemoveEffectRemovesFromModel) {
 TEST(InspectorPanel, ToggleEffectBypassGlitch) {
     Fixture f;
     f.selectVideo();
-    auto* add =
-        f.panel.findChild<QPushButton*>(QStringLiteral("inspectorEffectAdd"));
-    add->click();
+    f.panel.addEffectById(QStringLiteral("blur.box"));
     f.effectList->setCurrentRow(0);
     f.wireHelpers();
 

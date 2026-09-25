@@ -17,10 +17,14 @@
 
 class QCheckBox;
 class QLineEdit;
+class QMenu;
 class QScrollArea;
 class QStackedWidget;
+class QVBoxLayout;
 
 namespace bl::ui {
+
+class ParamSlider;
 
 // Full inspector panel: clip properties, speed, keyframes (list-based), and
 // effect stack. Single-clip editing only — showing or editing nothing when
@@ -34,6 +38,9 @@ public:
     // Reloads the entire inspector from the model. Called by MainWindow after
     // wiring selectionChanged → showSelection.
     void showSelection(const QSet<ClipId>& ids);
+
+    // Adds an effect to the selected clip by registry id (test + menu entry).
+    void addEffectById(const QString& effectId);
 
     // Test helpers.
     bool hasClip() const { return currentFlat_.has_value(); }
@@ -71,12 +78,13 @@ private:
     void onAddKeyframe();
     void onRemoveKeyframe();
     void onKeyframeCellChanged(int row, int column);
-    void onAddEffect();
     void onRemoveEffect();
     void onReorderEffectUp();
     void onReorderEffectDown();
     void onEffectEnabledChanged();
     void onEffectParamsChanged();
+    void rebuildEffectParams(const EffectInstance& effect);
+    void onParamCommitted(const std::string& key, double value);
 
     ProjectController* controller_{nullptr};
     ClipEditController editor_;
@@ -121,6 +129,7 @@ private:
     // Effects.
     QListWidget* effectList_{nullptr};
     QPushButton* effectAdd_{nullptr};
+    QMenu* effectAddMenu_{nullptr};
     QPushButton* effectRemove_{nullptr};
     QPushButton* effectUp_{nullptr};
     QPushButton* effectDown_{nullptr};
@@ -128,6 +137,9 @@ private:
     QCheckBox* effectEnabledCheck_{nullptr};
     QLabel* effectParamsLabel_{nullptr};
     QLineEdit* effectParamsEdit_{nullptr};
+    QWidget* effectSliders_{nullptr};
+    QVBoxLayout* effectSlidersLayout_{nullptr};
+    std::vector<ParamSlider*> paramSliders_;
 };
 
 } // namespace bl::ui

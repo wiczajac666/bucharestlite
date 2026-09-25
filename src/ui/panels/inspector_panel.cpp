@@ -1,7 +1,9 @@
 #include "panels/inspector_panel.hpp"
+#include "panels/param_slider.hpp"
 
 #include <bl_timeline/clip.hpp>
 #include <bl_timeline/keyframes.hpp>
+#include <bl_render/effect.hpp>
 
 #include <QCheckBox>
 #include <QDoubleSpinBox>
@@ -11,6 +13,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSpinBox>
@@ -170,6 +173,13 @@ void InspectorPanel::clearUI() {
     if (effectList_) effectList_->clear();
     if (effectEnabledCheck_) effectEnabledCheck_->setChecked(true);
     if (effectParamsEdit_) effectParamsEdit_->clear();
+    if (effectSliders_) {
+        while (auto* item = effectSlidersLayout_->takeAt(0)) {
+            if (QWidget* widget = item->widget()) delete widget;
+            delete item;
+        }
+        paramSliders_.clear();
+    }
     suppress_ = false;
 }
 
@@ -267,12 +277,18 @@ void InspectorPanel::reloadFromModel() {
     }
 
     // Effects.
+    const int previousEffectRow =
+        effectList_ ? effectList_->currentRow() : -1;
     if (effectList_) {
         effectList_->clear();
         for (const EffectInstance& eff : clip->effects) {
             QString label = QString::fromStdString(eff.effectId);
             if (!eff.enabled) label += " (disabled)";
             effectList_->addItem(label);
+        }
+        if (previousEffectRow >= 0 &&
+            previousEffectRow < effectList_->count()) {
+            effectList_->setCurrentRow(previousEffectRow);
         }
         onEffectEnabledChanged();
     }
@@ -446,6 +462,15 @@ QWidget* InspectorPanel::buildEffectSection(QWidget* parent) {
     auto* btnCol = new QVBoxLayout();
     effectAdd_ = new QPushButton(tr("Add..."), group);
     effectAdd_->setObjectName(QStringLiteral("inspectorEffectAdd"));
+    effectAddMenu_ = new QMenu(effectAdd_);
+    for (const std::string& id : bl::EffectRegistry::instance().catalog()) {
+        const bl::IEffect* fx = bl::EffectRegistry::instance().find(id);
+        if (!fx) continue;
+        auto* action = effectAddMenu_->addAction(
+            QString::fromStdString(std::string(fx->displayName())));
+        action->setData(QString::fromStdString(id));
+    }
+    effectAdd_->setMenu(effectAddMenu_);
     effectRemove_ = new QPushButton(tr("Remove"), group);
     effectRemove_->setObjectName(QStringLiteral("inspectorEffectRemove"));
     effectUp_ = new QPushButton(tr("Up"), group);
@@ -470,7 +495,15 @@ QWidget* InspectorPanel::buildEffectSection(QWidget* parent) {
     enabledRow->addStretch(1);
     layout->addLayout(enabledRow);
 
-    // Params editor.
+    // Params editor: schema-driven sliders when the effect exposes specs,
+    // raw JSON line editor otherwise.
+    effectSliders_ = new QWidget(group);
+    effectSliders_->setObjectName(QStringLiteral("inspectorEffectSliders"));
+    effectSlidersLayout_ = new QVBoxLayout(effectSliders_);
+    effectSlidersLayout_->setContentsMargins(0, 0, 0, 0);
+    effectSlidersLayout_->setSpacing(4);
+    layout->addWidget(effectSliders_);
+
     auto* paramsRow = new QHBoxLayout();
     effectParamsLabel_ = new QLabel(tr("Params JSON:"), group);
     effectParamsEdit_ = new QLineEdit(group);
@@ -481,8 +514,8 @@ QWidget* InspectorPanel::buildEffectSection(QWidget* parent) {
 
     connect(effectList_, &QListWidget::currentRowChanged, this,
             &InspectorPanel::onEffectEnabledChanged);
-    connect(effectAdd_, &QPushButton::clicked, this,
-            &InspectorPanel::onAddEffect);
+    connect(effectAddMenu_, &QMenu::triggered, this,
+            [this](QAction* action) { addEffectById(action->data().toString()); });
     connect(effectRemove_, &QPushButton::clicked, this,
             &InspectorPanel::onRemoveEffect);
     connect(effectUp_, &QPushButton::clicked, this,
@@ -624,19 +657,26 @@ void InspectorPanel::onKeyframeCellChanged(int row, int column) {
     emit clipChanged();
 }
 
-void InspectorPanel::onAddEffect() {
+void InspectorPanel::addEffectById(const QString& effectId) {
     if (suppress_ || !currentFlat_.has_value()) return;
+    if (effectId.isEmpty()) return;
     const Sequence& seq = controller_->timeline().sequence();
     const Clip* clip =
         editor_.findClip(seq, *currentFlat_, currentId_);
     if (!clip) return;
 
-    // Use blur.box as the default effect.
     EffectInstance effect;
-    effect.effectId = "blur.box";
+    effect.effectId = effectId.toStdString();
+    if (const bl::IEffect* fx =
+            bl::EffectRegistry::instance().find(effect.effectId)) {
+        effect.params = bl::makeDefaultParams(fx->paramSpecs());
+    }
 
     editor_.addEffect(*currentFlat_, currentId_, effect);
     reloadFromModel();
+    if (effectList_ && effectList_->count() > 0) {
+        effectList_->setCurrentRow(effectList_->count() - 1);
+    }
     emit clipChanged();
 }
 
@@ -687,6 +727,7 @@ void InspectorPanel::onEffectEnabledChanged() {
         effectEnabledLabel_->setEnabled(false);
         effectParamsLabel_->setEnabled(false);
         effectParamsEdit_->setEnabled(false);
+        effectSliders_->hide();
         return;
     }
     const Sequence& seq = controller_->timeline().sequence();
@@ -704,6 +745,7 @@ void InspectorPanel::onEffectEnabledChanged() {
     effectEnabledCheck_->blockSignals(false);
     effectParamsEdit_->setText(
         QString::fromStdString(eff.params.dump()));
+    rebuildEffectParams(eff);
 }
 
 void InspectorPanel::onEffectParamsChanged() {
@@ -724,6 +766,72 @@ void InspectorPanel::onEffectParamsChanged() {
     editor_.setEffectParams(*currentFlat_, currentId_, static_cast<size_t>(row),
                             params);
     reloadFromModel();
+    emit clipChanged();
+}
+
+void InspectorPanel::rebuildEffectParams(const EffectInstance& effect) {
+    if (!effectSliders_ || !effectSlidersLayout_ || !effectParamsEdit_) return;
+
+    while (auto* item = effectSlidersLayout_->takeAt(0)) {
+        if (QWidget* widget = item->widget()) delete widget;
+        delete item;
+    }
+    paramSliders_.clear();
+
+    std::vector<bl::ParamSpec> specs;
+    if (const bl::IEffect* fx =
+            bl::EffectRegistry::instance().find(effect.effectId)) {
+        specs = fx->paramSpecs();
+    }
+
+    // Effects without parameter specs keep the raw JSON editor.
+    effectSliders_->setVisible(!specs.empty());
+    effectParamsLabel_->setVisible(specs.empty());
+    effectParamsEdit_->setVisible(specs.empty());
+
+    if (specs.empty()) return;
+
+    for (const bl::ParamSpec& spec : specs) {
+        double value = spec.def;
+        if (effect.params.is_object() && effect.params.contains(spec.key)) {
+            const nlohmann::json& jv = effect.params[spec.key];
+            if (jv.is_number()) value = jv.get<double>();
+        }
+        auto* slider = new ParamSlider(spec, effectSliders_);
+        slider->setObjectName(QStringLiteral("inspectorParam_%1").arg(
+            QString::fromStdString(spec.key)));
+        slider->setValue(value);
+        connect(slider, &ParamSlider::valueCommitted, this,
+                [this, key = spec.key](double val) {
+                    onParamCommitted(key, val);
+                });
+        effectSlidersLayout_->addWidget(slider);
+        paramSliders_.push_back(slider);
+    }
+}
+
+void InspectorPanel::onParamCommitted(const std::string& key, double value) {
+    if (suppress_ || !currentFlat_.has_value()) return;
+    if (!effectList_) return;
+    int row = effectList_->currentRow();
+    if (row < 0) return;
+
+    const Sequence& seq = controller_->timeline().sequence();
+    const Clip* clip =
+        editor_.findClip(seq, *currentFlat_, currentId_);
+    if (!clip || static_cast<size_t>(row) >= clip->effects.size()) return;
+
+    nlohmann::json params = clip->effects[static_cast<size_t>(row)].params;
+    if (!params.is_object()) params = nlohmann::json::object();
+    params[key] = value;
+
+    const int effectRow = row;
+    editor_.setEffectParams(*currentFlat_, currentId_,
+                            static_cast<size_t>(effectRow), params);
+    reloadFromModel();
+    if (effectList_ && effectList_->count() > 0) {
+        effectList_->setCurrentRow(effectRow);
+    }
     emit clipChanged();
 }
 

@@ -16,6 +16,7 @@ add_library(bl_ui STATIC
     panels/mixer_controller.cpp
     panels/mixer_panel.cpp
     panels/master_fader_panel.cpp
+    panels/param_slider.cpp
     export/export_settings.cpp
     export/export_plan.cpp
     export/export_runner.cpp

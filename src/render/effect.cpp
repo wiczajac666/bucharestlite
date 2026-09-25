@@ -9,11 +9,6 @@ namespace bl {
 
 // --- EffectRegistry ---
 
-EffectRegistry& EffectRegistry::instance() {
-    static EffectRegistry reg;
-    return reg;
-}
-
 void EffectRegistry::registerEffect(std::unique_ptr<IEffect> effect) {
     effects_.push_back(std::move(effect));
 }
@@ -258,12 +253,30 @@ public:
 
 // --- Register builtins ---
 
-void registerBuiltinEffects() {
-    auto& reg = EffectRegistry::instance();
+namespace {
+
+void registerBuiltinEffectsTo(EffectRegistry& reg) {
     reg.registerEffect(std::make_unique<BoxBlurEffect>());
     reg.registerEffect(std::make_unique<BrightnessContrastGammaEffect>());
     reg.registerEffect(std::make_unique<GreyscaleEffect>());
     reg.registerEffect(std::make_unique<Transform2DEffect>());
+}
+
+} // namespace
+
+// Builtins are registered on first use so the singleton is useful in the app
+// (and in test binaries) without an explicit startup call on every entry point.
+EffectRegistry& EffectRegistry::instance() {
+    static EffectRegistry* reg = [] {
+        auto* r = new EffectRegistry;
+        registerBuiltinEffectsTo(*r);
+        return r;
+    }();
+    return *reg;
+}
+
+void registerBuiltinEffects() {
+    registerBuiltinEffectsTo(EffectRegistry::instance());
 }
 
 } // namespace bl
