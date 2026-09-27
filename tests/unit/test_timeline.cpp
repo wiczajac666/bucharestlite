@@ -236,6 +236,47 @@ TEST(SpeedRemapTest, IsIdentityReversed) {
     EXPECT_FALSE(sr.isIdentity());
 }
 
+TEST(ClipSourceTimeAtTest, ForwardIdentity) {
+    Clip c;
+    c.source.sourceIn = Time::fromFrame(10, fps24());
+    c.source.sourceOut = Time::fromFrame(50, fps24());
+    c.speed = SpeedRemap{1, 1, false};
+    EXPECT_EQ(c.sourceTimeAt(Duration::fromFrames(5, fps24())),
+              Time::fromFrame(15, fps24()));
+}
+
+TEST(ClipSourceTimeAtTest, ForwardSpeedScalesOffset) {
+    Clip c;
+    c.source.sourceIn = Time::fromFrame(10, fps24());
+    c.source.sourceOut = Time::fromFrame(90, fps24());
+    c.speed = SpeedRemap{2, 1, false};
+    // 5 frames of timeline at 2x consumes 10 source frames.
+    EXPECT_EQ(c.sourceTimeAt(Duration::fromFrames(5, fps24())),
+              Time::fromFrame(20, fps24()));
+}
+
+TEST(ClipSourceTimeAtTest, ReversedIdentityStartsAtSourceOut) {
+    Clip c;
+    c.source.sourceIn = Time::fromFrame(10, fps24());
+    c.source.sourceOut = Time::fromFrame(50, fps24());
+    c.speed = SpeedRemap{1, 1, true};
+    EXPECT_EQ(c.sourceTimeAt(Duration::fromFrames(0, fps24())),
+              Time::fromFrame(50, fps24()));
+    EXPECT_EQ(c.sourceTimeAt(Duration::fromFrames(10, fps24())),
+              Time::fromFrame(40, fps24()));
+}
+
+TEST(ClipSourceTimeAtTest, ReversedClampsAtSourceHead) {
+    Clip c;
+    c.source.sourceIn = Time::fromFrame(10, fps24());
+    c.source.sourceOut = Time::fromFrame(50, fps24());
+    c.speed = SpeedRemap{2, 1, true};
+    // 25 timeline frames at 2x reverse would travel 50 source frames past the
+    // head; the mapping clamps at sourceIn.
+    EXPECT_EQ(c.sourceTimeAt(Duration::fromFrames(25, fps24())),
+              Time::fromFrame(10, fps24()));
+}
+
 TEST(TimelineSnapshotTest, Immutability) {
     Sequence seq;
     seq.name = "Test Seq";

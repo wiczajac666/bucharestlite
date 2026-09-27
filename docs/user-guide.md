@@ -17,8 +17,8 @@ Open the export dialog via `File → Export...` or press `Ctrl+E`. The dialog co
 | **Video Codec** | Installed codec plugins: H.264 (libx264), VP9, AV1 (SVT-AV1 or libaom), MPEG-4, Theora. |
 | **Quality (CRF)** | Constant-rate factor from 0 to 51, default 23. Lower = higher quality and larger file; 0 uses the encoder's default rate control. |
 | **Resolution** | `Full`, `Half`, `Quarter`, or `Custom` width/height. Scaling applies relative to the project sequence size. |
-
-Audio is not exported in this version; the dialog marks this so exported clips stay silent.
+| **Include Audio** | When enabled (default), the exported file gets an audio track: every audible clip/track in the timeline is mixed down (same gains, pan, volume keyframes and mute/solo as the mixer meters) and encoded as AAC or FLAC (MP4) or Opus or Vorbis (WebM). When disabled, the output contains video only. |
+| **Audio Codec** | AAC or FLAC for `.mp4`; Opus or Vorbis for `.webm`. Defaults to AAC/Opus and follows the selected container. |
 
 ### Batch Export
 
@@ -54,7 +54,7 @@ During export, a progress window shows:
 ### Export Limitations (v1)
 
 - The whole timeline is exported; work-range and per-clip ranges are not yet available in the UI
-- Audio tracks are not exported yet (no mixdown pipeline)
+- Timeline audio is mixed down to a single stereo track (2 channels max, decoded from each clip's available channels and downmixed/resampled as needed). Audio applies to the entire timeline only — per-clip audio effects do not run during export
 - Containers limited to MP4 and WebM — Matroska is deferred because the codec plugin buffers carry no SPS/PPS extradata the mkv muxer requires
 - Nested compositions are not supported — flat sequences only
 - Multi-cam source clips are not supported for export

@@ -32,6 +32,8 @@ struct MKVMuxer::Impl {
     int video_timescale = 30;
     int audio_timescale = 48000;
     int subtitle_timescale = 30;
+    int audio_rate = 48000;
+    AVRational audio_tb{1, 48000};
 };
 
 MKVMuxer::MKVMuxer() : impl_(new Impl()) {}
@@ -141,6 +143,8 @@ Result<void> MKVMuxer::open(const BlFormatPreset* preset,
     impl_->video_next_pts = 0;
     impl_->audio_next_pts = 0;
     impl_->subtitle_next_pts = 0;
+    impl_->audio_rate = static_cast<int>(preset->audio.sample_rate);
+    impl_->audio_tb = audio_st->time_base;
 
     return Result<void>();
 }
@@ -200,7 +204,7 @@ Result<void> MKVMuxer::writeVideoPacket(const uint8_t* data, size_t size,
 }
 
 Result<void> MKVMuxer::writeAudioPacket(const uint8_t* data, size_t size,
-                                                        uint64_t pts) {
+                                                      uint32_t duration_samples) {
     if (!impl_->is_open || !impl_->audio_stream) {
         return Result<void>(Err::InvalidArgument, "muxer not open");
     }
@@ -213,9 +217,15 @@ Result<void> MKVMuxer::writeAudioPacket(const uint8_t* data, size_t size,
     pkt->stream_index = impl_->audio_stream->index;
     pkt->data = const_cast<uint8_t*>(data);
     pkt->size = static_cast<int>(size);
-    pkt->pts = static_cast<int64_t>(pts);
-    pkt->dts = static_cast<int64_t>(pts);
-    pkt->duration = 0;  // let muxer compute from frame size
+    const AVRational rate_tb = {1, impl_->audio_rate};
+    const int64_t pts_tb =
+        av_rescale_q(static_cast<int64_t>(impl_->audio_next_pts), rate_tb,
+                     impl_->audio_tb);
+    pkt->pts = pts_tb;
+    pkt->dts = pts_tb;
+    pkt->duration = av_rescale_q(
+        static_cast<int64_t>(duration_samples), rate_tb, impl_->audio_tb);
+    impl_->audio_next_pts += duration_samples;
 
     int ret = av_interleaved_write_frame(impl_->fmt_ctx, pkt);
     av_packet_free(&pkt);

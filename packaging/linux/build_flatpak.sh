@@ -19,11 +19,12 @@ FFMPEG_VERSION="8.0.1"
 FFMPEG_SHA256="05ee0b03119b45c0bdb4df654b96802e909e0a752f72e4fe3794f487229e5a41"
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-OUT_DIR="$ROOT/packaging/flatpak"
+OUT_DIR="${BL_OUT_DIR:-$ROOT/packaging/flatpak}"
 BUNDLE="$OUT_DIR/bucharest-lite-app.flatpak"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}"/bl-flatpak.XXXXXX)"
 BUILD_DIR="$WORK/build"
 REPO_DIR="$WORK/repo"
+STAGE_DIR="${BL_STAGE_DIR:-$ROOT/.flatpak-build}"
 
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
@@ -38,26 +39,26 @@ flatpak build-init "$BUILD_DIR" "$APP_ID" "$SDK" "$RUNTIME" "$BRANCH"
 
 mkdir -p "$OUT_DIR"
 log "Staging FFmpeg $FFMPEG_VERSION source"
-mkdir -p "$ROOT/.flatpak-build"
-cd "$ROOT/.flatpak-build"
+mkdir -p "$STAGE_DIR"
+cd "$STAGE_DIR"
 curl -sSL -o "ffmpeg-$FFMPEG_VERSION.tar.xz" "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
 echo "$FFMPEG_SHA256  ffmpeg-$FFMPEG_VERSION.tar.xz" | sha256sum -c -
 tar xf "ffmpeg-$FFMPEG_VERSION.tar.xz"
 
 log "Configure + build + install FFmpeg into the sandbox payload"
-flatpak build "$BUILD_DIR" sh -c 'cd "'"$ROOT"'"/.flatpak-build/ffmpeg-'"$FFMPEG_VERSION"' && \
+flatpak build --filesystem="$STAGE_DIR" "$BUILD_DIR" sh -c 'cd "'"$STAGE_DIR"'"/ffmpeg-'"$FFMPEG_VERSION"' && \
     ./configure --prefix=/app --disable-doc --disable-programs --disable-debug \
         --enable-shared --disable-static --enable-gpl --enable-libaom \
         --enable-libopus --enable-libtheora --enable-version3 --enable-libvorbis && \
     make -j"$(nproc)" && make install'
 
 log "Configure, build and install bucharest-lite against the bundle FFmpeg"
-flatpak build "$BUILD_DIR" sh -c 'export PKG_CONFIG_PATH=/app/lib/pkgconfig; cd "'"$ROOT"'" && \
-    cmake -S . -B .flatpak-build/blapp -G Ninja -DCMAKE_BUILD_TYPE=Release \
+flatpak build --filesystem="$STAGE_DIR" "$BUILD_DIR" sh -c 'export PKG_CONFIG_PATH=/app/lib/pkgconfig; mkdir -p "'"$STAGE_DIR"'"/blapp-build && cd "'"$STAGE_DIR"'"/blapp-build && \
+    cmake -S "'"$ROOT"'" -B . -G Ninja \
         -DCMAKE_INSTALL_PREFIX=/app -DCMAKE_PREFIX_PATH=/usr \
         -DBL_BUILD_TESTS=OFF -DBL_BUILD_UI=ON -DBL_BUILD_PLUGINS=ON -DBL_BUILD_EXPORT=ON && \
-    cmake --build .flatpak-build/blapp -j"$(nproc)" && \
-    cmake --install .flatpak-build/blapp'
+    cmake --build . -j"$(nproc)" && \
+    cmake --install .'
 
 log "Rename desktop + icons to the app-id so flatpak exports them"
 flatpak build "$BUILD_DIR" sh -c 'cd /app/share/applications && \

@@ -18,6 +18,8 @@ add_library(bl_export STATIC
     mkv_muxer.cpp
     batch_queue.cpp
     edl_exporter.cpp
+    audio_pcm_source.cpp
+    mixdown_audio_renderer.cpp
 )
 set_property(TARGET bl_export PROPERTY POSITION_INDEPENDENT_CODE ON)
 target_include_directories(bl_export PUBLIC
@@ -26,7 +28,7 @@ target_include_directories(bl_export PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../../ui
 )
 
-target_link_libraries(bl_export PUBLIC bl_ffmpeg_plugin_common FFmpeg::avcodec FFmpeg::avformat FFmpeg::avutil FFmpeg::swscale FFmpeg::swresample nlohmann_json::nlohmann_json)
+target_link_libraries(bl_export PUBLIC bl_ffmpeg_plugin_common bl_audio FFmpeg::avcodec FFmpeg::avformat FFmpeg::avutil FFmpeg::swscale FFmpeg::swresample nlohmann_json::nlohmann_json)
 if(NOT MSVC)
     target_compile_options(bl_export PRIVATE -Wall -Wextra)
 endif()

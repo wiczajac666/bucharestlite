@@ -4,7 +4,7 @@
 #define BL_VERSION_MINOR 0
 #define BL_VERSION_PATCH 1
 #define BL_VERSION_BUILD 0
-#define BL_VERSION_STR "1.0.1"
+#define BL_VERSION_STR "1.1.1"
 
 IDI_ICON1 ICON DISCARDABLE "bucharest-lite.ico"
 

@@ -24,8 +24,13 @@ TEST_F(EffectsTest, RegistryLookup) {
     EXPECT_NE(reg.find("brightness_contrast_gamma"), nullptr);
     EXPECT_NE(reg.find("greyscale"), nullptr);
     EXPECT_NE(reg.find("transform_2d"), nullptr);
+    EXPECT_NE(reg.find("chroma_key"), nullptr);
+    EXPECT_NE(reg.find("sharpen"), nullptr);
+    EXPECT_NE(reg.find("hue_saturation"), nullptr);
+    EXPECT_NE(reg.find("levels_curves"), nullptr);
+    EXPECT_NE(reg.find("crop"), nullptr);
     EXPECT_EQ(reg.find("nonexistent"), nullptr);
-    EXPECT_EQ(reg.count(), 4u);
+    EXPECT_EQ(reg.count(), 9u);
 }
 
 TEST_F(EffectsTest, BoxBlurAveragesPixels) {
@@ -96,11 +101,16 @@ TEST_F(EffectsTest, Transform2DIdentityIsNoop) {
 TEST_F(EffectsTest, CatalogListsRegisteredEffects) {
     auto& reg = EffectRegistry::instance();
     const auto names = reg.catalog();
-    ASSERT_EQ(names.size(), 4u);
+    ASSERT_EQ(names.size(), 9u);
     EXPECT_EQ(names[0], "blur.box");
     EXPECT_EQ(names[1], "brightness_contrast_gamma");
-    EXPECT_EQ(names[2], "greyscale");
-    EXPECT_EQ(names[3], "transform_2d");
+    EXPECT_EQ(names[2], "chroma_key");
+    EXPECT_EQ(names[3], "crop");
+    EXPECT_EQ(names[4], "greyscale");
+    EXPECT_EQ(names[5], "hue_saturation");
+    EXPECT_EQ(names[6], "levels_curves");
+    EXPECT_EQ(names[7], "sharpen");
+    EXPECT_EQ(names[8], "transform_2d");
 }
 
 TEST_F(EffectsTest, DisplayNamesAreHumanReadable) {
@@ -110,6 +120,12 @@ TEST_F(EffectsTest, DisplayNamesAreHumanReadable) {
               "Color Correction");
     EXPECT_EQ(reg.find("greyscale")->displayName(), "Greyscale");
     EXPECT_EQ(reg.find("transform_2d")->displayName(), "Transform 2D");
+    EXPECT_EQ(reg.find("chroma_key")->displayName(), "Chroma Key");
+    EXPECT_EQ(reg.find("sharpen")->displayName(), "Sharpen");
+    EXPECT_EQ(reg.find("hue_saturation")->displayName(),
+              "Hue / Saturation");
+    EXPECT_EQ(reg.find("levels_curves")->displayName(), "Levels / Curves");
+    EXPECT_EQ(reg.find("crop")->displayName(), "Crop");
 }
 
 TEST_F(EffectsTest, ColorEffectExposesParamSpecs) {
@@ -160,6 +176,135 @@ TEST_F(EffectsTest, BrightnessLiftsPixelValues) {
     bcg->apply(data, width, height, linesize, params);
 
     EXPECT_GT(data[2], 64); // red lifted from 64
+}
+
+TEST_F(EffectsTest, ChromaKeyKeysOutKeyColor) {
+    std::vector<uint8_t> data = {
+        0, 255, 0, 255,   // pixel 0: pure green (key)
+        128, 128, 128, 255,  // pixel 1: unrelated grey
+    };
+    uint32_t width = 2, height = 1, linesize = 8;
+    nlohmann::json params = {{"keyR", 0},
+                             {"keyG", 255},
+                             {"keyB", 0},
+                             {"similarity", 0.15},
+                             {"smoothness", 0.1}};
+
+    IEffect* key = EffectRegistry::instance().find("chroma_key");
+    ASSERT_NE(key, nullptr);
+    key->apply(data, width, height, linesize, params);
+
+    EXPECT_EQ(data[3], 0u);   // green keyed out
+    EXPECT_EQ(data[7], 255u); // grey kept opaque
+}
+
+TEST_F(EffectsTest, ChromaKeyDefaultIsIdentityForOtherwiseOpaque) {
+    std::vector<uint8_t> data = {140, 40, 10, 255};
+    uint32_t width = 1, height = 1, linesize = 4;
+    IEffect* key = EffectRegistry::instance().find("chroma_key");
+    ASSERT_NE(key, nullptr);
+    key->apply(data, width, height, linesize, nlohmann::json::object());
+    EXPECT_EQ(data[3], 255u);
+}
+
+TEST_F(EffectsTest, SharpenPullsPixelsAwayFromNeighbors) {
+    std::vector<uint8_t> data = {
+        20, 20, 20, 255,   // dark
+        220, 220, 220, 255,  // light
+    };
+    uint32_t width = 2, height = 1, linesize = 8;
+    nlohmann::json params = {{"amount", 2.0}, {"radius", 1}};
+
+    IEffect* sharpen = EffectRegistry::instance().find("sharpen");
+    ASSERT_NE(sharpen, nullptr);
+    sharpen->apply(data, width, height, linesize, params);
+
+    // The dark pixel gets darker, the light pixel gets lighter.
+    EXPECT_LT(data[2], 20);
+    EXPECT_GT(data[6], 220);
+}
+
+TEST_F(EffectsTest, HueShiftTurnsRedGreen) {
+    std::vector<uint8_t> data = {0, 0, 255, 255};  // red
+    uint32_t width = 1, height = 1, linesize = 4;
+    nlohmann::json params = {{"hueShift", 120.0}, {"saturation", 1.0},
+                             {"lightness", 0.0}};
+
+    IEffect* hue = EffectRegistry::instance().find("hue_saturation");
+    ASSERT_NE(hue, nullptr);
+    hue->apply(data, width, height, linesize, params);
+
+    EXPECT_NEAR(data[1], 255, 3);  // G ≈ 255
+    EXPECT_NEAR(data[2], 0, 3);    // R ≈ 0
+}
+
+TEST_F(EffectsTest, HueSaturationDefaultsAreIdentity) {
+    std::vector<uint8_t> data = {70, 200, 160, 255};
+    uint32_t width = 1, height = 1, linesize = 4;
+    const auto original = data;
+    IEffect* hue = EffectRegistry::instance().find("hue_saturation");
+    ASSERT_NE(hue, nullptr);
+    hue->apply(data, width, height, linesize, nlohmann::json::object());
+    EXPECT_EQ(data, original);
+}
+
+TEST_F(EffectsTest, LevelsCurvesDefaultsAreIdentity) {
+    std::vector<uint8_t> data = {123, 64, 200, 255};
+    uint32_t width = 1, height = 1, linesize = 4;
+    const auto original = data;
+    IEffect* lc = EffectRegistry::instance().find("levels_curves");
+    ASSERT_NE(lc, nullptr);
+    lc->apply(data, width, height, linesize, nlohmann::json::object());
+    EXPECT_EQ(data, original);
+}
+
+TEST_F(EffectsTest, LevelsCurvesBlackPointClipsLowValues) {
+    std::vector<uint8_t> data = {64, 100, 120, 255};
+    uint32_t width = 1, height = 1, linesize = 4;
+    nlohmann::json params = {{"black", 0.5}, {"white", 1.0},
+                             {"gamma", 1.0}, {"c0", 0.0}, {"c1", 0.25},
+                             {"c2", 0.5}, {"c3", 0.75}, {"c4", 1.0}};
+
+    IEffect* lc = EffectRegistry::instance().find("levels_curves");
+    ASSERT_NE(lc, nullptr);
+    lc->apply(data, width, height, linesize, params);
+
+    EXPECT_EQ(data[0], 0u);
+    EXPECT_EQ(data[1], 0u);
+    EXPECT_EQ(data[2], 0u);
+}
+
+TEST_F(EffectsTest, CropStretchesCenterRegionToFullFrame) {
+    // 4x1 frame: [black, black, white, white]. Crop left 25%/right 25% keeps
+    // the middle half (pixels 1..2 = black+white boundaries) resampled across
+    // the full frame.
+    std::vector<uint8_t> data = {
+        0, 0, 0, 255, 0, 0, 0, 255,
+        255, 255, 255, 255, 255, 255, 255, 255,
+    };
+    uint32_t width = 4, height = 1, linesize = 16;
+    nlohmann::json params = {{"left", 0.25}, {"right", 0.25},
+                             {"top", 0.0}, {"bottom", 0.0}};
+
+    IEffect* crop = EffectRegistry::instance().find("crop");
+    ASSERT_NE(crop, nullptr);
+    crop->apply(data, width, height, linesize, params);
+
+    // Left 25% of the output no longer samples the pure-black edge but the
+    // region interior; x=0 → fu=1.0 (original black pixel 1), x=2 → ~1.67
+    // (mix leaning white) ⇒ a gradient across the frame.
+    EXPECT_EQ(data[2], 0u);         // R of pixel 0 (black interior)
+    EXPECT_GT(data[10], 128);       // R of pixel 2 leans white
+}
+
+TEST_F(EffectsTest, CropDefaultsAreIdentity) {
+    std::vector<uint8_t> data = {10, 20, 30, 255, 40, 50, 60, 255};
+    uint32_t width = 2, height = 1, linesize = 8;
+    const auto original = data;
+    IEffect* crop = EffectRegistry::instance().find("crop");
+    ASSERT_NE(crop, nullptr);
+    crop->apply(data, width, height, linesize, nlohmann::json::object());
+    EXPECT_EQ(data, original);
 }
 
 } // namespace

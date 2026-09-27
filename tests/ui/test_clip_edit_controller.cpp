@@ -340,6 +340,74 @@ TEST(ClipEditController, RemoveKeyframeRejectsMissing) {
                                          frames(1)));
 }
 
+TEST(ClipEditController, SpeedIsUndoableAndRetimesFollowingClips) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("b", 10, 10)));
+
+    const bl::SpeedRemap doubled{2, 1, false};
+    ASSERT_TRUE(f.editor.setSpeed(kVideo0, "a", doubled));
+    const Clip* a = f.clip(kVideo0, "a");
+    ASSERT_NE(a, nullptr);
+    EXPECT_EQ(a->speed, doubled);
+
+    // Doubling speed halves the clip's timeline duration...
+    EXPECT_NEAR(a->timelineDuration.toSeconds(),
+                frames(10).toSeconds() / 2.0, 1e-6);
+    // ...and shifts the following clip back accordingly.
+    EXPECT_NEAR(f.clip(kVideo0, "b")->timelineStart.toSeconds(),
+                a->timelineStart.toSeconds() +
+                    a->timelineDuration.toSeconds(),
+                1e-6);
+
+    // Invalid speed is rejected and pushes nothing.
+    EXPECT_FALSE(f.editor.setSpeed(kVideo0, "a", {0, 1, false}));
+
+    f.undoStack.undo();
+    EXPECT_EQ(f.clip(kVideo0, "a")->speed, (bl::SpeedRemap{1, 1, false}));
+    EXPECT_EQ(f.clip(kVideo0, "b")->timelineStart, frames(10));
+
+    f.undoStack.redo();
+    EXPECT_EQ(f.clip(kVideo0, "a")->speed, doubled);
+}
+
+TEST(ClipEditController, SpeedReverseToggleIsUndoable) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));
+
+    ASSERT_TRUE(f.editor.setSpeed(kVideo0, "a",
+                                  (bl::SpeedRemap{1, 1, true})));
+    EXPECT_TRUE(f.clip(kVideo0, "a")->speed.reversed);
+
+    // No-op when unchanged: nothing pushed.
+    EXPECT_FALSE(f.editor.setSpeed(kVideo0, "a",
+                                   (bl::SpeedRemap{1, 1, true})));
+
+    f.undoStack.undo();
+    EXPECT_FALSE(f.clip(kVideo0, "a")->speed.reversed);
+}
+
+TEST(ClipEditController, SubtitleEditingIsUndoable) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));
+
+    ASSERT_TRUE(f.editor.setSubtitleText(kVideo0, "a", "Bonjour"));
+    EXPECT_EQ(f.clip(kVideo0, "a")->subtitleText.value_or(""), "Bonjour");
+
+    // No-op when unchanged: nothing pushed.
+    EXPECT_FALSE(f.editor.setSubtitleText(kVideo0, "a", "Bonjour"));
+
+    ASSERT_TRUE(f.editor.setSubtitleText(kVideo0, "a", ""));
+    EXPECT_EQ(f.clip(kVideo0, "a")->subtitleText.value_or(""), "");
+    EXPECT_TRUE(f.clip(kVideo0, "a")->subtitleText.has_value());
+
+    f.undoStack.undo();
+    EXPECT_EQ(f.clip(kVideo0, "a")->subtitleText.value_or(""), "Bonjour");
+
+    f.undoStack.undo();
+    EXPECT_EQ(f.clip(kVideo0, "a")->subtitleText.value_or(""), "");
+}
+
 TEST(ClipEditController, AudioTrackEditingWorks) {
     Fixture f;
     ASSERT_TRUE(f.timeline.addClipToAudioTrack(0, makeClip("amix", 0, 10)));

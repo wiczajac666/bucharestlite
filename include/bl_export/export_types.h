@@ -146,6 +146,7 @@ private:
     MKVMuxer* mkv_muxer_ = nullptr;
     int video_codec_id_ = 0;
     int audio_codec_id_ = 0;
+    uint32_t audio_granule_ = 0;
     std::vector<BlConfigEntry> params_;
 };
 

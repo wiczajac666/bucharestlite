@@ -63,6 +63,21 @@ Duration Clip::effectiveDuration() const noexcept {
     return Duration::fromTicks(effTicks, timelineDuration.rate);
 }
 
+Time Clip::sourceTimeAt(Duration timelineOffset) const {
+    if (speed.reversed) {
+        Time advanced = advanceSourceTime(source.sourceOut, timelineOffset,
+                                          speed);
+        Duration delta = advanced - source.sourceOut;
+        Time result = source.sourceOut - delta;
+        // Never travel past the head of the source window.
+        if (source.sourceOut > source.sourceIn && result < source.sourceIn) {
+            return source.sourceIn;
+        }
+        return result;
+    }
+    return advanceSourceTime(source.sourceIn, timelineOffset, speed);
+}
+
 void to_json(nlohmann::json& j, TransitionKind kind) {
     switch (kind) {
         case TransitionKind::Crossfade: j = "crossfade"; break;

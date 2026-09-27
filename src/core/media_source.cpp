@@ -101,6 +101,17 @@ Result<StreamInfo> MediaSource::probe(const MediaLocator& locator) {
             }
 
             info.audioStreams.push_back(std::move(a));
+        } else if (par->codec_type == AVMEDIA_TYPE_SUBTITLE) {
+            SubtitleStreamInfo s;
+            s.index = static_cast<int>(i);
+            s.codecName = avcodec_get_name(par->codec_id);
+
+            if (par->extradata_size > 0 && par->extradata) {
+                s.extradata.assign(par->extradata,
+                                   par->extradata + par->extradata_size);
+            }
+
+            info.subtitleStreams.push_back(std::move(s));
         }
     }
 
@@ -111,7 +122,9 @@ Result<StreamInfo> MediaSource::probe(const MediaLocator& locator) {
                               std::to_string(info.videoStreams.size()) +
                               " video, " +
                               std::to_string(info.audioStreams.size()) +
-                              " audio)");
+                              " audio, " +
+                              std::to_string(info.subtitleStreams.size()) +
+                              " subtitles)");
 
     return Result<StreamInfo>::ok(std::move(info));
 }

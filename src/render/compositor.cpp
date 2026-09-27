@@ -34,21 +34,30 @@ static void alphaBlend(std::vector<uint8_t>& dst, uint32_t dstW, uint32_t dstH,
 
     const uint32_t copyW = std::min(dstW, srcW);
     const uint32_t copyH = std::min(dstH, srcH);
-    const double invAlpha = 1.0 - opacity;
 
     for (uint32_t y = 0; y < copyH; ++y) {
         uint8_t* dstRow = pixelAt(dst, dstLinesize, 0, y);
         const uint8_t* srcRow = pixelAt(src, srcLinesize, 0, y);
         for (uint32_t x = 0; x < copyW; ++x) {
             uint32_t i = x * 4;
-            dstRow[i + 0] =
-                static_cast<uint8_t>(srcRow[i + 0] * opacity + dstRow[i + 0] * invAlpha);
-            dstRow[i + 1] =
-                static_cast<uint8_t>(srcRow[i + 1] * opacity + dstRow[i + 1] * invAlpha);
-            dstRow[i + 2] =
-                static_cast<uint8_t>(srcRow[i + 2] * opacity + dstRow[i + 2] * invAlpha);
-            dstRow[i + 3] =
-                static_cast<uint8_t>(srcRow[i + 3] * opacity + dstRow[i + 3] * invAlpha);
+            uint8_t* dstP = dstRow + i;
+            const uint8_t* srcP = srcRow + i;
+            // Premultiplied accumulation on the output canvas (in-app output is
+            // alpha-less RGB, so coverage scales RGB directly). Per-pixel alpha
+            // from the source frame participates: for opaque frames this is
+            // byte-identical to the previous opacity-only blend, and keyed-out
+            // (alpha 0) pixels fall through to whatever is already on the canvas.
+            const double op = static_cast<double>(srcP[3]) / 255.0 * opacity;
+            if (op <= 0.0) continue;
+            const double invOp = 1.0 - op;
+            for (int c = 0; c < 3; ++c) {
+                dstP[c] = static_cast<uint8_t>(
+                    static_cast<double>(srcP[c]) * op +
+                    static_cast<double>(dstP[c]) * invOp);
+            }
+            dstP[3] = static_cast<uint8_t>(
+                static_cast<double>(srcP[3]) * op +
+                static_cast<double>(dstP[3]) * invOp);
         }
     }
 }
@@ -140,8 +149,7 @@ struct Compositor::Impl {
                 Duration clipRelative = t - clip.timelineStart;
                 double opacity = getOpacity(clip, clipRelative);
 
-                Time sourceTime = advanceSourceTime(clip.source.sourceIn,
-                                                     t - clip.timelineStart, clip.speed);
+                Time sourceTime = clip.sourceTimeAt(t - clip.timelineStart);
 
                 auto frameResult = provider.getFrame(
                     clip.source.mediaItemId, sourceTime, outW, outH);
@@ -177,9 +185,8 @@ struct Compositor::Impl {
 
                         auto nextClip = findNextClip(seq, clip, ti);
                         if (nextClip) {
-                            Time nextSource = advanceSourceTime(
-                                nextClip->source.sourceIn, t - nextClip->timelineStart,
-                                nextClip->speed);
+                            Time nextSource =
+                                nextClip->sourceTimeAt(t - nextClip->timelineStart);
                             auto nextFrame = provider.getFrame(
                                 nextClip->source.mediaItemId, nextSource,
                                 outW, outH);

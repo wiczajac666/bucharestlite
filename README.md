@@ -6,7 +6,7 @@ A cross-platform, open-source (GPL-3.0) non-linear video editor built with **Qt6
 
 ## 🚀 Features
 
-Bucharest Lite implements 20 essential NLE features as a shippable v1.0 release:
+Bucharest Lite implements 20 essential NLE features as a shippable release:
 
 | Category | Features |
 |---|---|
@@ -107,13 +107,30 @@ Each plugin is ABI v2, dynamically loaded via `dlopen`, and follows the `BlCodec
 - [User Guide](docs/user-guide.md) — Export workflow & troubleshooting
 - [CHANGELOG.md](CHANGELOG.md) — Release history
 
+## ✨ What's New in 1.1.1
+
+- **Correct alpha compositing** — per-pixel premultiplied alpha blending so
+  faded clips, opacity keyframes, and stacked layers combine over track content
+  beneath them.
+- **Five new video effects** — Chroma Key, Sharpen, Hue/Saturation,
+  Levels/Curves, and Crop (built-in catalog grows from 4 to 9), each with
+  slider-driven parameters.
+- **Speed editing & reverse playback** — per-clip fractional speed plus a
+  *Reverse* toggle; the compositor and the audio mixdown share one source-time
+  mapping so reversed clips play sample-truthfully, and changes are undoable.
+- **Soft subtitles** — subtitle text per clip edited in the Inspector and
+  exported as a real MOV_TEXT subtitle stream in MP4 (never burned in).
+
+See [CHANGELOG.md](CHANGELOG.md) for the full history.
+
 ## 🧪 Testing
 
-**732 tests passing** across three build configurations:
+**553 tests passing across debug and release builds (371 core + 182 UI):**
 
-- **Debug**: 308 core + 424 UI tests green
-- **Release**: 308 core + 424 UI tests green  
-- **TSAN (ThreadSanitizer)**: 308 core + 358 UI tests green (UI TSAN tests excluded from preset due to Qt6-internal allocator races)
+- **Debug**: 553 tests green
+- **Release**: 553 tests green
+- **TSAN (ThreadSanitizer)**: core tests green; UI TSAN tests excluded from the
+  preset due to Qt6-internal allocator races
 
 Run tests:
 ```bash
@@ -173,6 +190,6 @@ See [Developer Guide](docs/developer-guide.md) for full plugin development tutor
 
 ---
 
-**Version 1.0.1** — September 2026
+**Version 1.1.1** — September 2026
 
 *Built with passion by the open-source community.*

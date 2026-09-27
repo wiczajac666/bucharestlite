@@ -19,8 +19,8 @@ public:
 
     Result<void> writeVideoPacket(const uint8_t* data, size_t size,
                                                     uint64_t pts, bool keyframe);
-    Result<void> writeAudioPacket(const uint8_t* data, size_t size,
-                                                    uint64_t pts);
+Result<void> writeAudioPacket(const uint8_t* data, size_t size,
+                                            uint32_t duration_samples);
     Result<void> writeSubtitlePacket(const uint8_t* data, size_t size,
                                                        uint64_t pts);
 

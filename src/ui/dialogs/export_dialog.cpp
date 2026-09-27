@@ -1,5 +1,6 @@
 #include "dialogs/export_dialog.hpp"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFileDialog>
@@ -99,11 +100,15 @@ ExportDialog::ExportDialog(QWidget* parent) : QDialog(parent) {
     customLayout->addWidget(customHeightSpin_, 0, 3);
     formatLayout->addLayout(customLayout, 5, 0, 1, 2);
 
-    auto* audioNote = new QLabel(
-        tr("Audio tracks are not exported in this version."), formatGroup);
-    audioNote->setObjectName(QStringLiteral("exportAudioNote"));
-    audioNote->setEnabled(false);
-    formatLayout->addWidget(audioNote, 6, 0, 1, 2);
+    auto* audioGroup = new QHBoxLayout();
+    includeAudioCheck_ = new QCheckBox(tr("Include audio"), formatGroup);
+    includeAudioCheck_->setObjectName(QStringLiteral("exportIncludeAudio"));
+    includeAudioCheck_->setChecked(true);
+    audioCodecCombo_ = new QComboBox(formatGroup);
+    audioCodecCombo_->setObjectName(QStringLiteral("exportAudioCodec"));
+    audioGroup->addWidget(includeAudioCheck_);
+    audioGroup->addWidget(audioCodecCombo_, 1);
+    formatLayout->addLayout(audioGroup, 6, 0, 1, 2);
     root->addWidget(formatGroup);
 
     // Buttons -----------------------------------------------------------
@@ -136,8 +141,13 @@ ExportDialog::ExportDialog(QWidget* parent) : QDialog(parent) {
                     videoCodecCombo_->setCurrentIndex(
                         videoCodecCombo_->findData(QStringLiteral("h264")));
                 }
+                rebuildAudioCodecItems();
                 updateWidgets();
             });
+    connect(includeAudioCheck_, &QCheckBox::toggled, this, [this](bool) {
+        rebuildAudioCodecItems();
+        updateWidgets();
+    });
     connect(scaleCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [this](int) { updateWidgets(); });
     connect(customWidthSpin_, QOverload<int>::of(&QSpinBox::valueChanged), this,
@@ -151,6 +161,7 @@ ExportDialog::ExportDialog(QWidget* parent) : QDialog(parent) {
     connect(buttons, &QDialogButtonBox::rejected, this, &ExportDialog::reject);
 
     setSequenceDefaults(SequenceSettings{});
+    rebuildAudioCodecItems();
     updateWidgets();
 }
 
@@ -188,12 +199,40 @@ void ExportDialog::browseOutput() {
     updateWidgets();
 }
 
+void ExportDialog::rebuildAudioCodecItems() {
+    if (!audioCodecCombo_) return;
+    const QString previous = audioCodecCombo_->currentData().toString();
+    const QString container = containerCombo_->currentData().toString();
+    const bool enabled = includeAudioCheck_->isChecked();
+
+    audioCodecCombo_->blockSignals(true);
+    audioCodecCombo_->clear();
+    if (container == QLatin1String("webm")) {
+        audioCodecCombo_->addItem(tr("Opus"), QStringLiteral("opus"));
+        audioCodecCombo_->addItem(tr("Vorbis"), QStringLiteral("vorbis"));
+    } else {
+        audioCodecCombo_->addItem(tr("AAC"), QStringLiteral("aac"));
+        audioCodecCombo_->addItem(tr("FLAC"), QStringLiteral("flac"));
+    }
+    const int idx = audioCodecCombo_->findData(previous);
+    audioCodecCombo_->setCurrentIndex(
+        idx >= 0 ? idx : audioCodecCombo_->findData(
+                             container == QLatin1String("webm")
+                                 ? QStringLiteral("opus")
+                                 : QStringLiteral("aac")));
+    audioCodecCombo_->setEnabled(enabled);
+    audioCodecCombo_->blockSignals(false);
+}
+
 void ExportDialog::updateWidgets() {
     const bool custom =
         scaleCombo_->currentData().toInt() ==
         static_cast<int>(ResolutionScale::Custom);
     customWidthSpin_->setEnabled(custom);
     customHeightSpin_->setEnabled(custom);
+    if (audioCodecCombo_) {
+        audioCodecCombo_->setEnabled(includeAudioCheck_->isChecked());
+    }
 
     const ExportSettings s = settings();
     const uint32_t w = outputWidth(s, sequence_);
@@ -211,8 +250,12 @@ ExportSettings ExportDialog::settings() const {
     s.outputPath = outputPathEdit_->text().toStdString();
     s.container = containerCombo_->currentData().toString().toStdString();
     s.videoCodec = videoCodecCombo_->currentData().toString().toStdString();
-    s.includeAudio = false;
-    s.audioCodec.clear();
+    s.includeAudio =
+        includeAudioCheck_ ? includeAudioCheck_->isChecked() : false;
+    s.audioCodec =
+        (s.includeAudio && audioCodecCombo_)
+            ? audioCodecCombo_->currentData().toString().toStdString()
+            : std::string();
     s.videoCq = cqSpin_->value();
     s.scale =
         static_cast<ResolutionScale>(scaleCombo_->currentData().toInt());

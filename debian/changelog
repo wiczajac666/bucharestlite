@@ -1,3 +1,11 @@
+bucharest-lite (1.1.1-1) unstable; urgency=medium
+
+  * Feature release 1.1.1: alpha compositing, five new video effects,
+    speed/reverse clip editing, and soft (MOV_TEXT) subtitle export.
+  * Rebuilt against the current release for Debian/Ubuntu.
+
+ -- Wictoria Zajac <wiczajac666@github.com>  Sun, 27 Sep 2026 12:00:00 +0000
+
 bucharest-lite (1.0.1-1) unstable; urgency=medium
 
   * Rebuild with modern debhelper 13 packaging.

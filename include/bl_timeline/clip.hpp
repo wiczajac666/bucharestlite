@@ -78,6 +78,10 @@ struct Clip {
     std::optional<SubtitleStyle> subtitleStyle;
 
     Duration effectiveDuration() const noexcept;
+    /// Maps a timeline-relative offset to a source time, honoring both the
+    /// speed ratio and reverse playback. Forward clips travel from sourceIn up;
+    /// reversed clips travel from sourceOut down toward sourceIn.
+    Time sourceTimeAt(Duration timelineOffset) const;
 };
 
 inline bool operator==(const Clip& a, const Clip& b) {

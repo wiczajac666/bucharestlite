@@ -1,5 +1,5 @@
 Name:           bucharest-lite
-Version:        1.0.1
+Version:        1.1.1
 Release:        1%{?dist}
 Summary:        Bucharest Lite - open-source non-linear video editor (NLE)
 
@@ -65,6 +65,10 @@ gtk-update-icon-cache %{_datadir}/icons/hicolor &> /dev/null || :
 %doc README.md FEATURES.md CHANGELOG.md PROJECT_STATUS.md
 
 %changelog
+* Sun Sep 27 2026 Harlemi <harlemi@www> - 1.1.1-1
+- Release 1.1.1: alpha compositing, 5 new effects, speed/reverse editing, soft subtitles
+- Rebuilt from v1.1.1 sources for x86_64
+
 * Fri Sep 18 2026 Harlemi <harlemi@www> - 1.0.1-1
 - Initial Fedora RPM packaging for Bucharest Lite 1.0.1
 - Wire bl_export module into the cmake build (BL_BUILD_EXPORT)

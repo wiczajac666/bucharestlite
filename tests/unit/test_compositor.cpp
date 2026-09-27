@@ -56,9 +56,13 @@ public:
         f.data = new uint8_t[f.dataSize];
 
         uint8_t r = defaultR_, g = defaultG_, b = defaultB_;
+        uint8_t a = defaultA_;
         if (colorMap_.count(mediaItemId)) {
             auto& c = colorMap_[mediaItemId];
             r = c[0]; g = c[1]; b = c[2];
+        }
+        if (alphaMap_.count(mediaItemId)) {
+            a = alphaMap_[mediaItemId];
         }
 
         for (uint32_t y = 0; y < height; ++y) {
@@ -67,7 +71,7 @@ public:
                 row[x * 4 + 0] = b;
                 row[x * 4 + 1] = g;
                 row[x * 4 + 2] = r;
-                row[x * 4 + 3] = 255;
+                row[x * 4 + 3] = a;
             }
         }
         return bl::Result<Frame>::ok(std::move(f));
@@ -77,9 +81,26 @@ public:
         colorMap_[id] = {r, g, b};
     }
 
+    void setAlpha(const std::string& id, uint8_t a) { alphaMap_[id] = a; }
+
 private:
     uint8_t defaultR_, defaultG_, defaultB_;
+    uint8_t defaultA_{255};
     std::unordered_map<std::string, std::array<uint8_t, 3>> colorMap_;
+    std::unordered_map<std::string, uint8_t> alphaMap_;
+};
+
+// Records the source times the compositor requests per media item.
+class RecordingProvider : public StubDecodeProvider {
+public:
+    std::vector<bl::Time> requested;
+
+    bl::Result<Frame> getFrame(const std::string& mediaItemId, Time sourceTime,
+                               uint32_t width, uint32_t height) override {
+        requested.push_back(sourceTime);
+        return StubDecodeProvider::getFrame(mediaItemId, sourceTime,
+                                            width, height);
+    }
 };
 
 struct CompositorTest : ::testing::Test {
@@ -363,6 +384,132 @@ TEST_F(CompositorTest, ClipOutsideTimeRangeNotRendered) {
     // Should be black (no clip active)
     EXPECT_EQ(result->data[0], 0u);
     EXPECT_EQ(result->data[2], 0u);
+}
+
+TEST_F(CompositorTest, OpaqueAlphaBlendMatchesOpacity) {
+    Sequence seq;
+    seq.settings.width = 1;
+    seq.settings.height = 1;
+
+    VideoTrack track0("V0");
+    Clip clip0;
+    clip0.id = "c0";
+    clip0.source.mediaItemId = "red.mp4";
+    clip0.source.sourceIn = frame(0);
+    clip0.source.sourceOut = frame(10);
+    clip0.timelineStart = frame(0);
+    clip0.timelineDuration = dur(10);
+    clip0.keyframes = bl::KeyframeTrackSet();
+    clip0.keyframes->ensure(bl::KeyChannel::Opacity);
+    clip0.keyframes->track(bl::KeyChannel::Opacity)
+        ->set(frame(0), 0.5, bl::Interpolation::Linear);
+    track0.addClip(clip0);
+    seq.videoTracks.push_back(std::move(track0));
+
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({1, 1});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 200, 100, 50);
+
+    auto result = comp->renderFrame(snap, frame(5), provider);
+    ASSERT_TRUE(result.ok()) << result.message();
+
+    // Opaque 200/100/50 at 50% over transparent black → 100/50/25,
+    // with blended alpha 127 (premultiplied accumulation, as before).
+    EXPECT_NEAR(result->data[2], 100, 2);  // R
+    EXPECT_NEAR(result->data[1], 50, 2);   // G
+    EXPECT_NEAR(result->data[0], 25, 2);   // B
+    EXPECT_NEAR(result->data[3], 127, 2);  // A
+}
+
+TEST_F(CompositorTest, TransparentTopTrackShowsThrough) {
+    Sequence seq;
+    seq.settings.width = 1;
+    seq.settings.height = 1;
+
+    // Bottom track: opaque red.
+    VideoTrack track0("V0");
+    Clip clip0;
+    clip0.id = "c0";
+    clip0.source.mediaItemId = "red.mp4";
+    clip0.source.sourceIn = frame(0);
+    clip0.source.sourceOut = frame(10);
+    clip0.timelineStart = frame(0);
+    clip0.timelineDuration = dur(10);
+    track0.addClip(clip0);
+    seq.videoTracks.push_back(std::move(track0));
+
+    // Top track: yellow with per-pixel alpha 0 (as a chroma-keyed frame).
+    VideoTrack track1("V1");
+    Clip clip1;
+    clip1.id = "c1";
+    clip1.source.mediaItemId = "yellow.mp4";
+    clip1.source.sourceIn = frame(0);
+    clip1.source.sourceOut = frame(10);
+    clip1.timelineStart = frame(0);
+    clip1.timelineDuration = dur(10);
+    track1.addClip(clip1);
+    seq.videoTracks.push_back(std::move(track1));
+
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({1, 1});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+    provider.setColor("yellow.mp4", 255, 255, 0);
+    provider.setAlpha("yellow.mp4", 0);
+
+    auto result = comp->renderFrame(snap, frame(5), provider);
+    ASSERT_TRUE(result.ok()) << result.message();
+
+    // Keyed-out top layer contributes nothing → underlying red stays.
+    EXPECT_EQ(result->data[2], 255u);  // R
+    EXPECT_EQ(result->data[1], 0u);    // G
+    EXPECT_EQ(result->data[0], 0u);    // B
+    EXPECT_EQ(result->data[3], 255u);  // A
+}
+
+TEST_F(CompositorTest, ReversedClipSamplesSourceBackwards) {
+    Sequence seq;
+    seq.settings.width = 1;
+    seq.settings.height = 1;
+
+    VideoTrack track("V1");
+    Clip clip;
+    clip.id = "c1";
+    clip.source.mediaItemId = "color.mp4";
+    clip.source.sourceIn = frame(0);
+    clip.source.sourceOut = frame(20);
+    clip.timelineStart = frame(0);
+    clip.timelineDuration = dur(20);
+    clip.speed = SpeedRemap{1, 1, true};
+    track.addClip(clip);
+    seq.videoTracks.push_back(std::move(track));
+
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({1, 1});
+    ASSERT_TRUE(comp.ok());
+
+    RecordingProvider provider;
+    provider.setColor("color.mp4", 10, 20, 30);
+
+    auto result = comp->renderFrame(snap, frame(0), provider);
+    ASSERT_TRUE(result.ok()) << result.message();
+    ASSERT_EQ(provider.requested.size(), 1u);
+    EXPECT_EQ(provider.requested[0], frame(20));  // starts at sourceOut
+
+    provider.requested.clear();
+    result = comp->renderFrame(snap, frame(10), provider);
+    ASSERT_TRUE(result.ok()) << result.message();
+    EXPECT_EQ(provider.requested[0], frame(10));
+
+    provider.requested.clear();
+    result = comp->renderFrame(snap, frame(19), provider);
+    ASSERT_TRUE(result.ok()) << result.message();
+    EXPECT_EQ(provider.requested[0], frame(1));  // approaches sourceIn
 }
 
 } // namespace

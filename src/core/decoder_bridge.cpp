@@ -66,6 +66,10 @@ struct DecoderBridge::Impl {
     void* ctx{nullptr};
     std::string name;
     const BlHostApi* hostApi{nullptr};
+    // Actual channel count seen from the most recent decoded audio frame.
+    // Flushed (tail) frames don't carry a BlFrameMeta, so the last-known count
+    // is used to derive their geometry from the buffer size.
+    uint32_t audioChannels{0};
 
     ~Impl() {
         if (plugin && ctx) {
@@ -136,6 +140,10 @@ Result<DecoderBridge> DecoderBridge::create(const CodecRegistry& registry,
     bridge.impl_->ctx = ctx;
     bridge.impl_->name = std::string(codecName);
     bridge.impl_->hostApi = config.host;
+    if (plugin->type == BL_CODEC_AUDIO) {
+        bridge.impl_->audioChannels =
+            config.audio.channels > 0 ? config.audio.channels : 1;
+    }
 
     BL_LOG_INFO("decoder", "created bridge for codec '" + bridge.impl_->name + "'");
     return Result<DecoderBridge>::ok(std::move(bridge));
@@ -183,6 +191,13 @@ Result<Frame> DecoderBridge::decode(const Packet& packet) {
         frame.type = Frame::Type::Audio;
         frame.sampleCount = meta.sample_count;
         frame.channels = meta.channels;
+        // Plugin audio frames are f32 planar with one plane per channel and a
+        // per-plane line length (in samples) reported via linesize; without it
+        // multi-channel consumers cannot index the second plane.
+        frame.linesize = meta.linesize;
+        if (meta.channels > 0) {
+            impl_->audioChannels = meta.channels;
+        }
     }
 
     return Result<Frame>::ok(std::move(frame));
@@ -218,6 +233,15 @@ Result<std::optional<Frame>> DecoderBridge::flush() {
         frame.type = Frame::Type::Video;
     } else {
         frame.type = Frame::Type::Audio;
+        // The flush() ABI hands over the payload only; audio geometry is
+        // derived from the known f32-planar layout and the last-seen channel
+        // count.
+        const uint32_t ch =
+            impl_->audioChannels > 0 ? impl_->audioChannels : 1;
+        frame.channels = ch;
+        frame.sampleCount = static_cast<uint32_t>(
+            outSize / (sizeof(float) * static_cast<size_t>(ch)));
+        frame.linesize = frame.sampleCount;
     }
 
     return Result<std::optional<Frame>>::ok(std::move(frame));

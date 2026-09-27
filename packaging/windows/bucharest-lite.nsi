@@ -1,6 +1,6 @@
 !define APP_NAME "Bucharest Lite"
 !define APP_NAME_SHORT "BucharestLite"
-!define APP_VERSION "1.0.1"
+!define APP_VERSION "1.1.1"
 !define APP_PUBLISHER "BucharestLite contributors"
 !define APP_EXE "bucharest-lite.exe"
 !define APP_ICON "bucharest-lite.ico"

@@ -57,6 +57,27 @@ Result<void> ExportPlan::build(const bl::Sequence& sequence,
     container_ = settings.container.empty() ? "mp4" : settings.container;
     videoCodec_ = settings.videoCodec;
     audioCodec_ = settings.audioCodec;
+    if (settings.includeAudio && audioCodec_.empty()) {
+        // Pick a codec the container actually accepts when the caller asked
+        // for audio but did not name one.
+        audioCodec_ = container_ == "mp4" ? "aac" : "opus";
+    }
+    if (!settings.includeAudio) {
+        audioCodec_.clear();
+    }
+    if (settings.includeAudio && !audioCodec_.empty()) {
+        const bool containerOk =
+            container_ == "mp4"
+                ? (audioCodec_ == "aac" || audioCodec_ == "flac" ||
+                   audioCodec_ == "opus")
+                : (audioCodec_ == "opus" || audioCodec_ == "vorbis");
+        if (!containerOk) {
+            return Result<void>::err(
+                Err::InvalidArgument,
+                "'" + settings.audioCodec + "' is not a valid " + container_ +
+                    " audio codec");
+        }
+    }
 
     preset_.name = "custom";
     preset_.container = container_.c_str();

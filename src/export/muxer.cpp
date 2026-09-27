@@ -9,6 +9,8 @@ extern "C" {
 #include <libavutil/channel_layout.h>
 }
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <string>
 
@@ -33,10 +35,12 @@ struct Muxer::Impl {
     int video_timescale = 30;
     int audio_timescale = 48000;
     int subtitle_timescale = 30;
+    int audio_rate = 48000;
 
     int video_codec_id = AV_CODEC_ID_H264;
     int audio_codec_id = AV_CODEC_ID_AAC;
     bool audio_enabled = true;
+    bool subtitles_enabled = false;
 
     // Nominal fps and the stream time base the container actually adopted
     // (captured after avformat_write_header, since muxers may resample the
@@ -44,6 +48,7 @@ struct Muxer::Impl {
     AVRational video_fps{24, 1};
     AVRational video_tb{1, 24};
     AVRational audio_tb{1, 48000};
+    AVRational subtitle_tb{1, 24};
 };
 
 Muxer::Muxer() : impl_(new Impl()) {}
@@ -59,6 +64,10 @@ void Muxer::setAudioCodecId(int codec_id) {
 }
 
 void Muxer::setAudioEnabled(bool enabled) { impl_->audio_enabled = enabled; }
+
+void Muxer::setSubtitlesEnabled(bool enabled) {
+    impl_->subtitles_enabled = enabled;
+}
 
 Result<void> Muxer::open(const BlFormatPreset* preset, const char* output_path) {
     if (!preset || !output_path) {
@@ -123,13 +132,14 @@ Result<void> Muxer::open(const BlFormatPreset* preset, const char* output_path) 
     }
 
     // Create subtitle stream (MP4 only: MOV_TEXT is not valid in other
-    // containers and no subtitle packets are written yet).
+    // containers and no subtitle packets are written yet). Independent of the
+    // audio stream choice so text-only projects can carry soft subtitles too.
     AVStream* subtitle_st = nullptr;
     {
         const std::string path(output_path ? output_path : "");
         const bool is_mp4 =
             path.size() >= 4 && path.compare(path.size() - 4, 4, ".mp4") == 0;
-        if (is_mp4 && impl_->audio_enabled) {
+        if (is_mp4 && impl_->subtitles_enabled) {
             subtitle_st = avformat_new_stream(fmt_ctx, nullptr);
             if (subtitle_st) {
                 AVCodecParameters* subtitle_par = subtitle_st->codecpar;
@@ -169,6 +179,9 @@ Result<void> Muxer::open(const BlFormatPreset* preset, const char* output_path) 
     if (audio_st) {
         impl_->audio_tb = audio_st->time_base;
     }
+    if (subtitle_st) {
+        impl_->subtitle_tb = subtitle_st->time_base;
+    }
 
     // Store state
     impl_->fmt_ctx = fmt_ctx;
@@ -182,6 +195,7 @@ Result<void> Muxer::open(const BlFormatPreset* preset, const char* output_path) 
     impl_->video_next_pts = 0;
     impl_->audio_next_pts = 0;
     impl_->subtitle_next_pts = 0;
+    impl_->audio_rate = static_cast<int>(preset->audio.sample_rate);
 
     return Result<void>();
 }
@@ -250,7 +264,7 @@ Result<void> Muxer::writeVideoPacket(const uint8_t* data, size_t size,
 }
 
 Result<void> Muxer::writeAudioPacket(const uint8_t* data, size_t size,
-                                                  uint64_t pts) {
+                                                  uint32_t duration_samples) {
     if (!impl_->is_open || !impl_->audio_stream) {
         return Result<void>(Err::InvalidArgument, "muxer not open");
     }
@@ -263,9 +277,19 @@ Result<void> Muxer::writeAudioPacket(const uint8_t* data, size_t size,
     pkt->stream_index = impl_->audio_stream->index;
     pkt->data = const_cast<uint8_t*>(data);
     pkt->size = static_cast<int>(size);
-    pkt->pts = static_cast<int64_t>(pts);
-    pkt->dts = static_cast<int64_t>(pts);
-    pkt->duration = 0;  // let muxer compute from frame size
+    // Audio is fed as a contiguous PCM stream; one encoded packet covers one
+    // encoder granule (frame_size) of samples. Assign monotonic timestamps by
+    // advancing a running sample counter so the container duration stays exact
+    // and dts never moves backwards, matching the video path.
+    const AVRational rate_tb = {1, impl_->audio_rate};
+    const int64_t pts_tb =
+        av_rescale_q(static_cast<int64_t>(impl_->audio_next_pts), rate_tb,
+                     impl_->audio_tb);
+    pkt->pts = pts_tb;
+    pkt->dts = pts_tb;
+    pkt->duration = av_rescale_q(
+        static_cast<int64_t>(duration_samples), rate_tb, impl_->audio_tb);
+    impl_->audio_next_pts += duration_samples;
 
     int ret = av_interleaved_write_frame(impl_->fmt_ctx, pkt);
     av_packet_free(&pkt);
@@ -279,7 +303,8 @@ Result<void> Muxer::writeAudioPacket(const uint8_t* data, size_t size,
 }
 
 Result<void> Muxer::writeSubtitlePacket(const uint8_t* data, size_t size,
-                                                         uint64_t pts) {
+                                         double pts_seconds,
+                                         double duration_seconds) {
     if (!impl_->is_open || !impl_->subtitle_stream) {
         return Result<void>(Err::InvalidArgument, "muxer not open");
     }
@@ -292,9 +317,22 @@ Result<void> Muxer::writeSubtitlePacket(const uint8_t* data, size_t size,
     pkt->stream_index = impl_->subtitle_stream->index;
     pkt->data = const_cast<uint8_t*>(data);
     pkt->size = static_cast<int>(size);
-    pkt->pts = static_cast<int64_t>(pts);
-    pkt->dts = static_cast<int64_t>(pts);
-    pkt->duration = 1;  // one subtitle frame
+    // Subtitle packets arrive in timeline seconds; rescale into whatever time
+    // base the container settled on for the subtitle track.
+    const AVRational sec_tb = {1, 1'000'000};
+    const double startSec = std::max(0.0, pts_seconds);
+    const int64_t pts_tb = av_rescale_q(
+        static_cast<int64_t>(std::llround(startSec * 1'000'000.0)), sec_tb,
+        impl_->subtitle_tb);
+    const int64_t dur_tb = av_rescale_q(std::max<int64_t>(
+        1, static_cast<int64_t>(std::llround(
+               duration_seconds * 1'000'000.0))),
+        sec_tb, impl_->subtitle_tb);
+    pkt->pts = pts_tb;
+    pkt->dts = pts_tb;
+    pkt->duration = dur_tb;
+    impl_->subtitle_next_pts = static_cast<uint64_t>(pts_tb) +
+                               static_cast<uint64_t>(dur_tb);
 
     int ret = av_interleaved_write_frame(impl_->fmt_ctx, pkt);
     av_packet_free(&pkt);

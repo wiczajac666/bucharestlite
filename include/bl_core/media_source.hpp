@@ -31,11 +31,18 @@ struct AudioStreamInfo {
     std::vector<uint8_t> extradata;
 };
 
+struct SubtitleStreamInfo {
+    int index{-1};
+    std::string codecName;
+    std::vector<uint8_t> extradata;
+};
+
 struct StreamInfo {
     std::string containerName;
     Duration duration{};
     std::vector<VideoStreamInfo> videoStreams;
     std::vector<AudioStreamInfo> audioStreams;
+    std::vector<SubtitleStreamInfo> subtitleStreams;
 };
 
 class MediaSource {

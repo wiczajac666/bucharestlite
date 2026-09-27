@@ -128,7 +128,8 @@ TEST(ExportDialog, CollectsSettingsAndValidates) {
     EXPECT_EQ(s.outputPath, out);
     EXPECT_EQ(s.container, "mp4");
     EXPECT_EQ(s.videoCodec, "h264");
-    EXPECT_FALSE(s.includeAudio);
+    EXPECT_TRUE(s.includeAudio) << "include-audio defaults on";
+    EXPECT_EQ(s.audioCodec, "aac") << "mp4 container defaults to aac";
     EXPECT_GT(s.videoCq, 0);
     EXPECT_EQ(s.scale, ResolutionScale::Custom);
     EXPECT_EQ(s.customWidth, 640u);

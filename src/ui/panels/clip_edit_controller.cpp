@@ -87,6 +87,35 @@ bool ClipEditController::setColorLabel(int flatTrack, const ClipId& id,
     return true;
 }
 
+bool ClipEditController::setSubtitleText(int flatTrack, const ClipId& id,
+                                         const std::string& text) {
+    if (!valid()) return false;
+    const Sequence& seq = timeline_->sequence();
+    const Clip* clip = findClip(seq, flatTrack, id);
+    if (!clip) return false;
+    if (clip->subtitleText == text) return false;
+
+    const bool video = isVideoTrack(seq, flatTrack);
+    const size_t idx = static_cast<size_t>(kindIndex(seq, flatTrack));
+    undoStack_->push(std::make_unique<FunctionCommand>(
+        "Set clip subtitle",
+        [this, video, idx, id, text] {
+            if (video) {
+                timeline_->setSubtitleTextInVideoTrack(idx, id, text);
+            } else {
+                timeline_->setSubtitleTextInAudioTrack(idx, id, text);
+            }
+        },
+        [this, video, idx, id, old = clip->subtitleText.value_or("")] {
+            if (video) {
+                timeline_->setSubtitleTextInVideoTrack(idx, id, old);
+            } else {
+                timeline_->setSubtitleTextInAudioTrack(idx, id, old);
+            }
+        }));
+    return true;
+}
+
 bool ClipEditController::setSourceRange(int flatTrack, const ClipId& id,
                                         Time sourceIn, Time sourceOut) {
     if (!valid()) return false;
@@ -177,6 +206,37 @@ bool ClipEditController::setPan(int flatTrack, const ClipId& id, double pan) {
                 timeline_->setClipPanInVideoTrack(idx, id, old);
             } else {
                 timeline_->setClipPanInAudioTrack(idx, id, old);
+            }
+        }));
+    return true;
+}
+
+bool ClipEditController::setSpeed(int flatTrack, const ClipId& id,
+                                  SpeedRemap speed) {
+    if (!valid()) return false;
+    if (speed.rateNum <= 0 || speed.rateDen <= 0) return false;
+    const Sequence& seq = timeline_->sequence();
+    const Clip* clip = findClip(seq, flatTrack, id);
+    if (!clip) return false;
+    if (clip->speed == speed) return false;
+
+    const bool video = isVideoTrack(seq, flatTrack);
+    const size_t idx = static_cast<size_t>(kindIndex(seq, flatTrack));
+    const SpeedRemap oldSpeed = clip->speed;
+    undoStack_->push(std::make_unique<FunctionCommand>(
+        "Set clip speed",
+        [this, video, idx, id, speed] {
+            if (video) {
+                timeline_->setClipSpeedInVideoTrack(idx, id, speed);
+            } else {
+                timeline_->setClipSpeedInAudioTrack(idx, id, speed);
+            }
+        },
+        [this, video, idx, id, oldSpeed] {
+            if (video) {
+                timeline_->setClipSpeedInVideoTrack(idx, id, oldSpeed);
+            } else {
+                timeline_->setClipSpeedInAudioTrack(idx, id, oldSpeed);
             }
         }));
     return true;

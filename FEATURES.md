@@ -107,7 +107,7 @@
 - .deb package with gnome application drawer icons and and kde application meno items
 - .rpm package with gnome application drawer icons and and kde application meno items
 - .flatpak package with gnome application drawer icons and and kde application meno items
-- Windows 10 22H2 build verified with NSIS installer + portable zip (`packaging/windows/build_installer.ps1` → `bucharest-lite-1.0.1-windows-x64-setup.exe`, `bucharest-lite-1.0.1-windows-x64-portable.zip`; MSVC x64, Qt 6.8.3, windeployqt runtime, 9 codec plugins shipped under `plugins/{video,audio}`)
+- Windows 10 22H2 build verified with NSIS installer + portable zip (`packaging/windows/build_installer.ps1` → `bucharest-lite-1.1.1-windows-x64-setup.exe`, `bucharest-lite-1.1.1-windows-x64-portable.zip`; MSVC x64, Qt 6.8.3, windeployqt runtime, 9 codec plugins shipped under `plugins/{video,audio}`)
 - Flatpak bundle built and launch-verified on org.kde.Platform 6.8 with bundled FFmpeg 8 (`bucharest-lite-app.json` + `packaging/linux/build_flatpak.sh`)
 - **macOS: removed from scope** — no `.dmg`/`.app` distribution is planned or was ever released; this is a scope decision, not a gap. The codebase's generic platform layer (`src/core/platform/`, FFmpeg/CMake branches) is unaffected and remains cross-platform by construction.
 

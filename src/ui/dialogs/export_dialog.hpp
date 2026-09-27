@@ -7,6 +7,7 @@
 #include <cstdint>
 
 class QCheckBox;
+class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -15,10 +16,9 @@ class QPushButton;
 
 namespace bl::ui {
 
-// Modal export configuration dialog (User Guide §"Export"): video container +
-// codec, constant-quality level, output resolution and target file. Audio
-// tracks are not yet produced by the renderer, so the audio section is shown
-// disabled with an explanatory note.
+// Modal export configuration dialog (User Guide §"Export"): video container &
+// codec, constant-quality level, output resolution, an audio on/off switch with
+// codec choice, and the target file.
 class ExportDialog : public QDialog {
     Q_OBJECT
 public:
@@ -31,11 +31,14 @@ public:
 private:
     void browseOutput();
     void updateWidgets();
+    void rebuildAudioCodecItems();
 
     QLineEdit* outputPathEdit_{nullptr};
     QComboBox* containerCombo_{nullptr};
     QComboBox* videoCodecCombo_{nullptr};
     QComboBox* scaleCombo_{nullptr};
+    QCheckBox* includeAudioCheck_{nullptr};
+    QComboBox* audioCodecCombo_{nullptr};
     QSpinBox* cqSpin_{nullptr};
     QSpinBox* customWidthSpin_{nullptr};
     QSpinBox* customHeightSpin_{nullptr};

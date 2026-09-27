@@ -51,6 +51,9 @@ public:
                         Time sourceOut);
     bool setGain(int flatTrack, const ClipId& id, double gain);
     bool setPan(int flatTrack, const ClipId& id, double pan);
+    bool setSpeed(int flatTrack, const ClipId& id, SpeedRemap speed);
+    bool setSubtitleText(int flatTrack, const ClipId& id,
+                         const std::string& text);
 
     bool addEffect(int flatTrack, const ClipId& id, const EffectInstance& effect);
     bool removeEffect(int flatTrack, const ClipId& id, size_t index);

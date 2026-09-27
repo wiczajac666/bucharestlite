@@ -69,6 +69,7 @@ private:
     QWidget* buildEffectSection(QWidget* parent);
 
     void onNameChanged();
+    void onSubtitleChanged();
     void onSourceChanged();
     void onSpeedChanged();
     void onGainChanged();
@@ -100,6 +101,9 @@ private:
 
     // Name.
     QLineEdit* nameEdit_{nullptr};
+
+    // Subtitle text (soft subtitles; exported as a subtitle stream).
+    QLineEdit* subtitleEdit_{nullptr};
 
     // Source / timeline readouts.
     QLineEdit* sourceInEdit_{nullptr};

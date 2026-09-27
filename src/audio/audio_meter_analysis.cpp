@@ -196,9 +196,7 @@ MeterLevels meterLevelsAt(const Sequence& sequence, Time position,
                 continue;
             }
 
-            const Time srcPos = advanceSourceTime(
-                clip.source.sourceIn, position - clip.timelineStart,
-                clip.speed);
+            const Time srcPos = clip.sourceTimeAt(position - clip.timelineStart);
             const Time srcLo = std::min(clip.source.sourceIn,
                                         clip.source.sourceOut);
             const Time srcHi = std::max(clip.source.sourceIn,

@@ -55,6 +55,39 @@ std::vector<BlConfigEntry> buildAudioParams(const BlQualityPreset* quality) {
     return params;
 }
 
+// The plugin slices audio into full frame_size granules (see
+// push_pending_samples); each encoded packet therefore represents that many
+// samples. Resolve the granule the encoder will actually use so the muxer can
+// assign exact per-packet durations. Plugins that expose an explicit
+// "frame_size" capability param (opus, flac, ...) advertise it ahead of the
+// codec's built-in default.
+uint32_t resolveAudioGranule(const BlCodecPlugin* plugin) {
+    if (!plugin) return 0;
+    if (plugin->caps.params) {
+        for (const BlParamDesc* p = plugin->caps.params; p && p->name; ++p) {
+            if (std::strcmp(p->name, "frame_size") == 0) {
+                const int def = static_cast<int>(p->def);
+                return def > 0 ? static_cast<uint32_t>(def) : 0;
+            }
+        }
+    }
+    if (!plugin->caps.ff_encoder) return 0;
+    const AVCodec* codec = avcodec_find_encoder_by_name(plugin->caps.ff_encoder);
+    if (!codec) return 0;
+    AVCodecContext* ctx = avcodec_alloc_context3(codec);
+    if (!ctx) return 0;
+    AVChannelLayout layout;
+    av_channel_layout_default(&layout, 2);
+    ctx->ch_layout = layout;
+    ctx->sample_rate = 48000;
+    const uint32_t granule =
+        avcodec_open2(ctx, codec, nullptr) >= 0 && ctx->frame_size > 0
+            ? static_cast<uint32_t>(ctx->frame_size)
+            : 1024;
+    avcodec_free_context(&ctx);
+    return granule;
+}
+
 } // namespace
 
 ExportEngine::ExportEngine(CodecRegistry& reg, BlHostApi& host)
@@ -155,6 +188,7 @@ Result<void> ExportEngine::initialize(const BlFormatPreset* preset) {
             audio_codec_id_ = codec->id;
         }
     }
+    audio_granule_ = resolveAudioGranule(audio_encoder_);
 
     preset_ = preset;
     quality_ = preset ? preset->quality : nullptr;
@@ -182,6 +216,7 @@ void ExportEngine::cleanup() {
     audio_sample_count_ = 0;
     video_codec_id_ = 0;
     audio_codec_id_ = 0;
+    audio_granule_ = 0;
     params_.clear();
 }
 
@@ -263,14 +298,19 @@ Result<BlExportResult> ExportEngine::encodeFrameAudio(const uint8_t* audio_data,
     }
     if (ret == BL_OK && out_pkt) {
         if (muxer_) {
+            // One encoded packet covers one encoder granule (frame_size) of
+            // input samples; the muxer assigns monotonic timestamps on that
+            // basis. The final flush packet may carry a shorter sub-frame
+            // remainder, which under-counts the last granule slightly (a
+            // container-only imprecision at the very tail).
             auto mux_result = muxer_->writeAudioPacket(
-                out_pkt, out_size, meta ? meta->pts : 0);
+                out_pkt, out_size, audio_granule_);
             if (!mux_result.ok()) {
                 host_.free(out_pkt, host_.userdata);
                 return Result<BlExportResult>::err(
                     Err::IoError, "failed to write audio packet to muxer");
             }
-            audio_sample_count_++;
+            audio_sample_count_ += audio_granule_;
         }
         host_.free(out_pkt, host_.userdata);
     }
@@ -319,14 +359,14 @@ Result<void> ExportEngine::finalize() {
             if (ret == BL_OK && out_pkt) {
                 if (muxer_) {
                     auto mux_result = muxer_->writeAudioPacket(
-                        out_pkt, out_size, audio_sample_count_);
+                        out_pkt, out_size, audio_granule_);
                     if (!mux_result.ok()) {
                         host_.free(out_pkt, host_.userdata);
                         return Result<void>::err(
                             Err::IoError,
                             "failed to write flushed audio packet");
                     }
-                    audio_sample_count_++;
+                    audio_sample_count_ += audio_granule_;
                 }
                 host_.free(out_pkt, host_.userdata);
             } else {

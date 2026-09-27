@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Version** | 1.0.0 |
+| **Version** | 1.1.1 |
 | **Status** | APPROVED — Gate 1 passed (L Hustla, 2026-08-25) |
 | **Scope** | All 20 essential features defined in `FEATURES.md` |
 | **Related** | `FEATURES.md`, `ORCHESTRATOR.md`, `PROJECT_STATUS.md` |

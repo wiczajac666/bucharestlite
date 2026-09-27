@@ -201,6 +201,11 @@ void InspectorPanel::reloadFromModel() {
     // Name.
     if (nameEdit_) nameEdit_->setText(QString::fromStdString(clip->name));
 
+    // Subtitle.
+    if (subtitleEdit_)
+        subtitleEdit_->setText(
+            QString::fromStdString(clip->subtitleText.value_or("")));
+
     // Source.
     if (sourceInEdit_) {
         sourceInEdit_->setText(
@@ -308,6 +313,13 @@ QWidget* InspectorPanel::buildNameSection(QWidget* parent) {
     form->addRow(tr("Name:"), nameEdit_);
     connect(nameEdit_, &QLineEdit::editingFinished, this,
             &InspectorPanel::onNameChanged);
+
+    subtitleEdit_ = new QLineEdit(group);
+    subtitleEdit_->setObjectName(QStringLiteral("inspectorSubtitle"));
+    subtitleEdit_->setPlaceholderText(tr("No subtitle"));
+    form->addRow(tr("Subtitle:"), subtitleEdit_);
+    connect(subtitleEdit_, &QLineEdit::editingFinished, this,
+            &InspectorPanel::onSubtitleChanged);
     return group;
 }
 
@@ -354,10 +366,10 @@ QWidget* InspectorPanel::buildSpeedSection(QWidget* parent) {
     speedReverse_->setObjectName(QStringLiteral("inspectorSpeedReverse"));
     form->addRow(tr("Rate:"), speedRow);
     form->addRow(QString(), speedReverse_);
-    connect(speedNum_, QOverload<int>::of(&QSpinBox::valueChanged), this,
-            [this](int) { onSpeedChanged(); });
-    connect(speedDen_, QOverload<int>::of(&QSpinBox::valueChanged), this,
-            [this](int) { onSpeedChanged(); });
+    connect(speedNum_, &QSpinBox::editingFinished, this,
+            &InspectorPanel::onSpeedChanged);
+    connect(speedDen_, &QSpinBox::editingFinished, this,
+            &InspectorPanel::onSpeedChanged);
     connect(speedReverse_, &QCheckBox::toggled, this,
             &InspectorPanel::onSpeedChanged);
     return group;
@@ -547,15 +559,29 @@ void InspectorPanel::onNameChanged() {
     emit clipChanged();
 }
 
+void InspectorPanel::onSubtitleChanged() {
+    if (suppress_ || !currentFlat_.has_value() || !subtitleEdit_) return;
+    editor_.setSubtitleText(*currentFlat_, currentId_,
+                            subtitleEdit_->text().toStdString());
+    emit clipChanged();
+}
+
 void InspectorPanel::onSourceChanged() {
     // Source fields are read-only display.
 }
 
 void InspectorPanel::onSpeedChanged() {
-    if (suppress_ || !currentFlat_.has_value()) return;
-    // Read-only display; speed mutation goes through speed Num/Den spin boxes
-    // which are connected to the model on editingFinished.
-    // (Future: on committing, push a setClipSpeed command. For now, display only.)
+    if (suppress_ || !currentFlat_.has_value() || !speedNum_ || !speedDen_ ||
+        !speedReverse_) {
+        return;
+    }
+    bl::SpeedRemap speed;
+    speed.rateNum = speedNum_->value();
+    speed.rateDen = speedDen_->value();
+    speed.reversed = speedReverse_->isChecked();
+    if (!editor_.setSpeed(*currentFlat_, currentId_, speed)) return;
+    emit clipChanged();
+    reloadFromModel();
 }
 
 void InspectorPanel::onGainChanged() {

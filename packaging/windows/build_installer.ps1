@@ -15,8 +15,8 @@
 #   .\build_installer.ps1
 #
 # Produces, in packaging\windows\:
-#   bucharest-lite-1.0.1-windows-x64-setup.exe
-#   bucharest-lite-1.0.1-windows-x64-portable.zip
+#   bucharest-lite-1.1.1-windows-x64-setup.exe
+#   bucharest-lite-1.1.1-windows-x64-portable.zip
 
 param(
     [string]$Preset = 'windows-release',
@@ -31,7 +31,7 @@ $ProgressPreference = 'SilentlyContinue'
 $Ps1Dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $Ps1Dir)
 $BuildDir = Join-Path $RepoRoot "build\windows\$Preset"
-$Version = '1.0.1'
+$Version = '1.1.1'
 
 if (-not $QtRoot)     { throw 'QT_ROOT not set.' }
 if (-not $FfmpegRoot) { throw 'FFMPEG_ROOT not set.' }

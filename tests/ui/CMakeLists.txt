@@ -18,6 +18,7 @@ add_executable(bl_ui_tests
     test_mixer_meters.cpp
     test_export_settings.cpp
     test_export_runner.cpp
+    test_mixdown.cpp
     test_export_ui.cpp
     test_export_batch.cpp
 )

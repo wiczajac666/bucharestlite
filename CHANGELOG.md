@@ -1,8 +1,34 @@
 # Bucharest Lite Changelog
 
-## Unreleased
+## v1.1.1 — 2026-09-27
 
 ### Added
+- **Alpha compositing**: the preview/export compositor blends frames with
+  per-pixel premultiplied alpha (source RGB premultiplied by alpha before
+  compositing) instead of an additive accumulator, so faded clips, opacity
+  keyframes and stacked layers combine correctly over the tracks below.
+- **Five new video effects**: Chroma Key, Sharpen, Hue/Saturation,
+  Levels/Curves and Crop grow the built-in effect catalog from 4 to 9; each
+  ships a parameter schema rendered as sliders with one undoable command per
+  drag gesture.
+- **Speed editing & reverse playback**: every clip carries a fractional
+  speed (numerator/denominator) and a *Reverse* toggle; the preview compositor
+  and the audio mixdown share one `Clip::sourceTimeAt` source-time mapping, so
+  sped-up or reversed clips play sample/field-truthfully on the timeline, and
+  speed changes are one undoable Inspector command.
+- **Soft subtitles**: a per-clip subtitle text editor in the Inspector, exported
+  as a genuine subtitle stream (MOV_TEXT) in MP4 output — the text is never
+  burned into the picture; subtitle streams are probed and listed by
+  `MediaSource`, and each text's duration honors the clip's timeline span.
+- **Audio export**: the Export dialog gains a default-on *Include audio* option
+  that muxes a stereo mixdown of every audible clip/track into the output
+  (AAC/FLAC in MP4, Opus/Vorbis in WebM). A Qt-free offline
+  `TimelineMixdown` renderer (`bl_export`) mirrors the mixer's channel, gain and
+  pan laws plus volume keyframes and mute/solo, decoding each referenced clip
+  through `PcmAudioSource` (Demuxer + DecoderBridge + libswresample at the
+  sequence sample rate) and feeding the audio encoder fixed-size planar PCM
+  blocks; missing or undecodable clips contribute silence. Encoder granules
+  drive monotonic audio PTS in the muxers.
 - **UI-11 Live mixer level meters**: each audio strip and the master bus now
   show classic L/R peak-dB bars (green/amber/red zones + decaying peak hold)
   driven by the playhead. Per-source audio is decoded once in the background
@@ -57,6 +83,14 @@
   unavailable (no libvpx) in this build.
 
 ### Fixed
+- Reversed clips decode their source media in ascending order during audio
+  mixdown (the mirrored window was previously read backwards, breaking
+  decoders whose seek is not sample-exact).
+- Reversed clip source-time mapping used the wrong delta type and distance
+  accounting in the timeline core.
+- The export pipeline no longer requires an audio track for MP4 subtitle
+  streams (subtitle stream creation is decoupled from audio) and drops a
+  duplicate `fps` declaration in the export runner.
 - Project title ` *` and the close prompt now appear for clip/mixer edits too,
   not only rename and media-bin changes; undo-to-pristine clears dirty.
 - Undo/redo shortcuts are registered through the same remappable registry.

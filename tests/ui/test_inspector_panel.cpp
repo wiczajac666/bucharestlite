@@ -160,6 +160,22 @@ TEST(InspectorPanel, RenameCommitsToModel) {
     EXPECT_TRUE(f.controller.canUndo());
 }
 
+TEST(InspectorPanel, SubtitleEditingCommitsAndIsUndoable) {
+    Fixture f;
+    f.selectVideo();
+    auto* subtitle =
+        f.panel.findChild<QLineEdit*>(QStringLiteral("inspectorSubtitle"));
+    ASSERT_NE(subtitle, nullptr);
+
+    subtitle->setText(QStringLiteral("Hello world"));
+    QTest::keyClick(subtitle, Qt::Key_Return);
+    EXPECT_EQ(f.video()->subtitleText.value_or(""), "Hello world");
+    EXPECT_TRUE(f.controller.canUndo());
+
+    f.controller.undoStack().undo();
+    EXPECT_EQ(f.video()->subtitleText.value_or(""), "");
+}
+
 TEST(InspectorPanel, GainSliderOnlyForAudioClips) {
     Fixture f;
     f.panel.showSelection(QSet<bl::ClipId>{"v1"});
