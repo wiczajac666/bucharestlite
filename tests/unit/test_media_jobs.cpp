@@ -44,6 +44,8 @@ using bl::Time;
 std::string videoFixture() { return bltest::mediaPath("test_video.mp4"); }
 std::string audioFixture() { return bltest::mediaPath("test_audio.wav"); }
 std::string avFixture() { return bltest::mediaPath("test_av.mp4"); }
+std::string mkvVideoFixture() { return bltest::mediaPath("test_video.mkv"); }
+std::string mkvAvFixture() { return bltest::mediaPath("test_av.mkv"); }
 
 class EventCollector {
 public:
@@ -128,6 +130,86 @@ TEST(MediaProbeTest, MuxedFixtureHasBothStreams) {
 
     EXPECT_EQ((*result).videoStreams.size(), 1u);
     EXPECT_EQ((*result).audioStreams.size(), 1u);
+}
+
+// Matroska stores codec configuration in CodecPrivate, so an import must
+// surface it as StreamInfo extradata. Without it a later remux/re-encode to MKV
+// writes incomplete track headers (the reason MKV export was deferred).
+TEST(MediaProbeTest, MkvVideoFixturePreservesVideoExtradata) {
+    auto result = MediaSource::probe(MediaLocator{mkvVideoFixture()});
+    ASSERT_TRUE(result.ok()) << result.message();
+    const StreamInfo& info = *result;
+
+    ASSERT_EQ(info.videoStreams.size(), 1u);
+    EXPECT_EQ(info.audioStreams.size(), 0u);
+
+    const auto& v = info.videoStreams.front();
+    EXPECT_EQ(v.width, 320u);
+    EXPECT_EQ(v.height, 240u);
+    EXPECT_EQ(v.codecName, "h264");
+    // Non-empty CodecPrivate: FFmpeg reports the avcC-style extradata block.
+    EXPECT_FALSE(v.extradata.empty());
+
+    // Same geometry as the MP4 fixture it was transmuxed from.
+    const double seconds = info.duration.toSeconds();
+    EXPECT_GT(seconds, 0.9);
+    EXPECT_LT(seconds, 1.2);
+}
+
+TEST(MediaProbeTest, MkvMuxedFixtureHasBothStreamsWithAudioExtradata) {
+    auto result = MediaSource::probe(MediaLocator{mkvAvFixture()});
+    ASSERT_TRUE(result.ok()) << result.message();
+    const StreamInfo& info = *result;
+
+    ASSERT_EQ(info.videoStreams.size(), 1u);
+    ASSERT_EQ(info.audioStreams.size(), 1u);
+    EXPECT_FALSE(info.videoStreams.front().extradata.empty());
+    // AAC keeps its AudioSpecificConfig in CodecPrivate.
+    EXPECT_FALSE(info.audioStreams.front().extradata.empty());
+}
+
+TEST(MediaProbeTest, MkvContainerNameIsReported) {
+    auto result = MediaSource::probe(MediaLocator{mkvVideoFixture()});
+    ASSERT_TRUE(result.ok()) << result.message();
+    EXPECT_NE((*result).containerName.find("matroska"), std::string::npos);
+}
+
+TEST(DemuxerTest, MkvInfoCarriesExtradata) {
+    auto opened = Demuxer::open(mkvVideoFixture());
+    ASSERT_TRUE(opened.ok()) << opened.message();
+    Demuxer demuxer = std::move(opened).value();
+
+    ASSERT_EQ(demuxer.info().videoStreams.size(), 1u);
+    // Demuxer::open() routes through MediaSource::probe(), so extradata must
+    // survive into the demuxer's own StreamInfo.
+    EXPECT_FALSE(demuxer.info().videoStreams.front().extradata.empty());
+}
+
+TEST(DemuxerTest, ReadsPacketsFromMkv) {
+    auto opened = Demuxer::open(mkvAvFixture());
+    ASSERT_TRUE(opened.ok()) << opened.message();
+    Demuxer demuxer = std::move(opened).value();
+
+    const std::vector<bl::VideoStreamInfo> videos = demuxer.info().videoStreams;
+    ASSERT_FALSE(videos.empty());
+    const int videoIndex = videos.front().index;
+
+    int packets = 0;
+    int videoKeyframes = 0;
+    for (int guard = 0; guard < 500; ++guard) {
+        auto next = demuxer.nextPacket();
+        ASSERT_TRUE(next.ok()) << next.message();
+        if (!next->has_value()) break;
+        if ((*next)->streamIndex == videoIndex) {
+            EXPECT_GT((*next)->data.size(), 0u);
+            ++packets;
+            if ((*next)->keyframe) ++videoKeyframes;
+        }
+    }
+    EXPECT_GT(packets, 0) << "no video packets decoded from MKV";
+    // A transmuxed H.264 MKV opens on a keyframe, which the first-frame
+    // thumbnail path relies on.
+    EXPECT_GT(videoKeyframes, 0);
 }
 
 TEST(DemuxerTest, OpenMissingFileFails) {

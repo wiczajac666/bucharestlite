@@ -125,6 +125,18 @@ TEST(MediaThumbnailTest, RejectsEmptyPathAndZeroWidth) {
             .ok());
 }
 
+// MKV import must work end-to-end through the thumbnail path too: that requires
+// the demuxer to hand the container's CodecPrivate to the h264 decoder.
+TEST(MediaThumbnailTest, DecodesFirstFrameFromMkvSource) {
+    auto thumb = bl::readThumbnail(bltest::mediaPath("test_video.mkv"),
+                                   registry(), 64);
+    ASSERT_TRUE(thumb.ok()) << thumb.message();
+    EXPECT_TRUE(thumb.value().hasPixels());
+    EXPECT_EQ(thumb.value().width, 64u);
+    EXPECT_EQ(thumb.value().height, 48u);
+    EXPECT_EQ(thumb.value().info.videoStreams.front().codecName, "h264");
+}
+
 TEST(MediaThumbnailTest, DescribeMediaFormatsVideoAndAudio) {
     StreamInfo video;
     video.duration = bl::Duration::fromSeconds(83, {1'000'000, 1});

@@ -22,6 +22,8 @@ add_custom_command(
            ${BL_MEDIA_STAGE}/test_audio_opus.opus
            ${BL_MEDIA_STAGE}/test_audio_beep.opus
            ${BL_MEDIA_STAGE}/test_video_theora.ogv
+           ${BL_MEDIA_STAGE}/test_video.mkv
+           ${BL_MEDIA_STAGE}/test_av.mkv
     COMMAND ${CMAKE_COMMAND} -E make_directory ${BL_MEDIA_STAGE}
     COMMAND ffmpeg -y -loglevel error -f lavfi -i testsrc=duration=1:size=320x240:rate=24 -pix_fmt yuv420p ${BL_MEDIA_STAGE}/test_video.mp4
     COMMAND ffmpeg -y -loglevel error -f lavfi -i sine=frequency=440:duration=1 -ar 48000 -ac 2 ${BL_MEDIA_STAGE}/test_audio.wav
@@ -31,6 +33,8 @@ add_custom_command(
     COMMAND ffmpeg -y -loglevel error -f lavfi -i sine=frequency=440:duration=1 -ar 48000 -ac 2 -c:a libopus ${BL_MEDIA_STAGE}/test_audio_opus.opus
     COMMAND ffmpeg -y -loglevel error -f lavfi -i "aevalsrc=if(lt(t\\,1)\\,0.5*sin(2*PI*440*t)\\,0):d=2:s=48000" -c:a libopus ${BL_MEDIA_STAGE}/test_audio_beep.opus
     COMMAND ffmpeg -y -loglevel error -f lavfi -i testsrc=duration=1:size=160x120:rate=24 -c:v libtheora ${BL_MEDIA_STAGE}/test_video_theora.ogv
+    COMMAND ffmpeg -y -loglevel error -i ${BL_MEDIA_STAGE}/test_video.mp4 -c copy -f matroska ${BL_MEDIA_STAGE}/test_video.mkv
+    COMMAND ffmpeg -y -loglevel error -i ${BL_MEDIA_STAGE}/test_av.mp4 -c copy -f matroska ${BL_MEDIA_STAGE}/test_av.mkv
     COMMENT "Generating synthetic media fixtures with ffmpeg CLI"
     VERBATIM
 )
@@ -44,6 +48,8 @@ add_custom_target(bl_media_fixtures ALL
             ${BL_MEDIA_STAGE}/test_audio_opus.opus
             ${BL_MEDIA_STAGE}/test_audio_beep.opus
             ${BL_MEDIA_STAGE}/test_video_theora.ogv
+            ${BL_MEDIA_STAGE}/test_video.mkv
+            ${BL_MEDIA_STAGE}/test_av.mkv
 )
 
 if(WIN32 AND DEFINED FFMPEG_BIN_DIR)

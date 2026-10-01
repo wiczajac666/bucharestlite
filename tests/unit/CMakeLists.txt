@@ -71,6 +71,10 @@ endif()
 include(GoogleTest)
 gtest_discover_tests(bl_core_tests DISCOVERY_TIMEOUT 60)
 
+# The POST_BUILD fixture copy below reads the staged media directory, so it must
+# not run before bl_media_fixtures has produced it.
+add_dependencies(bl_core_tests bl_media_fixtures)
+
 add_custom_command(TARGET bl_core_tests POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_CURRENT_BINARY_DIR}/../media
