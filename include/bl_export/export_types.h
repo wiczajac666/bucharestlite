@@ -100,7 +100,6 @@ struct BlExportResult {
 };
 
 class Muxer;
-class MKVMuxer;
 
 class ExportEngine {
 public:
@@ -111,7 +110,6 @@ public:
     void cleanup();
 
 void setMuxer(Muxer* muxer);
-    void setMKVMuxer(MKVMuxer* muxer);
 
     // Applies the codec ids resolved during initialize() to a freshly created
     // muxer so its streams advertise the encoder actually in use.
@@ -159,7 +157,6 @@ private:
     BlExportJob* job_ = nullptr;
 
     Muxer* muxer_ = nullptr;
-    MKVMuxer* mkv_muxer_ = nullptr;
     int video_codec_id_ = 0;
     int audio_codec_id_ = 0;
     uint32_t audio_granule_ = 0;

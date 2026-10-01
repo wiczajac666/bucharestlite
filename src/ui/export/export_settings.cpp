@@ -68,10 +68,11 @@ std::string defaultContainerForCodec(const std::string& codecName) {
 }
 
 bool isSupportedContainer(const std::string& container) noexcept {
-    // v1 muxing supports MP4 (h264/mpeg4) and WebM (vp9/av1/theora).
-    // Matroska is deferred: the plugin encoder buffers carry no SPS/PPS
-    // extradata, which the matroska muxer requires on header write.
-    return container == "mp4" || container == "webm";
+    // v1 muxing supports MP4 (h264/mpeg4), WebM (vp9/av1/theora) and Matroska
+    // (all of them -- matroskaenc accepts every codec the app offers). The
+    // Matroska header write needs SPS/PPS extradata up front, which the export
+    // engine now supplies from the encoder plugins.
+    return container == "mp4" || container == "webm" || container == "mkv";
 }
 
 bool isSupportedCodec(const std::string& codecName) noexcept {

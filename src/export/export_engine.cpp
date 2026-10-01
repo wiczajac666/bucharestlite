@@ -1,7 +1,6 @@
 #include "bl_export/export_types.h"
 
 #include "bl_export/muxer.h"
-#include "bl_export/mkv_muxer.h"
 
 #include <bl_core/codec_registry.hpp>
 #include <bl_core/plugin_loader.hpp>
@@ -93,8 +92,7 @@ uint32_t resolveAudioGranule(const BlCodecPlugin* plugin) {
 ExportEngine::ExportEngine(CodecRegistry& reg, BlHostApi& host)
     : registry_(reg), host_(host), video_encoder_(nullptr),
       audio_encoder_(nullptr), video_ctx_(nullptr), audio_ctx_(nullptr),
-      video_frame_count_(0), audio_sample_count_(0), muxer_(nullptr),
-      mkv_muxer_(nullptr) {}
+      video_frame_count_(0), audio_sample_count_(0), muxer_(nullptr) {}
 
 ExportEngine::~ExportEngine() { cleanup(); }
 
@@ -220,7 +218,6 @@ void ExportEngine::cleanup() {
     quality_ = nullptr;
     job_ = nullptr;
     muxer_ = nullptr;
-    mkv_muxer_ = nullptr;
     video_frame_count_ = 0;
     audio_sample_count_ = 0;
     video_codec_id_ = 0;
@@ -232,8 +229,6 @@ void ExportEngine::cleanup() {
 }
 
 void ExportEngine::setMuxer(Muxer* muxer) { muxer_ = muxer; }
-
-void ExportEngine::setMKVMuxer(MKVMuxer* muxer) { mkv_muxer_ = muxer; }
 
 void ExportEngine::configureMuxer(Muxer* muxer) const {
     if (!muxer) {

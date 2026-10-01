@@ -38,7 +38,7 @@ Result<void> ExportPlan::build(const bl::Sequence& sequence,
                                                           : settings.container)) {
         return Result<void>::err(
             Err::InvalidArgument,
-            "unsupported container for this version: only mp4 and webm");
+            "unsupported container for this version: only mp4, webm and mkv");
     }
 
     range = frameRange(settings, seq, totalDuration);
@@ -66,11 +66,18 @@ Result<void> ExportPlan::build(const bl::Sequence& sequence,
         audioCodec_.clear();
     }
     if (settings.includeAudio && !audioCodec_.empty()) {
-        const bool containerOk =
-            container_ == "mp4"
-                ? (audioCodec_ == "aac" || audioCodec_ == "flac" ||
-                   audioCodec_ == "opus")
-                : (audioCodec_ == "opus" || audioCodec_ == "vorbis");
+        // MP4 and WebM are the restricted pair; Matroska carries every audio
+        // codec the app offers.
+        bool containerOk = false;
+        if (container_ == "mp4") {
+            containerOk = audioCodec_ == "aac" || audioCodec_ == "flac" ||
+                          audioCodec_ == "opus";
+        } else if (container_ == "webm") {
+            containerOk = audioCodec_ == "opus" || audioCodec_ == "vorbis";
+        } else {
+            containerOk = audioCodec_ == "aac" || audioCodec_ == "flac" ||
+                          audioCodec_ == "opus" || audioCodec_ == "vorbis";
+        }
         if (!containerOk) {
             return Result<void>::err(
                 Err::InvalidArgument,

@@ -28,8 +28,9 @@ public:
     void setAudioExtradata(const uint8_t* data, size_t size);
     // When false, no audio stream is created (default true).
     void setAudioEnabled(bool enabled);
-    // When true and the output container is MP4, a MOV_TEXT subtitle stream is
-    // created (default false). Independent of the audio stream.
+    // When true, a soft-text subtitle stream is created for containers that
+    // have one: MOV_TEXT for MP4/MOV, SubRip for Matroska, WebVTT for WebM
+    // (default false). Independent of the audio stream.
     void setSubtitlesEnabled(bool enabled);
 
     Result<void> writeVideoPacket(const uint8_t* data, size_t size,

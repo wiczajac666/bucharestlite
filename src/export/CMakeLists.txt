@@ -15,7 +15,6 @@ set(BL_EXPORT_OUTPUT_DIR ${CMAKE_BINARY_DIR}/export)
 add_library(bl_export STATIC
     export_engine.cpp
     muxer.cpp
-    mkv_muxer.cpp
     batch_queue.cpp
     edl_exporter.cpp
     audio_pcm_source.cpp

@@ -104,7 +104,7 @@ TEST(ExportSettings, DefaultContainerByCodec) {
 TEST(ExportSettings, SupportedContainerAndCodec) {
     EXPECT_TRUE(isSupportedContainer("mp4"));
     EXPECT_TRUE(isSupportedContainer("webm"));
-    EXPECT_FALSE(isSupportedContainer("mkv"));
+    EXPECT_TRUE(isSupportedContainer("mkv"));
     EXPECT_FALSE(isSupportedContainer("mov"));
 
     EXPECT_TRUE(isSupportedCodec("h264"));

@@ -56,7 +56,7 @@ During export, a progress window shows:
 - The whole timeline is exported; work-range and per-clip ranges are not yet available in the UI
 - Timeline audio is mixed down to a single stereo track (2 channels max, decoded from each clip's available channels and downmixed/resampled as needed). Audio applies to the entire timeline only — per-clip audio effects do not run during export
 - Export containers are limited to MP4 and WebM. Matroska (`.mkv`) **import** works — MKV files open, probe, preview and thumbnail correctly, and their codec private data is preserved — but MKV **export** is not available in the UI yet
-- MKV export is not blocked on plumbing any more: encoder SPS/PPS and AudioSpecificConfig now reach the muxer, so a Matroska track is written with a complete `CodecPrivate`. Wiring the container into the export and batch dialogs is still outstanding
+- MKV export is not blocked on the engine any more: encoder SPS/PPS and AudioSpecificConfig now reach the muxer, so a Matroska track is written with a complete `CodecPrivate`, and soft subtitles are written as SubRip (Matroska's `S_TEXT/UTF8`) rather than the MP4-only MOV_TEXT. What is still outstanding is exposing the container in the export and batch dialogs
 - Nested compositions are not supported — flat sequences only
 - Multi-cam source clips are not supported for export
 - Hardware acceleration (NVDEC/VAAPI/VideoToolbox) is not available in v1

@@ -18,6 +18,43 @@ extern "C" {
 namespace bl {
 namespace export_ {
 
+namespace {
+
+// Soft-text subtitle codec per container, or AV_CODEC_ID_NONE when the resolved
+// muxer has no text subtitle codec this path can write. Keyed off the output
+// format FFmpeg actually picked rather than the filename extension, so ".m4v"
+// (mp4 muxer) and ".mka" (matroska muxer) behave like their siblings.
+AVCodecID subtitleCodecFor(const char* oformat_name) noexcept {
+    if (!oformat_name) return AV_CODEC_ID_NONE;
+    if (std::strcmp(oformat_name, "mp4") == 0 ||
+        std::strcmp(oformat_name, "mov") == 0) {
+        return AV_CODEC_ID_MOV_TEXT;
+    }
+    if (std::strcmp(oformat_name, "matroska") == 0) {
+        // Matroska carries plain UTF-8 text as S_TEXT/UTF8, which FFmpeg
+        // labels SubRip on the way back out. The samples written here are the
+        // bare authored text with no in-band timing, which is exactly what
+        // that CodecID expects -- MOV_TEXT is MP4-only and is rejected here.
+        return AV_CODEC_ID_SUBRIP;
+    }
+    if (std::strcmp(oformat_name, "webm") == 0) {
+        return AV_CODEC_ID_WEBVTT;
+    }
+    return AV_CODEC_ID_NONE;
+}
+
+// MOV_TEXT rides the video time base in the MP4 family. Matroska and WebM want
+// a millisecond base (Matroska's TimecodeScale is 1ms), which also stops
+// subtitle edges from rounding to whole frames at low frame rates.
+AVRational subtitleTimeBase(AVCodecID codec, AVRational video_fps) noexcept {
+    if (codec == AV_CODEC_ID_MOV_TEXT) {
+        return {1, video_fps.num > 0 ? video_fps.num : 24};
+    }
+    return {1, 1000};
+}
+
+}  // namespace
+
 struct Muxer::Impl {
     AVFormatContext* fmt_ctx = nullptr;
     AVStream* video_stream = nullptr;
@@ -171,23 +208,21 @@ Result<void> Muxer::open(const BlFormatPreset* preset, const char* output_path) 
         }
     }
 
-    // Create subtitle stream (MP4 only: MOV_TEXT is not valid in other
-    // containers and no subtitle packets are written yet). Independent of the
-    // audio stream choice so text-only projects can carry soft subtitles too.
+    // Create the subtitle stream when the container has a text subtitle codec
+    // we can write. Independent of the audio stream choice so text-only
+    // projects can carry soft subtitles too.
     AVStream* subtitle_st = nullptr;
-    {
-        const std::string path(output_path ? output_path : "");
-        const bool is_mp4 =
-            path.size() >= 4 && path.compare(path.size() - 4, 4, ".mp4") == 0;
-        if (is_mp4 && impl_->subtitles_enabled) {
+    if (impl_->subtitles_enabled) {
+        const AVCodecID subtitle_codec =
+            subtitleCodecFor(fmt_ctx->oformat ? fmt_ctx->oformat->name : nullptr);
+        if (subtitle_codec != AV_CODEC_ID_NONE) {
             subtitle_st = avformat_new_stream(fmt_ctx, nullptr);
             if (subtitle_st) {
                 AVCodecParameters* subtitle_par = subtitle_st->codecpar;
                 subtitle_par->codec_type = AVMEDIA_TYPE_SUBTITLE;
-                subtitle_par->codec_id =
-                    AV_CODEC_ID_MOV_TEXT;  // MP4 text subtitle codec
-                subtitle_st->time_base = {1,
-                                          static_cast<int>(preset->video.fps.num)};
+                subtitle_par->codec_id = subtitle_codec;
+                subtitle_st->time_base =
+                    subtitleTimeBase(subtitle_codec, video_fps);
             }
         }
     }

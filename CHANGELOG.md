@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+- **Matroska export in the export engine**: the muxer now picks the soft-text
+  subtitle codec from the resolved output format instead of assuming MP4 —
+  `MOV_TEXT` for MP4/MOV, SubRip for Matroska, WebVTT for WebM — so a timeline
+  with subtitle clips exports to `.mkv` with a real, recoverable subtitle
+  track. Matroska is accepted as an export container and carries every audio
+  codec the app offers, including AAC. This is the engine half only: MKV is not
+  yet selectable in the export or batch dialogs.
+
+### Removed
+- **`MKVMuxer`**: an unwired, never-called duplicate of the generic `Muxer`
+  that hardcoded H.264/AAC and could not carry codec private data. Matroska
+  goes through the same `Muxer` as every other container.
+
 ### Changed
 - **Plugin ABI v2 → v3**: `BlCodecPlugin` gains an optional trailing
   `get_extradata()` entry and `BlCodecConfig` gains `enc_flags` with

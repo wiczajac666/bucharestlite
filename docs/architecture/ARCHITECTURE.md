@@ -56,7 +56,7 @@ Bucharest Lite is an open-source (GPL-3.0) cross-platform non-linear video edito
 - Nested compositions — deferred to v2 by decision D2 (§18).
 - **GPU-accelerated preview/rendering** — v1 ships a CPU compositor (`src/render/compositor.cpp`, §19.3); the OpenGL 3.3 backend in §2/§19 is planned, not shipped.
 - **Proxy-based editing** (goal G4) — unimplemented in v1; high-res media plays directly via demand decode.
-- **Matroska export** — MP4/WebM only in v1; see `docs/user-guide.md` (Known limitations).
+- **Matroska export** — the export engine muxes Matroska (including SubRip soft subtitles, see §19 item 11), but the container is not yet selectable in the export/batch UI; see `docs/user-guide.md` (Known limitations).
 
 ---
 
@@ -759,6 +759,7 @@ No open questions remain for Gate 1.
 8. **Timeline mutations are direct methods** returning `bool`/`std::optional` rather than the §8.2 sketch of every mutation returning an `ICommand` factory. Reason: keeps bl_timeline pure-domain and unit-testable; undo is layered on top via `TimelineSnapshot` + CORE-4 commands at the UI layer (UI-2). Convention established in TL-1/TL-2, extended by TL-4 (2026-08-26).
 9. **Bezier keyframes evaluated as smoothstep** (`u²(3−2u)`) in v1; editable per-keyframe handles arrive with the RND-4/UI-4 curve editor. Also: keyframe times are clip-relative (survive move/retime), and fragment-producing edits (split / insert-split / overwrite remnants) partition keys half-open — a key exactly on the cut goes to the right fragment. Recorded 2026-08-26 (TL-6).
 10. **Transitions stored as edge-metadata** (`Clip.transitionOut`) rather than physically overlapping clips. Virtual overlap at render time (RND-5). Single-owner: only the left clip holds the transition spec; dual `transitionsIn/out` refs from §5.2 spec deferred to avoid desync. A cheap `pruneInvalidTransitions()` sweep is called after every mutating op and drops any transition whose adjacency or duration bound has been invalidated. Keyframe pruning is inherent to the half-open partition rules in #9; transition pruning is adjacency-aware. Recorded 2026-08-26 (TL-7).
+11. **One `Muxer` for every container; subtitle codec chosen per resolved output format** (Matroska P2). Reason: the format is already resolved by `avformat_alloc_output_context2`, so keying off `oformat->name` is both more robust than string-matching the filename (`.m4v` → `mp4`, `.mka` → `matroska`) and the only way to tell `webm` from `matroska`, which share a demuxer family. `MOV_TEXT` is MP4-only and `matroskaenc` rejects it, so soft text subtitles use `SUBRIP` (Matroska's `S_TEXT/UTF8`) and `WEBVTT` for WebM; both take the bare authored UTF-8 with timing from the block header, which is what the subtitle writer already emits. The unused `MKVMuxer` was deleted rather than extended — it hardcoded H.264/AAC, had no extradata setters, and so could never satisfy §19 item 7's `CodecPrivate` requirement. Recorded 2026-10-01.
 
 ## 20. Gate 1 Sign-Off
 

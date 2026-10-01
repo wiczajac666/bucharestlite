@@ -412,6 +412,131 @@ TEST(ExportRunner, ExportsSoftSubtitleStreamFromTimeline) {
     std::remove(out.c_str());
 }
 
+// Matroska carries soft text subtitles as SubRip (S_TEXT/UTF8). MOV_TEXT is
+// MP4-only -- matroskaenc rejects it outright -- so the muxer has to pick the
+// codec per container for a subtitle clip to survive an MKV export.
+TEST(ExportRunner, ExportsSoftSubtitleStreamToMatroska) {
+    ExportFixture fx;
+    ASSERT_TRUE(
+        fx.timeline.sequence().videoTracks[0].setSubtitleText(
+            "c1", "Bonjour neuf du sous-titre"));
+
+    auto snapshot = fx.snapshot();
+
+    const std::string out = tempOutputPath("sub", ".mkv");
+    bl::ui::ExportSettings settings = fx.settings(out);
+    settings.container = "mkv";
+    bl::ui::ExportPlan plan;
+    plan.settings = settings;
+    auto build =
+        plan.build(snapshot.sequence(), sequenceDuration(snapshot.sequence()));
+    ASSERT_TRUE(build.ok()) << build.message();
+
+    bl::MediaDecodeSource::Spec plugins{
+        {std::make_pair(pluginDir(), bl::PluginOrigin::User)}};
+    bl::ui::ExportRunner::Input input{plan, snapshot, fx.mediaBin, plugins,
+                                      nullptr};
+    auto result = bl::ui::ExportRunner::run(input, nullptr);
+    ASSERT_TRUE(result.ok())
+        << "mkv subtitle export failed: " << result.message();
+
+    auto demuxed = bl::Demuxer::open(out);
+    ASSERT_TRUE(demuxed.ok());
+    const bl::StreamInfo& info = demuxed.value().info();
+    // FFmpeg reports the Matroska demuxer as "matroska,webm", so match on the
+// prefix the way the media-source tests do.
+    EXPECT_NE(info.containerName.find("matroska"), std::string::npos);
+    ASSERT_EQ(info.subtitleStreams.size(), 1u)
+        << "mkv must carry one subtitle stream";
+    EXPECT_EQ(info.subtitleStreams.front().codecName, "subrip");
+    EXPECT_TRUE(probeHasSubtitleText(out, "Bonjour"))
+        << "mkv subtitle samples must contain the authored text";
+    std::remove(out.c_str());
+}
+
+// Matroska accepts every audio codec the app offers, including AAC, which the
+// WebM path rejects.
+TEST(ExportRunner, ExportsMatroskaWithAacAudio) {
+    AudioExportFixture fx;
+    auto snapshot = fx.snapshot();
+
+    const std::string out = tempOutputPath("mkvaac", ".mkv");
+    bl::ui::ExportSettings settings;
+    settings.range = bl::ui::ExportRange::EntireProject;
+    settings.outputPath = out;
+    settings.container = "mkv";
+    settings.videoCodec = "h264";
+    settings.includeAudio = true;
+    settings.audioCodec = "aac";
+    settings.videoCq = 23;
+    bl::ui::ExportPlan plan;
+    plan.settings = settings;
+    auto build =
+        plan.build(snapshot.sequence(), sequenceDuration(snapshot.sequence()));
+    ASSERT_TRUE(build.ok()) << build.message();
+
+    bl::MediaDecodeSource::Spec plugins{
+        {std::make_pair(pluginDir(), bl::PluginOrigin::User)}};
+    bl::ui::ExportRunner::Input input{plan, snapshot, fx.mediaBin, plugins,
+                                      nullptr};
+    auto result = bl::ui::ExportRunner::run(input, nullptr);
+    ASSERT_TRUE(result.ok()) << "mkv+aac export failed: " << result.message();
+
+    EXPECT_TRUE(probeHasAudibleAudio(out))
+        << "mkv output should contain a decodable, non-silent audio stream";
+    std::remove(out.c_str());
+}
+
+// The container gate is still enforced for the two restricted containers, and
+// Matroska is not a wildcard for codecs the app does not offer.
+TEST(ExportRunner, MatroskaPlanAcceptsEveryOfferedAudioCodec) {
+    ExportFixture fx;
+    auto snapshot = fx.snapshot();
+    const std::string out = tempOutputPath("plangate", ".mkv");
+
+    for (const char* codec : {"aac", "flac", "opus", "vorbis"}) {
+        bl::ui::ExportSettings settings = fx.settings(out);
+        settings.container = "mkv";
+        settings.includeAudio = true;
+        settings.audioCodec = codec;
+        bl::ui::ExportPlan plan;
+        plan.settings = settings;
+        auto build = plan.build(snapshot.sequence(),
+                                sequenceDuration(snapshot.sequence()));
+        EXPECT_TRUE(build.ok()) << codec << " should be valid in mkv: "
+                                << build.message();
+    }
+
+    bl::ui::ExportSettings settings = fx.settings(out);
+    settings.container = "mkv";
+    settings.includeAudio = true;
+    settings.audioCodec = "not-a-codec";
+    bl::ui::ExportPlan plan;
+    plan.settings = settings;
+    EXPECT_FALSE(plan.build(snapshot.sequence(),
+                            sequenceDuration(snapshot.sequence()))
+                     .ok())
+        << "mkv must not accept an unknown audio codec";
+
+    settings = fx.settings(out);
+    settings.container = "webm";
+    settings.includeAudio = true;
+    settings.audioCodec = "aac";
+    plan.settings = settings;
+    EXPECT_FALSE(plan.build(snapshot.sequence(),
+                            sequenceDuration(snapshot.sequence()))
+                     .ok())
+        << "webm must still reject aac";
+
+    settings = fx.settings(tempOutputPath("plangate", ".avi"));
+    settings.container = "avi";
+    plan.settings = settings;
+    EXPECT_FALSE(plan.build(snapshot.sequence(),
+                            sequenceDuration(snapshot.sequence()))
+                     .ok())
+        << "an unsupported container must still be rejected";
+}
+
 TEST(ExportRunner, ExportsWebmWithOpusAudio) {
     AudioExportFixture fx;
     auto snapshot = fx.snapshot();
