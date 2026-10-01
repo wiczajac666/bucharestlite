@@ -187,11 +187,11 @@ void MainWindow::setupMeterEngine() {
 void MainWindow::syncMeterAnalysis() {
     if (!meterEngine_ || !controller_) return;
 
-    const auto& mediaBin = controller_->mediaBin();
-    const auto requested = [&mediaBin] {
+    const auto& bin = controller_->mediaBin();
+    const auto requested = [&bin] {
         std::vector<std::string> ids;
-        ids.reserve(mediaBin.size());
-        for (const auto& item : mediaBin) ids.push_back(item.id);
+        ids.reserve(bin.size());
+        for (const auto& item : bin) ids.push_back(item.id);
         return ids;
     }();
 
@@ -201,7 +201,7 @@ void MainWindow::syncMeterAnalysis() {
             meterEngine_->remove(id);
         }
     }
-    meterEngine_->analyzeMedia(mediaBin);
+    meterEngine_->analyzeMedia(bin);
 }
 
 void MainWindow::buildActions() {

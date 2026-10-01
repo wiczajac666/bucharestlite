@@ -267,12 +267,12 @@ Result<void> ExportRunner::run(Input input, Progress onProgress) {
     // the container's audio length matches the film. Missing or undecodable
     // clips contribute silence (same policy as the metering path).
     if (preset.audio_enabled) {
-        const bl::Rational fps{plan.fps.num,
-                               static_cast<int64_t>(plan.fps.den)};
+        const bl::Rational frameRate{plan.fps.num,
+                                     static_cast<int64_t>(plan.fps.den)};
         const double startSeconds =
-            static_cast<double>(plan.range.firstFrame) / fps.toDouble();
+            static_cast<double>(plan.range.firstFrame) / frameRate.toDouble();
         const double lengthSeconds =
-            static_cast<double>(plan.range.frameCount) / fps.toDouble();
+            static_cast<double>(plan.range.frameCount) / frameRate.toDouble();
 
         export_::TimelineMixdownOptions mix;
         mix.sampleRate = plan.sampleRate;

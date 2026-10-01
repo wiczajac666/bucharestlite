@@ -176,9 +176,10 @@ Layout:
   `project.extensions["timeline"]` so a `.blproj` round-trips both documents.
   Mutations (rename, media-bin add/remove) are pushed to the undo stack.
 - `app/theme_manager.hpp/.cpp` — dark/light stylesheet builder.
-- `panels/*` — dockable panels. A placeholder remains for UI-6..UI-7 (Mixer);
-  the Inspector (UI-5), Media Bin (UI-4), Timeline (UI-2) and Preview (UI-3)
-  are real implementations described below.
+- `panels/*` — dockable panels. The Inspector (UI-5), Media Bin (UI-4),
+  Timeline (UI-2), Preview (UI-3), Mixer + master fader (UI-7) and the Export/
+  batch dialogs (UI-6) are all real implementations described below; no
+  placeholder panels remain.
 
 GUI tests run headless through the offscreen QPA platform:
 
@@ -338,10 +339,14 @@ Stable identity: each `QListWidgetItem` stores the media-bin `id` in
 `removeFromMediaBin` rather than matching on the display name (names are not
 guaranteed unique).
 
-Decisions kept out of scope (documented): **media→timeline drag** is deferred —
-`TimelineView` has no drop handling yet, and wiring a `QDrag`/`QMimeData` + drop
-acceptance + `Track.insertClip` is a cross-panel feature. Metadata columns and
-thumbnails would require async `MediaSource::probe`, also deferred.
+Decisions kept out of scope (documented): drag-and-drop **from the media bin
+onto the timeline** ships (UI-10) — media rows carry their id via
+`application/x-bucharest-media`; dropping probes the source once for duration
+and stream kind, snaps the start, shows a placement ghost (green valid / red
+overlap), routes video/audio to matching lanes and commits one undoable "Add
+clip" command per drop through `TimelineEditController::addClip`. Metadata
+columns and thumbnails remain deferred — they would require async
+`MediaSource::probe`.
 
 The filter box is a plain substring match (case-insensitive) over the item
 name, implemented in the widget-free `media_bin_detail::matchesFilter` helper so
@@ -380,8 +385,10 @@ Sections built per clip, all driven through `ClipEditController` (thus all
 undoable):
 - **Name**: `QLineEdit` → `setClipName`.
 - **Source/Timeline readouts**: source in/out, timeline start, duration.
-- **Speed**: rate `num / den` spin boxes + reverse checkbox (display; retime
-  command not yet wired).
+- **Speed**: rate `num / den` spin boxes + reverse checkbox, committed by
+  `ClipEditController::setSpeed` as one undoable retime; the preview compositor
+  and audio mixdown share `Clip::sourceTimeAt` so sped-up or reversed clips play
+  source-truthfully on the timeline.
 - **Audio**: gain (dB → linear) + pan sliders, shown only for audio tracks
   (flat index >= `videoTracks.size()`).
 - **Label**: 8 checkable color buttons → `setClipColorLabel`.
@@ -394,7 +401,8 @@ undoable):
   (invalid/non-object input is ignored).
 
 MainWindow wiring: `inspectorPanel_` is constructed with `controller_` and the
-dock holds it; the placeholder count dropped 4→3 (Mixer only remains).
+dock holds it; the Mixer placeholder was replaced by the real `MixerPanel` +
+`MasterFaderPanel` (UI-7), so no panel placeholders remain.
 
 offscreen QPA coverage: `InspectorPanel.*` (10 tests: placeholder on /multi
 selection, name editing, audio gain/pan for audio clips, add/remove/undo
