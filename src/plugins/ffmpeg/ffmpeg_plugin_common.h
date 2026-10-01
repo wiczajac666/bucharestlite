@@ -80,6 +80,9 @@ int ffmpeg_plugin_encode(void* ctx, const uint8_t* in, size_t in_size,
                          const BlFrameMeta* meta);
 int ffmpeg_plugin_flush(void* ctx, uint8_t** out, size_t* out_size);
 void ffmpeg_plugin_cleanup(void* ctx);
+/* ABI v3 optional query: returns the encoder's codec private data, or NULL when
+ * the codec has none. Owned by the plugin, valid until cleanup. */
+const uint8_t* ffmpeg_plugin_get_extradata(void* ctx, size_t* out_size);
 
 #ifdef __cplusplus
 }

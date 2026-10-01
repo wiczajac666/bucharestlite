@@ -496,7 +496,8 @@ Header-only C ABI in `include/bl_plugins/` (`codec_plugin.h`, `plugin_manifest.h
 #include <stdint.h>
 #include <stddef.h>
 
-#define BL_PLUGIN_ABI_VERSION 2u   /* v2: added BL_FLAG_PASSTHROUGH + codec_name/extradata in BlCodecConfig */
+#define BL_PLUGIN_ABI_VERSION 3u   /* v3: added optional get_extradata() + BlCodecConfig::enc_flags
+                                      (v2 had added BL_FLAG_PASSTHROUGH + codec_name/extradata) */
 
 typedef enum BlCodecType { BL_CODEC_VIDEO = 0, BL_CODEC_AUDIO = 1 } BlCodecType;
 typedef enum BlCodecRole { BL_ROLE_DECODE = 1<<0, BL_ROLE_ENCODE = 1<<1 } BlCodecRole;
@@ -549,6 +550,14 @@ typedef struct BlCodecPlugin {
                    uint8_t** out, size_t* out_size, const BlFrameMeta* meta);
     int  (*flush)(void* ctx, uint8_t** out, size_t* out_size); /* drain delayed packets */
     void (*cleanup)(void* ctx);
+
+    /* Optional (v3+). Encoder codec private data — H.264 SPS/PPS, AAC
+     * AudioSpecificConfig — so the muxer can write a complete track header.
+     * NULL slot or NULL return means "none". Owned by the plugin, valid until
+     * cleanup(); the host copies. Requires BlCodecConfig::enc_flags to carry
+     * BL_ENCFLAG_GLOBAL_HEADER for encoders that would otherwise repeat their
+     * parameter sets in-band (libx264). */
+    const uint8_t* (*get_extradata)(void* ctx, size_t* out_size);
 } BlCodecPlugin;
 
 /* Exported entry point — the ONLY required symbol. */
@@ -746,9 +755,10 @@ No open questions remain for Gate 1.
 4. **Audio device IO via QtMultimedia** instead of adding RtAudio/JACK-first — fewer deps; JACK/WASAPI benefits arrive via OS stacks anyway.
 5. **Universal interchange formats pinned** (BGRA32 / f32-planar) — implied but unspecified previously.
 6. **Plugin ABI amended to v2 during build** (2026-08-25, CORE-3): added `BL_FLAG_PASSTHROUGH` and codec-parameter fields (`codec_name`, `extradata`, `extradata_size`) to `BlCodecConfig`. Reason: the passthrough pseudo-plugin needs a compressed-packet contract and the future muxer (EXP-2) needs codec parameters for copied streams. Version bumped 1→2 per §18 ABI policy; no external plugins existed yet.
-7. **Timeline mutations are direct methods** returning `bool`/`std::optional` rather than the §8.2 sketch of every mutation returning an `ICommand` factory. Reason: keeps bl_timeline pure-domain and unit-testable; undo is layered on top via `TimelineSnapshot` + CORE-4 commands at the UI layer (UI-2). Convention established in TL-1/TL-2, extended by TL-4 (2026-08-26).
-8. **Bezier keyframes evaluated as smoothstep** (`u²(3−2u)`) in v1; editable per-keyframe handles arrive with the RND-4/UI-4 curve editor. Also: keyframe times are clip-relative (survive move/retime), and fragment-producing edits (split / insert-split / overwrite remnants) partition keys half-open — a key exactly on the cut goes to the right fragment. Recorded 2026-08-26 (TL-6).
-9. **Transitions stored as edge-metadata** (`Clip.transitionOut`) rather than physically overlapping clips. Virtual overlap at render time (RND-5). Single-owner: only the left clip holds the transition spec; dual `transitionsIn/out` refs from §5.2 spec deferred to avoid desync. A cheap `pruneInvalidTransitions()` sweep is called after every mutating op and drops any transition whose adjacency or duration bound has been invalidated. Keyframe pruning is inherent to the half-open partition rules in #8; transition pruning is adjacency-aware. Recorded 2026-08-26 (TL-7).
+7. **Plugin ABI amended to v3** (Matroska P1): added the optional trailing `get_extradata()` vtable entry and `BlCodecConfig::enc_flags` (`BL_ENCFLAG_GLOBAL_HEADER`). Reason: encoded packets carry no codec private data, so `AVCodecParameters::extradata` was never populated and Matroska could not write `CodecPrivate`. The flag exists because libx264 only fills `extradata` when `AV_CODEC_FLAG_GLOBAL_HEADER` is set — MP4 export had worked only because `movenc` re-extracts SPS/PPS in-band, which `matroskaenc` does not. Bumping rather than extending silently keeps a stale module from being read past its struct end by the new trailing field. Version bumped 2→3 per §18 ABI policy.
+8. **Timeline mutations are direct methods** returning `bool`/`std::optional` rather than the §8.2 sketch of every mutation returning an `ICommand` factory. Reason: keeps bl_timeline pure-domain and unit-testable; undo is layered on top via `TimelineSnapshot` + CORE-4 commands at the UI layer (UI-2). Convention established in TL-1/TL-2, extended by TL-4 (2026-08-26).
+9. **Bezier keyframes evaluated as smoothstep** (`u²(3−2u)`) in v1; editable per-keyframe handles arrive with the RND-4/UI-4 curve editor. Also: keyframe times are clip-relative (survive move/retime), and fragment-producing edits (split / insert-split / overwrite remnants) partition keys half-open — a key exactly on the cut goes to the right fragment. Recorded 2026-08-26 (TL-6).
+10. **Transitions stored as edge-metadata** (`Clip.transitionOut`) rather than physically overlapping clips. Virtual overlap at render time (RND-5). Single-owner: only the left clip holds the transition spec; dual `transitionsIn/out` refs from §5.2 spec deferred to avoid desync. A cheap `pruneInvalidTransitions()` sweep is called after every mutating op and drops any transition whose adjacency or duration bound has been invalidated. Keyframe pruning is inherent to the half-open partition rules in #9; transition pruning is adjacency-aware. Recorded 2026-08-26 (TL-7).
 
 ## 20. Gate 1 Sign-Off
 

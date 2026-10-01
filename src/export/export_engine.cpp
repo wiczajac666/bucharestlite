@@ -144,6 +144,7 @@ Result<void> ExportEngine::initialize(const BlFormatPreset* preset) {
     video_cfg.video.fps = preset->video.fps;
     video_cfg.video.pixel_aspect = preset->video.pixel_aspect;
     video_cfg.video.pix_fmt = preset->video.pix_fmt;
+    video_cfg.enc_flags = BL_ENCFLAG_GLOBAL_HEADER;
 
     // Prepare audio codec config
     if (audio_encoder_) {
@@ -156,6 +157,7 @@ Result<void> ExportEngine::initialize(const BlFormatPreset* preset) {
         audio_cfg.audio.channels = preset->audio.channels;
         audio_cfg.audio.bits_per_sample = preset->audio.bits_per_sample;
         audio_cfg.audio.sample_fmt = preset->audio.sample_fmt;
+        audio_cfg.enc_flags = BL_ENCFLAG_GLOBAL_HEADER;
 
         int ret = audio_encoder_->init(&audio_ctx_, &audio_cfg);
         if (ret != BL_OK) {
@@ -190,6 +192,13 @@ Result<void> ExportEngine::initialize(const BlFormatPreset* preset) {
     }
     audio_granule_ = resolveAudioGranule(audio_encoder_);
 
+    // Every encoder this project ships publishes its parameter sets during
+    // init() once BL_ENCFLAG_GLOBAL_HEADER is set, so the muxer gets them via
+    // configureMuxer(). The poll after the first packet exists for encoders
+    // that publish later; see the header note on why that is too late for a
+    // muxer header but still worth caching.
+    refreshExtradata();
+
     preset_ = preset;
     quality_ = preset ? preset->quality : nullptr;
 
@@ -217,6 +226,8 @@ void ExportEngine::cleanup() {
     video_codec_id_ = 0;
     audio_codec_id_ = 0;
     audio_granule_ = 0;
+    video_extradata_.clear();
+    audio_extradata_.clear();
     params_.clear();
 }
 
@@ -231,6 +242,48 @@ void ExportEngine::configureMuxer(Muxer* muxer) const {
     muxer->setVideoCodecId(video_codec_id_);
     muxer->setAudioCodecId(audio_codec_id_);
     muxer->setAudioEnabled(audio_encoder_ != nullptr);
+    if (!video_extradata_.empty()) {
+        muxer->setVideoExtradata(video_extradata_.data(),
+                                 video_extradata_.size());
+    }
+    if (!audio_extradata_.empty()) {
+        muxer->setAudioExtradata(audio_extradata_.data(),
+                                 audio_extradata_.size());
+    }
+}
+
+void ExportEngine::refreshExtradata() {
+    // Copies whatever the encoder has published so far. The buffer belongs to
+    // the plugin (valid until its cleanup()), so it has to be copied out.
+    // Optional in ABI v3: older plugins leave the slot null.
+    if (video_encoder_ && video_encoder_->get_extradata && video_ctx_ &&
+        video_extradata_.empty()) {
+        size_t size = 0;
+        if (const uint8_t* data =
+                video_encoder_->get_extradata(video_ctx_, &size)) {
+            if (size > 0) {
+                video_extradata_.assign(data, data + size);
+            }
+        }
+    }
+    if (audio_encoder_ && audio_encoder_->get_extradata && audio_ctx_ &&
+        audio_extradata_.empty()) {
+        size_t size = 0;
+        if (const uint8_t* data =
+                audio_encoder_->get_extradata(audio_ctx_, &size)) {
+            if (size > 0) {
+                audio_extradata_.assign(data, data + size);
+            }
+        }
+    }
+}
+
+const std::vector<uint8_t>& ExportEngine::videoExtradata() const noexcept {
+    return video_extradata_;
+}
+
+const std::vector<uint8_t>& ExportEngine::audioExtradata() const noexcept {
+    return audio_extradata_;
 }
 
 Result<BlExportResult> ExportEngine::encodeFrameVideo(const uint8_t* frame_data,
@@ -268,6 +321,7 @@ Result<BlExportResult> ExportEngine::encodeFrameVideo(const uint8_t* frame_data,
             video_frame_count_++;
         }
         host_.free(out_pkt, host_.userdata);
+        refreshExtradata();
     }
 
     BlExportResult result = {};
@@ -313,6 +367,7 @@ Result<BlExportResult> ExportEngine::encodeFrameAudio(const uint8_t* audio_data,
             audio_sample_count_ += audio_granule_;
         }
         host_.free(out_pkt, host_.userdata);
+        refreshExtradata();
     }
 
     BlExportResult result = {};

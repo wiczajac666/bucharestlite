@@ -13,6 +13,7 @@ extern "C" {
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace bl {
 namespace export_ {
@@ -42,6 +43,14 @@ struct Muxer::Impl {
     bool audio_enabled = true;
     bool subtitles_enabled = false;
 
+    // Encoder codec private data (H.264 SPS/PPS, AAC AudioSpecificConfig, ...),
+    // owned here and handed to libavformat at open(). matroskaenc requires it
+    // in CodecPrivate up front; movenc and matroskaenc's WebM sibling can also
+    // recover it in-band, but supplying it is the documented contract and keeps
+    // the tracks self-describing.
+    std::vector<uint8_t> video_extradata;
+    std::vector<uint8_t> audio_extradata;
+
     // Nominal fps and the stream time base the container actually adopted
     // (captured after avformat_write_header, since muxers may resample the
     // per-track time scale on their own).
@@ -57,6 +66,14 @@ Muxer::~Muxer() { close(); delete impl_; }
 
 void Muxer::setVideoCodecId(int codec_id) {
     if (codec_id > 0) impl_->video_codec_id = codec_id;
+}
+
+void Muxer::setVideoExtradata(const uint8_t* data, size_t size) {
+    impl_->video_extradata.assign(data, data + size);
+}
+
+void Muxer::setAudioExtradata(const uint8_t* data, size_t size) {
+    impl_->audio_extradata.assign(data, data + size);
 }
 
 void Muxer::setAudioCodecId(int codec_id) {
@@ -106,6 +123,19 @@ Result<void> Muxer::open(const BlFormatPreset* preset, const char* output_path) 
     video_st->time_base = video_tb;
     video_st->avg_frame_rate = video_fps;
     video_st->r_frame_rate = video_fps;
+    if (!impl_->video_extradata.empty()) {
+        // avformat_free_context() releases codecpar->extradata with av_free, so
+        // the buffer has to come from the av* allocator and must be assigned
+        // rather than merely allocated.
+        video_par->extradata = static_cast<uint8_t*>(
+            av_mallocz(impl_->video_extradata.size()));
+        if (video_par->extradata) {
+            memcpy(video_par->extradata, impl_->video_extradata.data(),
+                   impl_->video_extradata.size());
+            video_par->extradata_size =
+                static_cast<int>(impl_->video_extradata.size());
+        }
+    }
 
     // Create audio stream (skipped for video-only exports).
     AVStream* audio_st = nullptr;
@@ -129,6 +159,16 @@ Result<void> Muxer::open(const BlFormatPreset* preset, const char* output_path) 
 
         // Set audio time base from sample rate
         audio_st->time_base = {1, static_cast<int>(preset->audio.sample_rate)};
+        if (!impl_->audio_extradata.empty()) {
+            audio_par->extradata = static_cast<uint8_t*>(
+                av_mallocz(impl_->audio_extradata.size()));
+            if (audio_par->extradata) {
+                memcpy(audio_par->extradata, impl_->audio_extradata.data(),
+                       impl_->audio_extradata.size());
+                audio_par->extradata_size =
+                    static_cast<int>(impl_->audio_extradata.size());
+            }
+        }
     }
 
     // Create subtitle stream (MP4 only: MOV_TEXT is not valid in other

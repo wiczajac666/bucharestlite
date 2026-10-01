@@ -21,6 +21,11 @@ public:
     // H.264 video / AAC audio). Set before open().
     void setVideoCodecId(int codec_id);
     void setAudioCodecId(int codec_id);
+    // Encoder codec private data (H.264 SPS/PPS, AAC AudioSpecificConfig, ...),
+    // copied and attached to the output track headers. Required by Matroska;
+    // set before open().
+    void setVideoExtradata(const uint8_t* data, size_t size);
+    void setAudioExtradata(const uint8_t* data, size_t size);
     // When false, no audio stream is created (default true).
     void setAudioEnabled(bool enabled);
     // When true and the output container is MP4, a MOV_TEXT subtitle stream is

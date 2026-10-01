@@ -4,6 +4,7 @@
 #include <bl_core/time.hpp>
 #include <bl_export/audio_pcm_source.hpp>
 #include <bl_export/export_types.h>
+#include <bl_export/muxer.h>
 #include <bl_plugins/codec_plugin.h>
 #include <bl_timeline/clip.hpp>
 #include <bl_timeline/timeline.hpp>
@@ -21,12 +22,19 @@
 
 #include <gtest/gtest.h>
 
+extern "C" {
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+}
+
 #include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <memory>
 #include <string>
+#include <vector>
 
 #ifndef BL_TEST_PLUGIN_DIR
 #define BL_TEST_PLUGIN_DIR "."
@@ -432,6 +440,236 @@ TEST(ExportRunner, ExportsWebmWithOpusAudio) {
 
     EXPECT_TRUE(probeHasAudibleAudio(out))
         << "webm output should contain a decodable, non-silent audio stream";
+    std::remove(out.c_str());
+}
+
+// ---------------------------------------------------------------------------
+// Encoder extradata cache (host side, ABI v3 get_extradata)
+// ---------------------------------------------------------------------------
+
+// Registers the staged codec plugins. The PluginHandle objects own the dlopen
+// handles, so `keep` must outlive `registry` -- a registry that outlives its
+// handles holds dangling plugin pointers.
+bool loadPluginRegistry(bl::CodecRegistry* registry,
+                        std::vector<std::unique_ptr<bl::PluginHandle>>* keep) {
+    bl::PluginLoader loader;
+    auto report = loader.scanDirectory(pluginDir(), bl::PluginOrigin::User);
+    if (!report.ok()) return false;
+    *keep = std::move(report.value().plugins);
+    bool found = false;
+    for (auto& handle : *keep) {
+        const BlCodecPlugin* plugin = handle->plugin();
+        if (!plugin) continue;
+        if (registry->registerPlugin(const_cast<BlCodecPlugin*>(plugin)).ok()) {
+            found = true;
+        }
+    }
+    return found;
+}
+
+BlHostApi makeHostApi() {
+    BlHostApi host{};
+    host.host_abi_version = BL_PLUGIN_ABI_VERSION;
+    host.alloc = [](size_t size, void*) { return std::malloc(size); };
+    host.free = [](void* ptr, void*) { std::free(ptr); };
+    return host;
+}
+
+// Drives ExportEngine directly (no muxer) to inspect the extradata cache.
+struct EngineHarness {
+    // Declaration order matters: the handles own the dlopen'd plugins, so they
+    // must outlive the registry that points into them and the engine that
+    // resolves codecs through it.
+    std::vector<std::unique_ptr<bl::PluginHandle>> handles;
+    bl::CodecRegistry registry;
+    BlHostApi host{makeHostApi()};
+    bl::export_::ExportEngine engine{registry, host};
+    bl::export_::BlFormatPreset preset{};
+
+    explicit EngineHarness(const char* videoCodec, const char* audioCodec) {
+        preset.name = "test";
+        preset.container = "mkv";
+        preset.video_codec = videoCodec;
+        preset.audio_codec = audioCodec;
+        preset.video.width = 64;
+        preset.video.height = 48;
+        preset.video.fps = {24, 1};
+        preset.video.pix_fmt = BL_PIXFMT_BGRA32;
+        preset.audio.sample_rate = 48000;
+        preset.audio.channels = 2;
+        preset.audio.sample_fmt = BL_SAMPFMT_F32_PLANAR;
+        preset.audio_enabled = audioCodec != nullptr;
+    }
+
+    // Returns false when the plugins could not be staged at all; callers that
+    // need a specific encoder check init() instead and skip.
+    bool loadPlugins() { return loadPluginRegistry(&registry, &handles); }
+    bool init() { return engine.initialize(&preset).ok(); }
+};
+
+TEST(ExportEngineExtradata, CachesVideoAndAudioExtradataAfterInitialize) {
+    EngineHarness fx("h264", "aac");
+    if (!fx.loadPlugins()) {
+        GTEST_SKIP() << "codec plugins not staged";
+    }
+    if (!fx.init()) {
+        GTEST_SKIP() << "h264/aac encoders unavailable in this build";
+    }
+
+    // Both encoders publish their parameter sets during avcodec_open2, so the
+    // cache is already filled right after initialize().
+    EXPECT_FALSE(fx.engine.videoExtradata().empty())
+        << "H.264 SPS/PPS must reach the host without a mux round-trip";
+    EXPECT_FALSE(fx.engine.audioExtradata().empty())
+        << "AAC AudioSpecificConfig must reach the host";
+    fx.engine.cleanup();
+}
+
+TEST(ExportEngineExtradata, CacheSurvivesCleanupAndIsNotReused) {
+    EngineHarness fx("h264", "aac");
+    if (!fx.loadPlugins()) {
+        GTEST_SKIP() << "codec plugins not staged";
+    }
+    if (!fx.init()) {
+        GTEST_SKIP() << "h264/aac encoders unavailable in this build";
+    }
+    const std::vector<uint8_t> before = fx.engine.videoExtradata();
+    ASSERT_FALSE(before.empty());
+    fx.engine.cleanup();
+
+    // cleanup() drops the cache along with the encoder contexts, so a stale
+    // buffer can never be handed to a muxer of a later run.
+    EXPECT_TRUE(fx.engine.videoExtradata().empty());
+    EXPECT_TRUE(fx.engine.audioExtradata().empty());
+}
+
+TEST(ExportEngineExtradata, StaysPopulatedAcrossTheFirstEncodedPacket) {
+    EngineHarness fx("h264", nullptr);
+    if (!fx.loadPlugins()) {
+        GTEST_SKIP() << "codec plugins not staged";
+    }
+    if (!fx.init()) {
+        GTEST_SKIP() << "h264 encoder unavailable in this build";
+    }
+    const std::vector<uint8_t> at_init = fx.engine.videoExtradata();
+    ASSERT_FALSE(at_init.empty())
+        << "BL_ENCFLAG_GLOBAL_HEADER must publish parameter sets at init(), "
+           "since the muxer header is written before the first packet";
+
+    // The re-poll after each packet must not disturb a cache that is already
+    // correct, nor overwrite it with something different.
+    std::vector<uint8_t> frame(64 * 48 * 4, 0x40);
+    for (int i = 0; i < 12; ++i) {
+        BlFrameMeta meta{};
+        meta.width = 64;
+        meta.height = 48;
+        meta.linesize = 64 * 4;
+        meta.keyframe = (i == 0) ? 1 : 0;
+        const auto r = fx.engine.encodeFrameVideo(frame.data(), &meta);
+        ASSERT_TRUE(r.ok()) << r.message();
+    }
+
+    EXPECT_EQ(fx.engine.videoExtradata(), at_init)
+        << "re-polling after packets must not change an already-captured buffer";
+    fx.engine.cleanup();
+}
+
+TEST(ExportEngineExtradata, AudioExtradataIsCachedForTheMuxer) {
+    EngineHarness fx("h264", "aac");
+    if (!fx.loadPlugins()) {
+        GTEST_SKIP() << "codec plugins not staged";
+    }
+    if (!fx.init()) {
+        GTEST_SKIP() << "h264/aac encoders unavailable in this build";
+    }
+
+    const std::vector<uint8_t> at_init = fx.engine.audioExtradata();
+    ASSERT_FALSE(at_init.empty())
+        << "the AudioSpecificConfig must be available before the muxer opens";
+
+    // Silence, but shaped as 8 stereo blocks of 1024 f32 samples. Left is
+    // never written to, so the "planar" layout below is really just zeros for
+    // channel 0 and a ramp for channel 1.
+    std::vector<float> planar(2048);
+    for (int i = 0; i < 8; ++i) {
+        for (int s = 0; s < 1024; ++s) {
+            planar[s] = 0.0f;
+            planar[1024 + s] = 0.01f * static_cast<float>(s);
+        }
+        BlFrameMeta meta{};
+        meta.sample_count = 1024;
+        meta.channels = 2;
+        const auto r = fx.engine.encodeFrameAudio(
+            reinterpret_cast<const uint8_t*>(planar.data()), &meta);
+        ASSERT_TRUE(r.ok()) << r.message();
+    }
+
+    EXPECT_EQ(fx.engine.audioExtradata(), at_init)
+        << "re-polling after packets must not change an already-captured buffer";
+    fx.engine.cleanup();
+}
+
+TEST(ExportEngineExtradata, CacheIsStableAcrossRepeatedReads) {
+    EngineHarness fx("h264", "aac");
+    if (!fx.loadPlugins()) {
+        GTEST_SKIP() << "codec plugins not staged";
+    }
+    if (!fx.init()) {
+        GTEST_SKIP() << "h264/aac encoders unavailable in this build";
+    }
+
+    const std::vector<uint8_t> first = fx.engine.videoExtradata();
+    const std::vector<uint8_t> second = fx.engine.videoExtradata();
+    EXPECT_EQ(first, second) << "reads must not re-copy or move the buffer";
+    EXPECT_FALSE(first.empty());
+    fx.engine.cleanup();
+}
+
+// The point of the plumbing: a Matroska track must come out self-describing.
+// matroskaenc writes CodecPrivate from codecpar->extradata at header time and
+// has no in-band fallback, so an H.264 track written without it is unusable.
+TEST(ExportEngineExtradata, MatroskaTrackCarriesCodecPrivate) {
+    EngineHarness fx("h264", nullptr);
+    if (!fx.loadPlugins()) {
+        GTEST_SKIP() << "codec plugins not staged";
+    }
+    if (!fx.init()) {
+        GTEST_SKIP() << "h264 encoder unavailable in this build";
+    }
+
+    const std::string out = tempOutputPath("extradata", ".mkv");
+    bl::export_::Muxer muxer;
+    fx.engine.configureMuxer(&muxer);
+    const auto opened = muxer.open(&fx.preset, out.c_str());
+    ASSERT_TRUE(opened.ok()) << opened.message();
+    fx.engine.setMuxer(&muxer);
+
+    std::vector<uint8_t> frame(64 * 48 * 4, 0x30);
+    for (int i = 0; i < 24; ++i) {
+        BlFrameMeta meta{};
+        meta.width = 64;
+        meta.height = 48;
+        meta.linesize = 64 * 4;
+        meta.pts = static_cast<uint64_t>(i);
+        meta.keyframe = (i == 0) ? 1 : 0;
+        const auto r = fx.engine.encodeFrameVideo(frame.data(), &meta);
+        ASSERT_TRUE(r.ok()) << r.message();
+    }
+    const auto finalized = fx.engine.finalize();
+    EXPECT_TRUE(finalized.ok()) << finalized.message();
+    fx.engine.setMuxer(nullptr);
+    muxer.close();
+    fx.engine.cleanup();
+
+    AVFormatContext* probe = nullptr;
+    ASSERT_EQ(avformat_open_input(&probe, out.c_str(), nullptr, nullptr), 0)
+        << "Matroska output must be openable: " << out;
+    avformat_find_stream_info(probe, nullptr);
+    ASSERT_GT(probe->nb_streams, 0u);
+    const AVCodecParameters* par = probe->streams[0]->codecpar;
+    EXPECT_GT(par->extradata_size, 0)
+        << "H.264 track has no CodecPrivate, so players cannot decode it";
+    avformat_close_input(&probe);
     std::remove(out.c_str());
 }
 

@@ -50,6 +50,10 @@ static int flush(void* ctx, uint8_t** out, size_t* out_size) {
 
 static void cleanup(void* ctx) { ffmpeg_plugin_cleanup(ctx); }
 
+static const uint8_t* get_extradata(void* ctx, size_t* out_size) {
+    return ffmpeg_plugin_get_extradata(ctx, out_size);
+}
+
 static BlCodecPlugin g_plugin = {
     BL_PLUGIN_ABI_VERSION,
     "ffmpeg.av1",
@@ -66,6 +70,7 @@ static BlCodecPlugin g_plugin = {
     encode,
     flush,
     cleanup,
+    get_extradata,
 };
 
 BlCodecPlugin* bl_get_codec_plugin(void) { return &g_plugin; }

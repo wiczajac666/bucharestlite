@@ -1,5 +1,22 @@
 # Bucharest Lite Changelog
 
+## Unreleased
+
+### Changed
+- **Plugin ABI v2 → v3**: `BlCodecPlugin` gains an optional trailing
+  `get_extradata()` entry and `BlCodecConfig` gains `enc_flags` with
+  `BL_ENCFLAG_GLOBAL_HEADER`. Encoded packets never carried codec private data,
+  so `AVCodecParameters::extradata` was left empty and containers that must
+  write a self-contained track header could not. The FFmpeg codec plugins now
+  publish H.264 SPS/PPS, AAC `AudioSpecificConfig` and the equivalents for the
+  other codecs, and `ExportEngine` hands them to the muxer. Plugins that do not
+  implement the query simply leave the slot `NULL`; the host handles that.
+  Note that `BL_ENCFLAG_GLOBAL_HEADER` is what makes H.264 publish at all —
+  libx264 otherwise repeats its parameter sets in-band on every keyframe. MP4
+  output is unaffected (it still carries a correct `avc1` configuration record);
+  this is the prerequisite for Matroska export, which is still not exposed in
+  the export UI.
+
 ## v1.1.1 — 2026-09-27
 
 ### Added

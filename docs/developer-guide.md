@@ -8,7 +8,7 @@ constraints that trip people up, and how the plugin test harness works.
 
 A codec plugin is a `dlopen`-loadable shared module that exports a single
 entry point `bl_get_codec_plugin()` returning a `BlCodecPlugin*`
-(`include/bl_plugins/codec_plugin.h`, ABI v2). Bucharest Lite ships nine
+(`include/bl_plugins/codec_plugin.h`, ABI v3). Bucharest Lite ships nine
 FFmpeg-backed codecs as modules:
 
 | Plugin | Codec | encoder | decoder | module output |
@@ -39,6 +39,20 @@ FFmpeg-backed codecs as modules:
 - **Encoder availability** is reported at `init()`; if the encoder cannot be
   opened the plugin still returns `BL_OK` from `init()` and `encode()` fails
   with `BL_ERR_ENCODE_FAILED` so callers can fall back.
+- **`get_extradata()` (ABI v3, optional)** returns the encoder's codec private
+  data — H.264 SPS/PPS, AAC `AudioSpecificConfig`, and so on. The buffer belongs
+  to the plugin and is valid until `cleanup()`, so the host must copy it. A
+  `NULL` slot means "this plugin has none" and the host must handle that; so must
+  a query that returns `NULL` because the encoder has not published anything
+  yet. To get H.264 to publish at all the host must set
+  `BlCodecConfig::enc_flags |= BL_ENCFLAG_GLOBAL_HEADER`: libx264 otherwise
+  repeats SPS/PPS in-band on every keyframe and leaves `extradata` empty. That
+  is fine for MP4 (movenc re-extracts them from the first packet) but Matroska
+  needs them in `CodecPrivate` up front. Note the timing: a muxer writes its
+  header in `open()`, so query right after `init()` — with
+  `BL_ENCFLAG_GLOBAL_HEADER` every encoder here publishes there, but an encoder
+  that only fills `extradata` alongside its first packet would need the header
+  write deferred instead.
 
 ## FFmpeg wrapper (`src/plugins/ffmpeg/ffmpeg_plugin_common.c`)
 
@@ -74,6 +88,13 @@ The wrapper:
    (audio) → `host->alloc`.
 4. Encode: converts the interchange frame to the encoder's native format and
    forwards to `avcodec_send_frame`.
+5. Captures `AVCodecContext::extradata` into a plugin-owned copy (after
+   `avcodec_open2`, and again after the first received packet, since a few
+   encoders only publish parameter sets once a packet exists) so
+   `get_extradata()` can hand them to the host. With `BL_ENCFLAG_GLOBAL_HEADER`
+   set, every encoder this project ships publishes at `avcodec_open2`, which is
+   what lets `ExportEngine::configureMuxer()` hand the bytes over before the
+   muxer writes its header.
 
 ### The audio encode feed (read this)
 

@@ -52,6 +52,11 @@ typedef struct BlFfmpegCtx {
     SwsContext* sws_enc;
     SwrContext* swr_enc;
 
+    /* Encoder codec private data (SPS/PPS, AudioSpecificConfig, ...), captured
+     * for get_extradata(). Owned by the plugin; freed in cleanup. */
+    uint8_t* enc_extradata;
+    size_t enc_extradata_size;
+
     /* audio encode: planar f32 slices not yet accepted by the encoder
      * (audio encoders may EAGAIN while their internal buffers fill). */
     uint8_t* pend_buf;
@@ -243,6 +248,22 @@ static int receive_decoded(BlFfmpegCtx* c, uint8_t** out, size_t* out_size,
     return deliver_frame(c, c->dec_frame, out, out_size, meta);
 }
 
+/* Copy the encoder's codec private data out of the AVCodecContext the first time
+ * it is available. avcodec_open2() populates it for most codecs, but a few only
+ * fill it in while producing the first packet, so this runs both after open and
+ * after each successfully received packet. Idempotent: once captured the buffer
+ * is kept (the parameter sets do not change mid-stream). */
+static void capture_encoder_extradata(BlFfmpegCtx* c) {
+    if (c->enc_extradata || !c->encoder) return;
+    if (!c->encoder->extradata || c->encoder->extradata_size <= 0) return;
+
+    uint8_t* copy = (uint8_t*)av_malloc((size_t)c->encoder->extradata_size);
+    if (!copy) return;
+    memcpy(copy, c->encoder->extradata, (size_t)c->encoder->extradata_size);
+    c->enc_extradata = copy;
+    c->enc_extradata_size = (size_t)c->encoder->extradata_size;
+}
+
 /* Receive one encoded packet; returns BL_OK (output filled or none yet),
  * BL_DECODE_NEED_MORE_INPUT (nothing available), or a negative error. */
 static int receive_encoded(BlFfmpegCtx* c, uint8_t** out, size_t* out_size) {
@@ -255,6 +276,11 @@ static int receive_encoded(BlFfmpegCtx* c, uint8_t** out, size_t* out_size) {
     }
     if (ret < 0) return BL_ERR_ENCODE_FAILED;
     if (c->dec_pkt->size <= 0) return BL_DECODE_NEED_MORE_INPUT;
+
+    /* Encoders that only publish their parameter sets alongside the first
+     * packet land here; with BL_ENCFLAG_GLOBAL_HEADER they published at open
+     * already and this is a no-op. */
+    capture_encoder_extradata(c);
 
     uint8_t* buf = host_alloc(c, (size_t)c->dec_pkt->size);
     if (!buf) return BL_ERR_OUT_OF_MEMORY;
@@ -433,10 +459,21 @@ static int open_encoder(BlFfmpegCtx* c, const BlCodecConfig* cfg) {
 
     apply_encode_options(c, av, cfg);
 
+    /* Encoders that repeat their parameter sets in-band (libx264 does unless
+     * told otherwise) never populate extradata, so a muxer that has to write a
+     * complete track header before any packet arrives gets nothing. Opt into
+     * the global-header form when the caller asks for it. */
+    if (cfg->enc_flags & BL_ENCFLAG_GLOBAL_HEADER) {
+        av->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    }
+
     if (avcodec_open2(av, codec, NULL) < 0) {
         avcodec_free_context(&c->encoder);
         return BL_ERR_ENCODE_FAILED;
     }
+    /* Most encoders publish their parameter sets here; the rest are picked up
+     * by capture_encoder_extradata() after the first encoded packet. */
+    capture_encoder_extradata(c);
     return BL_OK;
 }
 
@@ -802,6 +839,22 @@ int ffmpeg_plugin_flush(void* ctx_in, uint8_t** out, size_t* out_size) {
 }
 
 /* ------------------------------------------------------------------ */
+/* extradata                                                           */
+/* ------------------------------------------------------------------ */
+
+const uint8_t* ffmpeg_plugin_get_extradata(void* ctx_in, size_t* out_size) {
+    BlFfmpegCtx* c = (BlFfmpegCtx*)ctx_in;
+    if (out_size) *out_size = 0;
+    if (!c) return NULL;
+    /* Retry the capture: the host may ask between open and the first packet,
+     * or on a context that was never fed. */
+    capture_encoder_extradata(c);
+    if (!c->enc_extradata) return NULL;
+    if (out_size) *out_size = c->enc_extradata_size;
+    return c->enc_extradata;
+}
+
+/* ------------------------------------------------------------------ */
 /* cleanup                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -820,6 +873,7 @@ void ffmpeg_plugin_cleanup(void* ctx_in) {
     if (c->swr_dec) swr_free(&c->swr_dec);
     if (c->swr_enc) swr_free(&c->swr_enc);
     av_free(c->pend_buf);
+    av_free(c->enc_extradata);
 
     if (c->host && c->host->free) c->host->free(c, c->host->userdata);
 }

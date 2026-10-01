@@ -3,6 +3,7 @@
 #include <bl_core/demuxer.hpp>
 #include <bl_core/plugin_loader.hpp>
 #include <bl_plugins/codec_plugin.h>
+#include <plugins/passthrough/passthrough_plugin.h>
 #include "test_media_utils.hpp"
 #include "test_plugin_utils.hpp"
 
@@ -13,6 +14,7 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -890,6 +892,266 @@ TEST(CodecPluginTest, DecodesAnnexBFixtureThroughDecoderBridge) {
     EXPECT_GE(framesDecoded, 46);
     EXPECT_LE(framesDecoded, 50);
     EXPECT_GE(geometryOk, framesDecoded / 2);
+}
+
+// ---------------------------------------------------------------------------
+// Encoder extradata (ABI v3 get_extradata)
+// ---------------------------------------------------------------------------
+
+// Encodes n video frames and returns the extradata the plugin publishes.
+// `queryBeforeFirstPacket` samples straight after init() so the "only
+// available after the first packet" path can be asserted separately.
+// `globalHeader` controls the BL_ENCFLAG_GLOBAL_HEADER opt-in.
+std::vector<uint8_t> queryVideoExtradata(BlCodecPlugin* plugin,
+                                         const BlHostApi* host, int numFrames,
+                                         bool queryBeforeFirstPacket,
+                                         bool globalHeader = true) {
+    BlCodecConfig cfg{};
+    cfg.abi_version = BL_PLUGIN_ABI_VERSION;
+    cfg.video.width = 64;
+    cfg.video.height = 48;
+    cfg.video.fps.num = 24;
+    cfg.video.fps.den = 1;
+    cfg.video.pix_fmt = BL_PIXFMT_BGRA32;
+    if (globalHeader) cfg.enc_flags = BL_ENCFLAG_GLOBAL_HEADER;
+    putAllocator(&cfg, host);
+
+    void* ectx = nullptr;
+    if (plugin->init(&ectx, &cfg) != BL_OK) return {};
+
+    std::vector<uint8_t> result;
+    if (queryBeforeFirstPacket && plugin->get_extradata) {
+        size_t size = 0;
+        if (const uint8_t* data = plugin->get_extradata(ectx, &size)) {
+            result.assign(data, data + size);
+        }
+        if (!result.empty()) {
+            plugin->cleanup(ectx);
+            return result;
+        }
+    }
+
+    std::vector<uint8_t> frame;
+    for (int i = 0; i < numFrames; ++i) {
+        makeVideoFrame(&frame, 64, 48, i);
+        BlFrameMeta meta{};
+        meta.width = 64;
+        meta.height = 48;
+        meta.linesize = 64 * 4;
+        uint8_t* out = nullptr;
+        size_t outSize = 0;
+        plugin->encode(ectx, frame.data(), frame.size(), &out, &outSize,
+                       &meta);
+        if (out) host->free(out, host->userdata);
+    }
+    for (;;) {
+        uint8_t* out = nullptr;
+        size_t outSize = 0;
+        if (plugin->flush(ectx, &out, &outSize) != BL_OK || !out) break;
+        host->free(out, host->userdata);
+    }
+
+    if (plugin->get_extradata) {
+        size_t size = 0;
+        if (const uint8_t* data = plugin->get_extradata(ectx, &size)) {
+            result.assign(data, data + size);
+        }
+    }
+    plugin->cleanup(ectx);
+    return result;
+}
+
+TEST(CodecPluginTest, VideoEncoderExposesExtradata) {
+    LoadedPlugin lp = loadCodecPlugin("video", "h264");
+    if (!lp.plugin) {
+        GTEST_SKIP() << "h264 plugin not staged";
+    }
+    ASSERT_NE(lp.plugin->get_extradata, nullptr)
+        << "ABI v3 FFmpeg plugins must expose get_extradata";
+
+    BlHostApi hostApi = makeHostApi();
+    const std::vector<uint8_t> extra =
+        queryVideoExtradata(lp.plugin, &hostApi, 12, true);
+    // Without this the Matroska muxer writes an H.264 track with no
+    // CodecPrivate, which players reject or cannot seek.
+    EXPECT_FALSE(extra.empty());
+}
+
+TEST(CodecPluginTest, H264ExtradataLooksLikeAvcCDecoderConfiguration) {
+    LoadedPlugin lp = loadCodecPlugin("video", "h264");
+    if (!lp.plugin) {
+        GTEST_SKIP() << "h264 plugin not staged";
+    }
+
+    BlHostApi hostApi = makeHostApi();
+    const std::vector<uint8_t> extra =
+        queryVideoExtradata(lp.plugin, &hostApi, 12, true);
+    ASSERT_GE(extra.size(), 8u);
+    // Annex-B start code, then the SPS NAL (type 7).
+    EXPECT_EQ(extra[0], 0x00u);
+    EXPECT_EQ(extra[1], 0x00u);
+    EXPECT_EQ(extra[2], 0x00u);
+    EXPECT_EQ(extra[3], 0x01u);
+    EXPECT_EQ(extra[4] & 0x1Fu, 7u) << "expected an SPS NAL unit";
+    // The PPS must follow as a second start-code-prefixed NAL (type 8).
+    const uint8_t pps_start[] = {0x00, 0x00, 0x00, 0x01, 0x68};
+    const auto pps =
+        std::search(extra.begin(), extra.end(), pps_start, pps_start + 5);
+    ASSERT_NE(pps, extra.end()) << "expected a PPS NAL unit after the SPS";
+}
+
+TEST(CodecPluginTest, AudioEncoderExposesExtradata) {
+    LoadedPlugin lp = loadCodecPlugin("audio", "aac");
+    if (!lp.plugin) {
+        GTEST_SKIP() << "aac plugin not staged";
+    }
+    ASSERT_NE(lp.plugin->get_extradata, nullptr);
+
+    BlHostApi hostApi = makeHostApi();
+    BlCodecConfig cfg{};
+    cfg.abi_version = BL_PLUGIN_ABI_VERSION;
+    cfg.audio.sample_rate = 48000;
+    cfg.audio.channels = 2;
+    cfg.audio.sample_fmt = BL_SAMPFMT_F32_PLANAR;
+    cfg.enc_flags = BL_ENCFLAG_GLOBAL_HEADER;
+    putAllocator(&cfg, &hostApi);
+
+    void* ectx = nullptr;
+    const int rc = lp.plugin->init(&ectx, &cfg);
+    if (rc == BL_ERR_ENCODE_FAILED) {
+        GTEST_SKIP() << "aac encoder unavailable";
+    }
+    ASSERT_EQ(rc, BL_OK);
+
+    std::vector<float> left(1024, 0.0f);
+    std::vector<float> right(1024, 0.0f);
+    for (int i = 0; i < 8; ++i) {
+        BlFrameMeta meta{};
+        meta.sample_count = 1024;
+        meta.channels = 2;
+        uint8_t* out = nullptr;
+        size_t outSize = 0;
+        lp.plugin->encode(ectx,
+                          reinterpret_cast<const uint8_t*>(left.data()),
+                          left.size() * sizeof(float), &out, &outSize, &meta);
+        if (out) hostApi.free(out, hostApi.userdata);
+        lp.plugin->encode(ectx,
+                          reinterpret_cast<const uint8_t*>(right.data()),
+                          right.size() * sizeof(float), &out, &outSize, &meta);
+        if (out) hostApi.free(out, hostApi.userdata);
+    }
+    for (;;) {
+        uint8_t* out = nullptr;
+        size_t outSize = 0;
+        if (lp.plugin->flush(ectx, &out, &outSize) != BL_OK || !out) break;
+        hostApi.free(out, hostApi.userdata);
+    }
+
+    std::vector<uint8_t> extra;
+    if (lp.plugin->get_extradata) {
+        size_t size = 0;
+        if (const uint8_t* data = lp.plugin->get_extradata(ectx, &size)) {
+            extra.assign(data, data + size);
+        }
+    }
+    lp.plugin->cleanup(ectx);
+
+    // AudioSpecificConfig: object type, sample rate index, channel config.
+    EXPECT_FALSE(extra.empty());
+    ASSERT_GE(extra.size(), 2u);
+    EXPECT_EQ(extra[0] >> 3, 0x02u);  // AAC-LC object type
+}
+
+TEST(CodecPluginTest, ExtradataStaysEmptyWithoutGlobalHeaderOptIn) {
+    // libx264 repeats SPS/PPS in-band and never fills extradata unless asked.
+    // The default must therefore report "none" rather than fabricate a
+    // header, which is what keeps the old in-band-recovering muxers working.
+    LoadedPlugin lp = loadCodecPlugin("video", "h264");
+    if (!lp.plugin || !lp.plugin->get_extradata) {
+        GTEST_SKIP() << "h264 plugin not staged";
+    }
+
+    BlHostApi hostApi = makeHostApi();
+    const std::vector<uint8_t> extra =
+        queryVideoExtradata(lp.plugin, &hostApi, 12, false, false);
+    EXPECT_TRUE(extra.empty())
+        << "extradata must only be produced when BL_ENCFLAG_GLOBAL_HEADER is set";
+}
+
+TEST(CodecPluginTest, ExtradataQueryIsSafeOnNullAndEmptyContexts) {
+    LoadedPlugin lp = loadCodecPlugin("video", "h264");
+    if (!lp.plugin) {
+        GTEST_SKIP() << "h264 plugin not staged";
+    }
+    if (!lp.plugin->get_extradata) {
+        GTEST_SKIP() << "get_extradata not implemented";
+    }
+
+    // Null context must not crash and must report "no extradata".
+    size_t size = 12345;
+    EXPECT_EQ(lp.plugin->get_extradata(nullptr, &size), nullptr);
+    EXPECT_EQ(size, 0u);
+
+    // A NULL out_size must also be tolerated.
+    EXPECT_EQ(lp.plugin->get_extradata(nullptr, nullptr), nullptr);
+}
+
+TEST(CodecPluginTest, RepeatedExtradataQueriesAreStable) {
+    LoadedPlugin lp = loadCodecPlugin("video", "h264");
+    if (!lp.plugin || !lp.plugin->get_extradata) {
+        GTEST_SKIP() << "h264 plugin not staged";
+    }
+
+    BlHostApi hostApi = makeHostApi();
+    BlCodecConfig cfg{};
+    cfg.abi_version = BL_PLUGIN_ABI_VERSION;
+    cfg.video.width = 64;
+    cfg.video.height = 48;
+    cfg.video.fps.num = 24;
+    cfg.video.fps.den = 1;
+    cfg.video.pix_fmt = BL_PIXFMT_BGRA32;
+    cfg.enc_flags = BL_ENCFLAG_GLOBAL_HEADER;
+    putAllocator(&cfg, &hostApi);
+
+    void* ectx = nullptr;
+    ASSERT_EQ(lp.plugin->init(&ectx, &cfg), BL_OK);
+
+    std::vector<uint8_t> frame;
+    makeVideoFrame(&frame, 64, 48, 0);
+    BlFrameMeta meta{};
+    meta.width = 64;
+    meta.height = 48;
+    meta.linesize = 64 * 4;
+    uint8_t* out = nullptr;
+    size_t outSize = 0;
+    lp.plugin->encode(ectx, frame.data(), frame.size(), &out, &outSize, &meta);
+    if (out) hostApi.free(out, hostApi.userdata);
+
+    std::vector<uint8_t> first;
+    size_t firstSize = 0;
+    if (const uint8_t* data = lp.plugin->get_extradata(ectx, &firstSize)) {
+        first.assign(data, data + firstSize);
+    }
+    std::vector<uint8_t> second;
+    size_t secondSize = 0;
+    if (const uint8_t* data = lp.plugin->get_extradata(ectx, &secondSize)) {
+        second.assign(data, data + secondSize);
+    }
+    lp.plugin->cleanup(ectx);
+
+    // The capture happens once; repeated queries must not accumulate or move.
+    EXPECT_EQ(first, second);
+}
+
+TEST(CodecPluginTest, PassthroughPluginsReportNoExtradata) {
+    // Stream-copy pseudo-codecs have no parameter sets; the query must report
+    // "none" rather than fabricate one, and the optional slot may be null.
+    const BlCodecPlugin* video = bl_passthrough_video_plugin();
+    const BlCodecPlugin* audio = bl_passthrough_audio_plugin();
+    ASSERT_NE(video, nullptr);
+    ASSERT_NE(audio, nullptr);
+    EXPECT_EQ(video->get_extradata, nullptr);
+    EXPECT_EQ(audio->get_extradata, nullptr);
 }
 
 TEST(CodecPluginTest, RegistryIntegratesLoadedPlugins) {

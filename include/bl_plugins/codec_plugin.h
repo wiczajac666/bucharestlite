@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define BL_PLUGIN_ABI_VERSION 2u
+#define BL_PLUGIN_ABI_VERSION 3u
 
 typedef enum BlCodecType {
     BL_CODEC_VIDEO = 0,
@@ -114,6 +114,16 @@ typedef struct BlConfigEntry {
     BlValue value;
 } BlConfigEntry;
 
+/* Encoder behaviour flags for BlCodecConfig::enc_flags (ABI v3). */
+
+/* Ask the encoder to move its parameter sets out of the bitstream and into
+ * AVCodecContext::extradata, where get_extradata() can publish them. Encoders
+ * that repeat SPS/PPS in-band on every keyframe (libx264 without this flag)
+ * only expose extradata when it is set. Required by muxers that must write a
+ * self-contained track header up front -- Matroska CodecPrivate in particular
+ * -- and harmless for those that can recover the sets from the first packet. */
+#define BL_ENCFLAG_GLOBAL_HEADER (1u << 0)
+
 typedef struct BlCodecConfig {
     uint32_t abi_version;
     const BlConfigEntry* params;
@@ -123,6 +133,8 @@ typedef struct BlCodecConfig {
     BlVideoInfo video;
     BlAudioInfo audio;
     const BlHostApi* host;
+    /* Bitwise OR of BL_ENCFLAG_*; 0 keeps the encoder's default behaviour. */
+    uint32_t enc_flags;
 } BlCodecConfig;
 
 typedef struct BlFrameMeta {
@@ -149,6 +161,22 @@ typedef struct BlCodecPlugin {
                   uint8_t** out, size_t* out_size, const BlFrameMeta* meta);
     int (*flush)(void* ctx, uint8_t** out, size_t* out_size);
     void (*cleanup)(void* ctx);
+
+    /* Optional (ABI v3). Returns the encoder's codec private data -- SPS/PPS
+     * for H.264, AudioSpecificConfig for AAC, ... -- which the muxer needs to
+     * write a complete track header. matroskaenc's header write fails with
+     * AVERROR_INVALIDDATA for an H.264 track that has none, because it has no
+     * in-band fallback the way movenc does.
+     *
+     * Returns NULL and sets *out_size to 0 when the codec has no extradata
+     * (e.g. PCM-style or stream-copy pseudo-codecs) or when the encoder has not
+     * produced any yet. Some encoders only populate it after the first encoded
+     * packet, so a host that needs it for a container header should query right
+     * after init() and treat an empty result as "this muxer cannot use it".
+     *
+     * The returned buffer is owned by the plugin and stays valid until the
+     * matching cleanup(); the host must copy it and must not free it. */
+    const uint8_t* (*get_extradata)(void* ctx, size_t* out_size);
 } BlCodecPlugin;
 
 extern BlCodecPlugin* bl_get_codec_plugin(void);

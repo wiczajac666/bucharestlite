@@ -117,6 +117,22 @@ void setMuxer(Muxer* muxer);
     // muxer so its streams advertise the encoder actually in use.
     void configureMuxer(Muxer* muxer) const;
 
+    // Encoder codec private data (H.264 SPS/PPS, AAC AudioSpecificConfig, ...)
+    // captured from the plugins. Muxers need it to write complete track
+    // headers; matroskaenc in particular has no in-band fallback and fails its
+    // header write without it. Empty when the codec produces none (e.g.
+    // passthrough). Valid until cleanup().
+    //
+    // The cache is re-polled after every successful packet because a few
+    // encoders only publish parameter sets once one exists. That is too late
+    // for a muxer, which writes its header in open() -- so read these before
+    // open(), as configureMuxer() does. Every encoder this project ships
+    // publishes at init() with BL_ENCFLAG_GLOBAL_HEADER set, so the two are
+    // equivalent today; the poll is insurance for a future encoder that does
+    // not, and would then require deferring the header write.
+    const std::vector<uint8_t>& videoExtradata() const noexcept;
+    const std::vector<uint8_t>& audioExtradata() const noexcept;
+
     Result<BlExportResult> encodeFrameVideo(const uint8_t* frame_data,
                                                         BlFrameMeta* meta);
     Result<BlExportResult> encodeFrameAudio(const uint8_t* audio_data,
@@ -148,6 +164,13 @@ private:
     int audio_codec_id_ = 0;
     uint32_t audio_granule_ = 0;
     std::vector<BlConfigEntry> params_;
+
+    // Pulls whatever extradata the encoders have published so far. Safe to
+    // call repeatedly; the plugin only reports a buffer once.
+    void refreshExtradata();
+
+    std::vector<uint8_t> video_extradata_;
+    std::vector<uint8_t> audio_extradata_;
 };
 
 }  // namespace export_
