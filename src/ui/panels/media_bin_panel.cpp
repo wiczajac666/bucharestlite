@@ -2,14 +2,22 @@
 
 #include "app/project_controller.hpp"
 
+#include <QApplication>
 #include <QDrag>
 #include <QFileDialog>
+#include <QFontMetrics>
 #include <QHBoxLayout>
+#include <QIcon>
+#include <QImage>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMimeData>
+#include <QPainter>
+#include <QPixmap>
 #include <QPushButton>
+#include <QStyle>
+#include <QStyleOptionViewItem>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -38,7 +46,121 @@ namespace {
 
 constexpr int kIdRole = Qt::UserRole;
 
+// Neutral "media" glyph shown until a real first-frame thumbnail lands (and
+// permanently for audio-only entries). Built once and shared.
+QIcon placeholderIcon() {
+    static const QIcon icon = [] {
+        constexpr int w = 96;
+        constexpr int h = 54;
+        QPixmap pixmap(w, h);
+        pixmap.fill(Qt::transparent);
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(48, 48, 52));
+        painter.drawRoundedRect(QRectF(0, 0, w, h), 4, 4);
+
+        // Film-strip glyph: a lighter frame with two punched hole strips.
+        painter.setBrush(QColor(92, 94, 104));
+        painter.drawRoundedRect(QRectF(24, 13, 48, 28), 3, 3);
+        painter.setBrush(QColor(48, 48, 52));
+        painter.drawRect(QRectF(28, 17, 40, 5));
+        painter.drawRect(QRectF(28, 32, 40, 5));
+        painter.setBrush(QColor(92, 94, 104));
+        for (int i = 0; i < 5; ++i) {
+            painter.drawRect(QRectF(30 + i * 8, 18, 4, 3));
+            painter.drawRect(QRectF(30 + i * 8, 33, 4, 3));
+        }
+        painter.end();
+        return QIcon(pixmap);
+    }();
+    return icon;
+}
+
 } // namespace
+
+MediaBinItemDelegate::MediaBinItemDelegate(QObject* parent)
+    : QStyledItemDelegate(parent) {}
+
+void MediaBinItemDelegate::paint(QPainter* painter,
+                                 const QStyleOptionViewItem& option,
+                                 const QModelIndex& index) const {
+    QStyleOptionViewItem opt(option);
+    initStyleOption(&opt, index);
+
+    const QString name = opt.text;
+    const QString detail = index.data(kMediaBinDetailRole).toString();
+    const QIcon icon = opt.icon;
+
+    // Let the style paint the row background/selection/focus, but suppress its
+    // single-line text+icon pass so we can lay out two lines ourselves.
+    opt.text.clear();
+    opt.icon = QIcon();
+    opt.features &= ~QStyleOptionViewItem::HasDisplay;
+
+    QStyle* style = opt.widget ? opt.widget->style() : QApplication::style();
+    style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
+
+    const QRect content = opt.rect.adjusted(4, 2, -4, -2);
+    const QSize iconSize =
+        opt.decorationSize.isValid() ? opt.decorationSize : QSize(96, 54);
+
+    QRect iconRect(content.left(),
+                   content.top() + (content.height() - iconSize.height()) / 2,
+                   iconSize.width(), iconSize.height());
+    if (iconRect.bottom() > content.bottom()) {
+        iconRect.moveBottom(content.bottom());
+    }
+    if (!icon.isNull()) {
+        icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal);
+    }
+
+    const QRect textRect = content.adjusted(iconSize.width() + 8, 0, 0, 0);
+    const QPalette::ColorRole textRole = (opt.state & QStyle::State_Selected)
+                                             ? QPalette::HighlightedText
+                                             : QPalette::Text;
+
+    painter->save();
+    QFont font = opt.font;
+    painter->setFont(font);
+    const QFontMetrics metrics(font);
+    const int lineHeight = metrics.height();
+
+    const QRect nameRect(textRect.left(), textRect.top(), textRect.width(),
+                         lineHeight);
+    painter->setPen(opt.palette.color(textRole));
+    painter->drawText(nameRect, Qt::AlignVCenter | Qt::AlignLeft,
+                      metrics.elidedText(name, Qt::ElideMiddle,
+                                         textRect.width()));
+
+    if (!detail.isEmpty()) {
+        if (font.pointSizeF() > 0.0) {
+            font.setPointSizeF(font.pointSizeF() * 0.88);
+        } else if (font.pixelSize() > 1) {
+            font.setPixelSize(std::max(1, font.pixelSize() * 8 / 10));
+        }
+        painter->setFont(font);
+        const QFontMetrics detailMetrics(font);
+        QColor colour = opt.palette.color(textRole);
+        colour.setAlphaF(0.72);
+        painter->setPen(colour);
+        const QRect detailRect(textRect.left(), nameRect.bottom(),
+                               textRect.width(), lineHeight);
+        painter->drawText(detailRect, Qt::AlignVCenter | Qt::AlignLeft,
+                          detailMetrics.elidedText(detail, Qt::ElideMiddle,
+                                                   textRect.width()));
+    }
+    painter->restore();
+}
+
+QSize MediaBinItemDelegate::sizeHint(const QStyleOptionViewItem& option,
+                                     const QModelIndex& index) const {
+    QSize size = QStyledItemDelegate::sizeHint(option, index);
+    const QSize iconSize =
+        option.decorationSize.isValid() ? option.decorationSize : QSize(96, 54);
+    size.setHeight(std::max(size.height(), iconSize.height() + 6));
+    return size;
+}
 
 MediaBinList::MediaBinList(QWidget* parent) : QListWidget(parent) {}
 
@@ -68,6 +190,8 @@ MediaBinPanel::MediaBinPanel(ProjectController* controller, QWidget* parent)
     list_->setAlternatingRowColors(true);
     list_->setDragDropMode(QAbstractItemView::DragOnly);
     list_->setContextMenuPolicy(Qt::CustomContextMenu);
+    list_->setIconSize(QSize(96, 54));
+    list_->setItemDelegate(new MediaBinItemDelegate(list_));
 
     filter_ = new QLineEdit(this);
     filter_->setObjectName(QStringLiteral("mediaBinFilter"));
@@ -132,8 +256,26 @@ std::string MediaBinPanel::selectedId() const {
     return item ? item->data(kIdRole).toString().toStdString() : std::string();
 }
 
+void MediaBinPanel::applyMediaInfo(const std::string& id,
+                                   const QImage& thumbnail,
+                                   const QString& detail) {
+    auto it = itemsById_.find(id);
+    if (it == itemsById_.end() || !it->second) {
+        return;
+    }
+    QListWidgetItem* item = it->second;
+    if (!thumbnail.isNull()) {
+        item->setIcon(QIcon(QPixmap::fromImage(thumbnail)));
+    } else if (item->icon().isNull()) {
+        item->setIcon(placeholderIcon());
+    }
+    item->setData(kMediaBinDetailRole, detail);
+    list_->viewport()->update();
+}
+
 void MediaBinPanel::reload() {
     list_->clear();
+    itemsById_.clear();
     if (!controller_) {
         return;
     }
@@ -144,6 +286,9 @@ void MediaBinPanel::reload() {
         }
         auto* item = new QListWidgetItem(QString::fromStdString(entry.name), list_);
         item->setData(kIdRole, QString::fromStdString(entry.id));
+        item->setIcon(placeholderIcon());
+        item->setToolTip(QString::fromStdString(entry.path));
+        itemsById_[entry.id] = item;
     }
     onSelectionChanged();
 }

@@ -59,7 +59,10 @@ endif()
 
 function(bl_enable_warnings target)
     if(MSVC)
-        target_compile_options(${target} PRIVATE /W4 /WX /permissive-)
+        # Source files are UTF-8; pin the source/execution charset so non-ASCII
+        # string literals compile identically on every host (and C4819 stays
+        # off under /WX).
+        target_compile_options(${target} PRIVATE /W4 /WX /permissive- /utf-8)
     else()
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()

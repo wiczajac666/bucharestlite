@@ -1,0 +1,83 @@
+name: CI
+
+# Build + test on Linux and Windows. Packaging (deb/Flatpak/RPM/NSIS/portable
+# zip) is produced out-of-band on the release VMs, not here.
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux (ubuntu-latest, release)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config \
+            qt6-base-dev libgl1-mesa-dev libxkbcommon-dev \
+            ffmpeg \
+            libavformat-dev libavcodec-dev libavutil-dev \
+            libswscale-dev libswresample-dev
+
+      # gtest + nlohmann_json are resolved by CMake (FetchContent / vendored
+      # third_party), so no extra packages are needed for the test framework.
+      - name: Configure
+        run: cmake --preset linux-release
+
+      - name: Build
+        run: cmake --build --preset linux-release --parallel
+
+      # UI tests run headless; the offscreen platform plugin ships with qtbase.
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --preset linux-release
+
+  windows:
+    name: Windows (windows-latest, release)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt 6.8
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: win64_msvc2022_64
+
+      # Gyan's *shared* build provides the import libs, headers and runtime
+      # DLLs that FindFFmpeg.cmake expects (include/ + lib/ + bin/).
+      - name: Install FFmpeg (shared)
+        shell: pwsh
+        run: |
+          $url = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z'
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\ffmpeg.7z"
+          & "$env:ProgramFiles\7-Zip\7z.exe" x "$env:RUNNER_TEMP\ffmpeg.7z" `
+            -o"$env:RUNNER_TEMP\ffmpeg" -y | Out-Null
+          $root = (Get-ChildItem "$env:RUNNER_TEMP\ffmpeg" -Directory |
+                   Select-Object -First 1).FullName
+          "FFMPEG_ROOT=$root" >> $env:GITHUB_ENV
+          "$root\bin" >> $env:GITHUB_PATH
+          # The windows presets read $env{QT_ROOT}; pin it to the action's root.
+          "QT_ROOT=$env:QT_ROOT_DIR" >> $env:GITHUB_ENV
+
+      - name: Configure
+        run: cmake --preset windows-release
+
+      - name: Build
+        run: cmake --build --preset windows-release --parallel
+
+      # The windows test preset already sets QT_QPA_PLATFORM=offscreen.
+      - name: Test
+        run: ctest --preset windows-release

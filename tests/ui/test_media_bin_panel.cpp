@@ -1,8 +1,12 @@
 #include <QAbstractItemView>
 #include <QApplication>
+#include <QColor>
+#include <QIcon>
+#include <QImage>
 #include <QListWidget>
 #include <QLineEdit>
 #include <QMimeData>
+#include <QPixmap>
 #include <QPushButton>
 
 #include <app/project_controller.hpp>
@@ -178,6 +182,91 @@ TEST(MediaBinPanel, MatchesFilterHelper) {
     EXPECT_TRUE(matchesFilter("vlog_final.mp4", "FINAL"));
     EXPECT_TRUE(matchesFilter("vlog_final.mp4", "final.mp4"));
     EXPECT_FALSE(matchesFilter("vlog_final.mp4", "title"));
+}
+
+TEST(MediaBinPanel, RowsCarryPlaceholderIconAndTooltipBeforeMetadata) {
+    Fixture f;
+    addMedia(f, QStringLiteral("/media/clip_a.mp4"));
+
+    auto* list = f.panel.findChild<QListWidget*>(QStringLiteral("mediaBinList"));
+    ASSERT_NE(list, nullptr);
+    ASSERT_EQ(list->count(), 1);
+
+    QListWidgetItem* item = list->item(0);
+    EXPECT_FALSE(item->icon().isNull());  // neutral placeholder
+    EXPECT_TRUE(item->data(bl::ui::kMediaBinDetailRole).toString().isEmpty());
+    EXPECT_EQ(item->toolTip(), QStringLiteral("/media/clip_a.mp4"));
+}
+
+TEST(MediaBinPanel, ApplyMediaInfoSetsThumbnailAndDetailLine) {
+    Fixture f;
+    addMedia(f, QStringLiteral("/media/clip_a.mp4"));
+
+    auto* list = f.panel.findChild<QListWidget*>(QStringLiteral("mediaBinList"));
+    ASSERT_NE(list, nullptr);
+    ASSERT_EQ(list->count(), 1);
+
+    const std::string id = f.controller.mediaBin()[0].id;
+    QImage thumbnail(4, 3, QImage::Format_RGB32);
+    thumbnail.fill(Qt::red);
+    f.panel.applyMediaInfo(id, thumbnail,
+                           QStringLiteral("00:00:01 · 320×240 · h264"));
+
+    QListWidgetItem* item = list->item(0);
+    // The display text stays the bare name (filter/drag contract unchanged).
+    EXPECT_EQ(item->text(), QStringLiteral("clip_a.mp4"));
+    EXPECT_EQ(item->data(bl::ui::kMediaBinDetailRole).toString(),
+              QStringLiteral("00:00:01 · 320×240 · h264"));
+    ASSERT_FALSE(item->icon().isNull());
+    const QColor sampled =
+        item->icon().pixmap(QSize(4, 3)).toImage().pixelColor(1, 1);
+    EXPECT_GT(sampled.red(), 200);  // the red thumbnail replaced the grey glyph
+}
+
+TEST(MediaBinPanel, NullThumbnailKeepsPlaceholderButShowsDetail) {
+    Fixture f;
+    addMedia(f, QStringLiteral("/media/song.wav"));
+
+    const std::string id = f.controller.mediaBin()[0].id;
+    const QIcon placeholderBefore =
+        f.panel.findChild<QListWidget*>(QStringLiteral("mediaBinList"))
+            ->item(0)
+            ->icon();
+
+    // Audio-only entries arrive with a null image but real metadata.
+    f.panel.applyMediaInfo(id, QImage(),
+                           QStringLiteral("00:00:02 · 44.1 kHz · stereo · flac"));
+
+    auto* list = f.panel.findChild<QListWidget*>(QStringLiteral("mediaBinList"));
+    ASSERT_NE(list, nullptr);
+    QListWidgetItem* item = list->item(0);
+    EXPECT_FALSE(item->icon().isNull());
+    EXPECT_EQ(item->data(bl::ui::kMediaBinDetailRole).toString(),
+              QStringLiteral("00:00:02 · 44.1 kHz · stereo · flac"));
+    // Still the neutral placeholder, not a decoded frame.
+    EXPECT_EQ(item->icon().pixmap(QSize(96, 54)).toImage(),
+              placeholderBefore.pixmap(QSize(96, 54)).toImage());
+}
+
+TEST(MediaBinPanel, FilterMatchesNameOnlyNotDetailMetadata) {
+    Fixture f;
+    addMedia(f, QStringLiteral("/media/clip_a.mp4"));
+
+    const std::string id = f.controller.mediaBin()[0].id;
+    f.panel.applyMediaInfo(id, QImage(),
+                           QStringLiteral("00:00:01 · 320×240 · h264"));
+
+    auto* filter = f.panel.findChild<QLineEdit*>(QStringLiteral("mediaBinFilter"));
+    ASSERT_NE(filter, nullptr);
+
+    // Detail-line text must not leak into the name filter.
+    filter->setText(QStringLiteral("h264"));
+    QApplication::processEvents();
+    EXPECT_EQ(f.panel.visibleItemCount(), 0);
+
+    filter->setText(QStringLiteral("clip"));
+    QApplication::processEvents();
+    EXPECT_EQ(f.panel.visibleItemCount(), 1);
 }
 
 } // namespace

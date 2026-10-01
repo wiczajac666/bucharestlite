@@ -339,14 +339,24 @@ Stable identity: each `QListWidgetItem` stores the media-bin `id` in
 `removeFromMediaBin` rather than matching on the display name (names are not
 guaranteed unique).
 
+Rows also show a first-frame thumbnail and a metadata detail line. Both are
+produced off the GUI thread by `MediaBinThumbnailEngine` (`bl_render`), a
+Qt-free `JobManager`-backed cache that mirrors `AudioMeterEngine`:
+`readThumbnail()` opens the file through the codec-plugin registry, decodes the
+first video frame and box-filters it down to at most 96px wide, while
+`describeMedia(StreamInfo)` formats the probed duration/resolution/codec.
+`MainWindow` owns the engine, marshals `onReady` back onto the GUI thread and
+pushes results into the panel via `MediaBinPanel::applyMediaInfo()`. The row's
+DisplayRole stays the bare name — the detail line lives in
+`kMediaBinDetailRole` and is drawn by `MediaBinItemDelegate` — so filtering and
+drag behaviour are unchanged.
+
 Decisions kept out of scope (documented): drag-and-drop **from the media bin
 onto the timeline** ships (UI-10) — media rows carry their id via
 `application/x-bucharest-media`; dropping probes the source once for duration
 and stream kind, snaps the start, shows a placement ghost (green valid / red
 overlap), routes video/audio to matching lanes and commits one undoable "Add
-clip" command per drop through `TimelineEditController::addClip`. Metadata
-columns and thumbnails remain deferred — they would require async
-`MediaSource::probe`.
+clip" command per drop through `TimelineEditController::addClip`.
 
 The filter box is a plain substring match (case-insensitive) over the item
 name, implemented in the widget-free `media_bin_detail::matchesFilter` helper so

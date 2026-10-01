@@ -4,6 +4,8 @@ add_library(bl_render STATIC
     compositor.cpp
     media_decode_source.cpp
     preview_engine.cpp
+    thumbnail.cpp
+    media_bin_thumbnail_engine.cpp
 )
 
 add_library(bl::render ALIAS bl_render)

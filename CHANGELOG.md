@@ -113,6 +113,12 @@
 ## v1.0.0 — 2026-08-25
 
 ### Initial Release
+> **Accuracy note:** a number of entries below were aspirational at release and
+> are **not** shipped in the codebase (which is true of every release through
+> 1.1.1): GPU-accelerated OpenGL compositing, proxy editing, SRT/ASS subtitle
+> import & burn-in, color wheels/curves, title animation, image sequences, and
+> scopes. The v1.1.1 section above is accurate; see `README.md` (Features) and
+> `docs/user-guide.md` (Known limitations) for the shipped-vs-planned split.
 - All 20 essential features implemented
 - 732 tests passing (308 core + 424 UI) across debug/release/TSAN builds
 - Full plugin ABI system (v2) with FFmpeg codec plugins

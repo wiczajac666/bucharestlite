@@ -13,6 +13,7 @@
 #include <QDockWidget>
 #include <QEvent>
 #include <QFileDialog>
+#include <QImage>
 #include <QInputDialog>
 #include <QKeySequence>
 #include <QLabel>
@@ -83,6 +84,11 @@ MainWindow::~MainWindow() {
         meterEngine_->onAnalyzed = nullptr;
         meterEngine_->clear();
     }
+    if (thumbnailEngine_) {
+        // Stop callbacks and cancel in-flight decodes before panels tear down.
+        thumbnailEngine_->onReady = nullptr;
+        thumbnailEngine_->clear();
+    }
     if (exportWorker_) {
         exportWorker_->cancel();
         exportThread_->quit();
@@ -150,6 +156,7 @@ void MainWindow::buildDocks() {
     });
 
     setupMeterEngine();
+    setupThumbnailEngine();
 }
 
 void MainWindow::setupMeterEngine() {
@@ -202,6 +209,68 @@ void MainWindow::syncMeterAnalysis() {
         }
     }
     meterEngine_->analyzeMedia(bin);
+}
+
+void MainWindow::setupThumbnailEngine() {
+    thumbnailEngine_ = std::make_unique<bl::MediaBinThumbnailEngine>();
+    thumbnailEngine_->configure(previewPanel_->pluginDirs());
+    thumbnailEngine_->onReady = [this](const std::string& mediaItemId) {
+        // Decoding settled on a worker thread; marshal the row update onto the
+        // panel objects' thread (the GUI thread).
+        QMetaObject::invokeMethod(this,
+                                  [this, mediaItemId] { applyThumbnail(mediaItemId); },
+                                  Qt::QueuedConnection);
+    };
+
+    syncThumbnailJobs();
+}
+
+void MainWindow::syncThumbnailJobs() {
+    if (!thumbnailEngine_ || !controller_ || !mediaBinPanel_) return;
+
+    const auto& bin = controller_->mediaBin();
+    const auto requested = [&bin] {
+        std::vector<std::string> ids;
+        ids.reserve(bin.size());
+        for (const auto& item : bin) ids.push_back(item.id);
+        return ids;
+    }();
+
+    for (const auto& id : thumbnailEngine_->mediaIds()) {
+        if (std::find(requested.begin(), requested.end(), id) ==
+            requested.end()) {
+            thumbnailEngine_->remove(id);
+        }
+    }
+    thumbnailEngine_->requestMedia(bin);
+
+    // reload() has already rebuilt the rows (it is connected to the same
+    // signal); re-apply anything cached so a reload does not blank icons.
+    for (const auto& id : requested) {
+        if (thumbnailEngine_->thumbnailFor(id)) {
+            applyThumbnail(id);
+        }
+    }
+}
+
+void MainWindow::applyThumbnail(const std::string& mediaItemId) {
+    if (!thumbnailEngine_ || !mediaBinPanel_) return;
+    const auto thumbnail = thumbnailEngine_->thumbnailFor(mediaItemId);
+    if (!thumbnail) return;
+
+    QImage image;
+    if (thumbnail->hasPixels()) {
+        const QImage raw(reinterpret_cast<const uchar*>(thumbnail->pixels.data()),
+                         static_cast<int>(thumbnail->width),
+                         static_cast<int>(thumbnail->height),
+                         static_cast<int>(thumbnail->linesize),
+                         QImage::Format_RGB32);
+        image = raw.copy();
+    }
+
+    mediaBinPanel_->applyMediaInfo(
+        mediaItemId, image,
+        QString::fromStdString(bl::describeMedia(thumbnail->info)));
 }
 
 void MainWindow::buildActions() {
@@ -463,6 +532,7 @@ void MainWindow::startExport() {
 void MainWindow::connectController() {
     connect(controller_, &ProjectController::projectChanged, this, &MainWindow::updateTitle);
     connect(controller_, &ProjectController::projectChanged, this, &MainWindow::syncMeterAnalysis);
+    connect(controller_, &ProjectController::projectChanged, this, &MainWindow::syncThumbnailJobs);
     connect(controller_, &ProjectController::dirtyChanged, this, &MainWindow::updateTitle);
     connect(controller_, &ProjectController::undoChanged, this, [this] {
         undoAction_->setEnabled(controller_->canUndo());

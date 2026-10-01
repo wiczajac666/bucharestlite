@@ -15,11 +15,13 @@
 #include "shortcuts/action_registry.hpp"
 
 #include <bl_audio/audio_meter_engine.hpp>
+#include <bl_render/media_bin_thumbnail_engine.hpp>
 
 #include <QMainWindow>
 
 #include <functional>
 #include <memory>
+#include <string>
 
 class QSettings;
 class QThread;
@@ -74,6 +76,10 @@ private:
     void setupMeterEngine();
     void syncMeterAnalysis();
 
+    void setupThumbnailEngine();
+    void syncThumbnailJobs();
+    void applyThumbnail(const std::string& mediaItemId);
+
     void startExport();
     void startBatchExport();
     void ensureExportWorker();
@@ -117,6 +123,7 @@ private:
     bool exportBusy_{false};
 
     std::unique_ptr<bl::AudioMeterEngine> meterEngine_;
+    std::unique_ptr<bl::MediaBinThumbnailEngine> thumbnailEngine_;
 };
 
 } // namespace bl::ui

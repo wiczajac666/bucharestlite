@@ -2,24 +2,26 @@
 
 ![Bucharest Lite Logo](https://raw.githubusercontent.com/your-repo/bucharest-lite/main/docs/images/logo.png 200x200)
 
-A cross-platform, open-source (GPL-3.0) non-linear video editor built with **Qt6/C++17**, **FFmpeg**, and **OpenGL** rendering.
+A cross-platform, open-source (GPL-3.0) non-linear video editor built with **Qt6/C++17** and **FFmpeg** (CPU compositor; GPU-accelerated rendering is planned, not yet shipped).
 
 ## 🚀 Features
 
-Bucharest Lite implements 20 essential NLE features as a shippable release:
+Bucharest Lite implements the features below. Items marked **planned** are
+documented gaps, not shipped functionality (see `docs/user-guide.md` →
+"Known limitations").
 
-| Category | Features |
+| Category | Features (v1.1.1) |
 |---|---|
-| **Core Editing** | Multi-track timeline, drag-and-drop import, trimming, splitting, ripple editing, 3-point editing, snapping, zoom/pan, frame-accurate step editing, speed/time remapping, keyframeable properties |
-| **Transitions & Effects** | Fade, wipe, dissolve, crossfade, keyframeable effects (color, blur, sharpen, distortion), video filters (brightness, contrast, gamma, hue, saturation, greyscale, chroma key), picture-in-picture |
-| **Compositing** | Layer-based alpha blending, chroma key, masking, overlays, watermarks |
-| **Titles & Text** | Built-in title editor, title templates (scrolling credits, lower thirds), SVG vector titles, animated titles (scroll, typewriter), subtitle support (SRT, ASS, WebVTT) |
-| **Audio** | Multi-track mixing, waveform display, per-channel control, audio level meters, audio syncing tools |
-| **Color Grading** | Color correction (wheels, curves), LUT support (3D LUT .cube), node-based grading (v2) |
-| **Media & Codecs** | FFmpeg-based format support (H.264, VP9, AV1, Theora, MPEG-4), image sequence import, audio codecs (MP3, WAV, AAC, FLAC, OGG, Opus), proxy editing, format detection and metadata |
-| **Export & Rendering** | Custom export profiles, batch rendering, presets (YouTube, Vimeo, DVD, Blu-ray, mobile), quality measurement (PSNR, SSIM), stream/encode to IP |
-| **UI & Workflow** | Customizable interface, keyboard shortcuts (remappable), multi-monitor support, dark/light themes, unlimited undo/redo, media bin search/filter, project templates |
-| **Advanced** | Multi-cam editing (v2), motion tracking (v2), video stabilization (v2), 8K support (v2), online resource integration (v2), plugin architecture (frei0r, OpenFX, LADSPA), portable/standalone builds |
+| **Core Editing** | Multi-track timeline ✅, drag-and-drop import (media bin → timeline) ✅, trimming/splitting/ripple editing ✅, 3-point editing ✅, snapping ✅, zoom ✅, frame-accurate step editing ✅, speed/time remapping + reverse ✅, keyframeable properties ✅ |
+| **Transitions & Effects** | Keyframeable video effects — color correction, box blur, chroma key, sharpen, hue/saturation, levels/crop, greyscale, transform ✅; effect params as sliders ✅; transition *model* (fade/wipe/dissolve edge-metadata) ✅, transition rendering in preview/export *planned* |
+| **Compositing** | Layer-based alpha blending (premultiplied) ✅, chroma key ✅, picture-in-picture via opacity/position keyframes ✅; masking/roto *planned* |
+| **Titles & Text** | Per-clip soft subtitles (Inspector text → MOV_TEXT stream in MP4) ✅; SRT/ASS/WebVTT import *planned*; title editor, scrolling credits, lower thirds, SVG/animated titles *planned* |
+| **Audio** | Multi-track mixer with gain/pan/M/S ✅, live L/R peak-dB meters ✅, audio export mixdown (AAC/FLAC/Opus/Vorbis) ✅; waveform display, audio syncing tools *planned* |
+| **Color Grading** | Brightness/contrast/gamma color correction ✅; color wheels/curves, 3D LUT (`.cube`) import, scopes *planned* |
+| **Media & Codecs** | 9 FFmpeg-backed codec plugins (H.264, VP9, AV1, Theora, MPEG-4, AAC, FLAC, Vorbis, Opus) ✅, format detection + metadata probe ✅, media-bin thumbnails + metadata ✅, batch export ✅; image-sequence import, proxy editing *planned* |
+| **Export & Rendering** | Custom export settings, MP4 + WebM, batch queue with persistence ✅; render presets (YouTube/Vimeo/DVD/Blu-ray/mobile), PSNR/SSIM, stream-to-IP, Matroska, per-clip/per-range export *planned* |
+| **UI & Workflow** | Dockable layouts ✅, remappable keyboard shortcuts ✅, dark/light themes ✅, unlimited undo/redo ✅, media-bin search/filter ✅, project auto-save + crash recovery ✅; multi-monitor, project templates, bin folders/collections *planned* |
+| **Advanced** | Portable/standalone builds (Windows portable zip, Flatpak) ✅; multi-cam, motion tracking, stabilization, 8K, online resources, OpenFX/frei0r/LADSPA plugin architecture — v2+ |
 
 ## 📦 Quick Start
 
@@ -61,8 +63,8 @@ Bucharest Lite uses a **layered architecture** with a stable plugin ABI as the c
 │   Main window, timeline, preview, bins, inspector, panels  │
 ├──────────────┬────────────────────┬────────────────────────┤
 │ bl_timeline  │    bl_render       │      bl_audio          │
-│ domain model │  compositor, GL    │  mixer, FX, waveforms  │
-│ edit ops     │  backends, cache   │  clocks, meters        │
+│ domain model │  compositor (CPU)  │  mixer, FX, meters     │
+│ edit ops     │  cache, preview    │  clocks, analysis      │
 ├──────────────┴─────────┬──────────┴────────────────────────┤
 │      bl_export         │            bl_core                │
 │ batch queue, presets   │  time, project model, plugin      │
@@ -71,7 +73,7 @@ Bucharest Lite uses a **layered architecture** with a stable plugin ABI as the c
 │              bl_plugins  (header-only C ABI)               │
 │        the stable contract implemented by .so/.dll plugins │
 ├────────────────────────────────────────────────────────────┤
-│      Qt6 · FFmpeg (libav*) · OpenGL · nlohmann/json        │
+│      Qt6 · FFmpeg (libav*) · nlohmann/json                 │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -145,10 +147,10 @@ cmake --preset linux-tsan && cmake --build --preset linux-tsan && ctest --preset
 |---|---|---|---|
 | Plugin suffix | `.so` | `.dll` | `.dylib` |
 | Plugin dir | `/usr/share/...` + `~/.local/share/...` | `%APPDATA%\BucharestLite\plugins` | `~/Library/Application Support/...` |
-| GUI | desktop 3.3 | WGL 3.3 | CGL 3.3 (Metal via MoltenVK later) |
-| FFmpeg | distro packages | vendored shared builds | homebrew/vendored |
-| CI | GitHub Actions ubuntu | windows-latest | macos-latest |
-| Packaging | AppImage + deb | NSIS + portable zip | — |
+| Rendering | CPU compositor (OpenGL planned) | CPU compositor (OpenGL planned) | — (packaging out of scope) |
+| FFmpeg | distro packages | vendored shared builds | — |
+| CI | GitHub Actions ubuntu ✓ | GitHub Actions windows-latest ✓ | — |
+| Packaging | deb + Flatpak | NSIS + portable zip | — |
 
 Platform-specific code is confined to `src/core/platform/` (paths, dynamic libraries, high-res timers).
 

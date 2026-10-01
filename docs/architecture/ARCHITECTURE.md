@@ -54,6 +54,9 @@ Bucharest Lite is an open-source (GPL-3.0) cross-platform non-linear video edito
 - Node-based color grading, OCIO color management (v1 = sRGB + 3D LUT `.cube` import).
 - Online resource marketplace integration.
 - Nested compositions — deferred to v2 by decision D2 (§18).
+- **GPU-accelerated preview/rendering** — v1 ships a CPU compositor (`src/render/compositor.cpp`, §19.3); the OpenGL 3.3 backend in §2/§19 is planned, not shipped.
+- **Proxy-based editing** (goal G4) — unimplemented in v1; high-res media plays directly via demand decode.
+- **Matroska export** — MP4/WebM only in v1; see `docs/user-guide.md` (Known limitations).
 
 ---
 
