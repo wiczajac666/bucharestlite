@@ -164,8 +164,17 @@ TEST(PreviewPanelTest, PlayAdvancesUntilDurationThenStops) {
     f.panel.transport().play();
     EXPECT_TRUE(f.panel.transport().playing());
 
-    // Let the 33 ms ticker run for ~1.5 ticks wall time.
-    QTest::qWait(60);
+    // Wait for the playhead to actually move instead of assuming a fixed
+    // wall-clock window is long enough. onTimerTick advances by
+    // clock_.restart(), which yields 0 when the 33 ms timer happens to fire in
+    // the same millisecond playback started; on a loaded runner that single
+    // zero-elapsed callback can consume the whole window and leave the
+    // playhead at 0. Poll like the pump below does.
+    for (int i = 0;
+         i < 100 && f.panel.transport().playhead() <= Time::fromTicks(0, kRate);
+         ++i) {
+        QTest::qWait(10);
+    }
     EXPECT_TRUE(f.panel.transport().playing());
     EXPECT_GT(f.panel.transport().playhead(), Time::fromTicks(0, kRate));
 
