@@ -139,9 +139,15 @@ TEST(ProjectController, saveAndOpenRoundTripPreservesDocument) {
         EXPECT_FALSE(controller.dirty());
         EXPECT_EQ(stl(controller.projectName()), "Round Trip");
         ASSERT_EQ(controller.mediaBin().size(), 1u);
+        // Derived from the project dir, not fs::absolute(): "/media/clip.mp4"
+        // is root-relative, so on Windows the repository joins it onto the
+        // project dir and keeps that dir's drive. fs::absolute() would use the
+        // process CWD's drive instead, which differs when the checkout and the
+        // temp dir are on different volumes (the CI runner puts them on D: and
+        // C: respectively). Joining on the project dir yields the right answer
+        // on both platforms, because on POSIX the absolute path wins outright.
         EXPECT_EQ(controller.mediaBin()[0].path,
-                  std::filesystem::absolute(
-                      std::filesystem::path(clipPath))
+                  (std::filesystem::path(dir.path().toStdString()) / clipPath)
                       .generic_string());
 
         const auto& timeline = controller.timeline();

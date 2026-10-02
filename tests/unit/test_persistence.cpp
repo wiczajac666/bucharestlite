@@ -82,8 +82,15 @@ TEST(ProjectRepositoryTest, RoundTripPreservesEverything) {
     ASSERT_EQ(restored.mediaBin.size(), 2u);
     EXPECT_EQ(restored.mediaBin[0].id, "item-1");
     EXPECT_EQ(restored.mediaBin[0].name, "Interview");
+    // Expected against the *project dir*, not fs::absolute(). "/absolutely/..."
+    // is root-relative, so on Windows it is not is_absolute() and the
+    // repository joins it onto the project dir, keeping that dir's drive.
+    // fs::absolute() would instead resolve against the process CWD's drive,
+    // which differs whenever the build tree and the temp dir are on different
+    // volumes -- true on the CI runner (%TEMP% on C:, checkout on D:), and the
+    // only reason this ever passed on the release VM is that both were C:.
     EXPECT_EQ(restored.mediaBin[1].path,
-              fs::absolute(fs::path("/absolutely/elsewhere/broll.mp4"))
+              (fs::path(dir.path()) / "/absolutely/elsewhere/broll.mp4")
                   .generic_string());
     EXPECT_EQ((*loaded).missingMedia.size(), 2u);
 
