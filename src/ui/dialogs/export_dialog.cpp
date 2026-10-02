@@ -52,6 +52,7 @@ ExportDialog::ExportDialog(QWidget* parent) : QDialog(parent) {
     containerCombo_->setObjectName(QStringLiteral("exportContainer"));
     containerCombo_->addItem("MP4 (.mp4)", QStringLiteral("mp4"));
     containerCombo_->addItem("WebM (.webm)", QStringLiteral("webm"));
+    containerCombo_->addItem("Matroska (.mkv)", QStringLiteral("mkv"));
     formatLayout->addWidget(containerCombo_, 0, 1);
 
     formatLayout->addWidget(new QLabel(tr("Video codec:"), formatGroup), 1, 0);
@@ -140,6 +141,8 @@ ExportDialog::ExportDialog(QWidget* parent) : QDialog(parent) {
                             codec == QLatin1String("theora"))) {
                     videoCodecCombo_->setCurrentIndex(
                         videoCodecCombo_->findData(QStringLiteral("h264")));
+                } else if (container == QLatin1String("mkv")) {
+                    // MKV accepts any video codec; no forced switching needed.
                 }
                 rebuildAudioCodecItems();
                 updateWidgets();
@@ -210,6 +213,11 @@ void ExportDialog::rebuildAudioCodecItems() {
     if (container == QLatin1String("webm")) {
         audioCodecCombo_->addItem(tr("Opus"), QStringLiteral("opus"));
         audioCodecCombo_->addItem(tr("Vorbis"), QStringLiteral("vorbis"));
+    } else if (container == QLatin1String("mkv")) {
+        audioCodecCombo_->addItem(tr("AAC"), QStringLiteral("aac"));
+        audioCodecCombo_->addItem(tr("FLAC"), QStringLiteral("flac"));
+        audioCodecCombo_->addItem(tr("Opus"), QStringLiteral("opus"));
+        audioCodecCombo_->addItem(tr("Vorbis"), QStringLiteral("vorbis"));
     } else {
         audioCodecCombo_->addItem(tr("AAC"), QStringLiteral("aac"));
         audioCodecCombo_->addItem(tr("FLAC"), QStringLiteral("flac"));
@@ -217,8 +225,10 @@ void ExportDialog::rebuildAudioCodecItems() {
     const int idx = audioCodecCombo_->findData(previous);
     audioCodecCombo_->setCurrentIndex(
         idx >= 0 ? idx : audioCodecCombo_->findData(
-                             container == QLatin1String("webm")
-                                 ? QStringLiteral("opus")
+                         container == QLatin1String("webm")
+                             ? QStringLiteral("opus")
+                             : container == QLatin1String("mkv")
+                                 ? QStringLiteral("aac")
                                  : QStringLiteral("aac")));
     audioCodecCombo_->setEnabled(enabled);
     audioCodecCombo_->blockSignals(false);

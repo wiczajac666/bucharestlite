@@ -1,6 +1,6 @@
-bucharest-lite (1.1.1-1) unstable; urgency=medium
+bucharest-lite (1.7.38-1) unstable; urgency=medium
 
-  * Feature release 1.1.1: alpha compositing, five new video effects,
+  * Feature release 1.7.38: alpha compositing, five new video effects,
     speed/reverse clip editing, and soft (MOV_TEXT) subtitle export.
   * Rebuilt against the current release for Debian/Ubuntu.
 

@@ -31,7 +31,7 @@
   this is the prerequisite for Matroska export, which is still not exposed in
   the export UI.
 
-## v1.1.1 — 2026-09-27
+## v1.7.38 — 2026-10-02
 
 ### Added
 - **Alpha compositing**: the preview/export compositor blends frames with

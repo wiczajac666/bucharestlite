@@ -44,9 +44,10 @@ add_executable(bl_core_tests
     test_codec_plugins.cpp
     test_preview_engine.cpp
     test_media_thumbnail.cpp
+    test_export_roundtrip.cpp
 )
 
-target_link_libraries(bl_core_tests PRIVATE bl_core bl_timeline bl_render bl_audio GTest::gtest_main)
+target_link_libraries(bl_core_tests PRIVATE bl_core bl_timeline bl_render bl_audio bl::ui GTest::gtest_main)
 
 target_include_directories(bl_core_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../../src

@@ -10,7 +10,7 @@ Bucharest Lite implements the features below. Items marked **planned** are
 documented gaps, not shipped functionality (see `docs/user-guide.md` →
 "Known limitations").
 
-| Category | Features (v1.1.1) |
+| Category | Features (v1.7.38) |
 |---|---|
 | **Core Editing** | Multi-track timeline ✅, drag-and-drop import (media bin → timeline) ✅, trimming/splitting/ripple editing ✅, 3-point editing ✅, snapping ✅, zoom ✅, frame-accurate step editing ✅, speed/time remapping + reverse ✅, keyframeable properties ✅ |
 | **Transitions & Effects** | Keyframeable video effects — color correction, box blur, chroma key, sharpen, hue/saturation, levels/crop, greyscale, transform ✅; effect params as sliders ✅; transition *model* (fade/wipe/dissolve edge-metadata) ✅, transition rendering in preview/export *planned* |
@@ -197,6 +197,6 @@ See [Developer Guide](docs/developer-guide.md) for full plugin development tutor
 
 ---
 
-**Version 1.1.1** — September 2026
+**Version 1.7.38** — September 2026
 
 *Built with passion by the open-source community.*
