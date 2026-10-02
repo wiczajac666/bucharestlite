@@ -154,6 +154,11 @@ cmake --preset linux-tsan && cmake --build --preset linux-tsan && ctest --preset
 
 Platform-specific code is confined to `src/core/platform/` (paths, dynamic libraries, high-res timers).
 
+The Linux build needs distro **FFmpeg 8** or newer — the codec plugins use FFmpeg 8 APIs
+(`SwsContext` became opaque, `avcodec_get_supported_config`, `AV_CODEC_CONFIG_*`). Ubuntu 24.04
+ships FFmpeg 6.1 and will not compile; Ubuntu 26.04 ships 8.0.1 and is what CI pins. Windows CI
+builds with MSVC (`cl`), never MinGW, matching the toolchain the releases are built with.
+
 ## 📜 Licensing
 
 Bucharest Lite is licensed under **GPL-3.0-or-later**.
