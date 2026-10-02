@@ -248,7 +248,11 @@ Time Time::fromSeconds(double seconds, Rational rate) {
     long double scaled =
         (static_cast<long double>(seconds) * static_cast<long double>(rate.num)) /
         static_cast<long double>(rate.den);
-    long double fl = std::floorl(scaled);
+    // std::floor, not std::floorl: the long-double overload returns long
+    // double, and it is portable. std::floorl is only pulled into namespace
+    // std conditionally by libstdc++, and it did not compile on the older
+    // toolchain the CI runner used before it was moved to ubuntu-26.04.
+    long double fl = std::floor(scaled);
     long double frac = scaled - fl;
     int64_t base = static_cast<int64_t>(fl);
     int64_t result;

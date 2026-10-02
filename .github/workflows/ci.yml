@@ -15,8 +15,13 @@ concurrency:
 
 jobs:
   linux:
-    name: Linux (ubuntu-latest, release)
-    runs-on: ubuntu-latest
+    # Pinned, not -latest: the codec plugins target FFmpeg 8 APIs (opaque
+    # SwsContext, avcodec_get_supported_config, AV_CODEC_CONFIG_*). ubuntu-latest
+    # is Ubuntu 24.04, whose apt FFmpeg is 6.1 and cannot build this tree.
+    # ubuntu-26.04 ships FFmpeg 8.0.1 and matches the development box (GCC 15.2,
+    # Qt 6.10), so "green locally" and "green here" test the same thing.
+    name: Linux (ubuntu-26.04, release)
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v4
 
@@ -29,6 +34,22 @@ jobs:
             ffmpeg \
             libavformat-dev libavcodec-dev libavutil-dev \
             libswscale-dev libswresample-dev
+
+      # Guard the toolchain assumption explicitly. Without this, an older FFmpeg
+      # on a changed runner image surfaces as dozens of "unknown type name"
+      # errors from the plugin sources rather than one actionable line.
+      - name: Verify FFmpeg version
+        run: |
+          ver=$(pkg-config --modversion libavcodec)
+          major=${ver%%.*}
+          echo "libavcodec $ver"
+          if [ "$major" -lt 8 ]; then
+            echo "::error title=FFmpeg too old::libavcodec $ver found, 8 required."
+            echo "::error::The codec plugins use FFmpeg 8 APIs; ubuntu-26.04"
+            echo "::error::provides them via apt. Do not 'fix' this by pinning"
+            echo "::error::the runner back to -latest (Ubuntu 24.04 = FFmpeg 6.1)."
+            exit 1
+          fi
 
       # gtest + nlohmann_json are resolved by CMake (FetchContent / vendored
       # third_party), so no extra packages are needed for the test framework.
@@ -45,7 +66,9 @@ jobs:
         run: ctest --preset linux-release
 
   windows:
-    name: Windows (windows-latest, release)
+    # MSVC is the toolchain the Windows release is built and verified with, so
+    # the job name says so: this job must never build with MinGW.
+    name: Windows (windows-latest, MSVC, release)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,6 +94,19 @@ jobs:
           "$root\bin" >> $env:GITHUB_PATH
           # The windows presets read $env{QT_ROOT}; pin it to the action's root.
           "QT_ROOT=$env:QT_ROOT_DIR" >> $env:GITHUB_ENV
+
+      # windows-latest ships VS2022 *and* gcc/MSYS2, and with the preset's
+      # "generator": "Ninja" CMake picks whichever compiler is first on PATH --
+      # gcc. That then links GCC objects against the MSVC-built Qt from
+      # install-qt-action and dies on __imp_* undefined references. Putting the
+      # VS2022 x64 native tools first makes the Ninja generator drive cl.exe,
+      # which is the toolchain the Windows release is built and verified with
+      # (MSVC + Qt 6.8.3). This mirrors what packaging/windows/build_installer.ps1
+      # already does via vswhere + vcvars64.bat; the preset needs no change.
+      - uses: ilammy/msvc-dev-cmd-action@v1
+        with:
+          arch: x64
+          configuration: Release
 
       - name: Configure
         run: cmake --preset windows-release
