@@ -142,7 +142,11 @@ void MediaBinItemDelegate::paint(QPainter* painter,
         painter->setFont(font);
         const QFontMetrics detailMetrics(font);
         QColor colour = opt.palette.color(textRole);
-        colour.setAlphaF(0.72);
+        // 0.72f, not 0.72: Qt 6.8 narrowed QColor's *F setters from qreal to
+        // float, so a bare double literal is a narrowing conversion and MSVC
+        // rejects it as C4305 under /W4 /WX. GCC does not warn without
+        // -Wconversion, which is why this only surfaced on the CI runner.
+        colour.setAlphaF(0.72f);
         painter->setPen(colour);
         const QRect detailRect(textRect.left(), nameRect.bottom(),
                                textRect.width(), lineHeight);
