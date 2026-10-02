@@ -103,10 +103,9 @@ jobs:
       # which is the toolchain the Windows release is built and verified with
       # (MSVC + Qt 6.8.3). This mirrors what packaging/windows/build_installer.ps1
       # already does via vswhere + vcvars64.bat; the preset needs no change.
-      - uses: ilammy/msvc-dev-cmd-action@v1
+      - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-          configuration: Release
 
       - name: Configure
         run: cmake --preset windows-release
