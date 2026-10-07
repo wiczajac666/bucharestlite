@@ -191,6 +191,9 @@ MeterLevels meterLevelsAt(const Sequence& sequence, Time position,
         }
 
         for (const Clip& clip : track.clips()) {
+            // Mirrors the mixdown collector: disabled clips and video-only
+            // halves are inaudible.
+            if (!clip.enabled || !clip.hasAudio) continue;
             const Time clipEnd = clip.timelineStart + clip.timelineDuration;
             if (position < clip.timelineStart || position >= clipEnd) {
                 continue;

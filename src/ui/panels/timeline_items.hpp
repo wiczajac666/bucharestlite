@@ -9,6 +9,7 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 QT_BEGIN_NAMESPACE
 class QGraphicsScene;
@@ -136,7 +137,24 @@ constexpr qreal kRulerHeight = 26.0;
 constexpr qreal kVideoLaneHeight = 44.0;
 constexpr qreal kAudioLaneHeight = 36.0;
 
-qreal laneTop(const bl::Sequence& seq, int flat, int videoCount);
+// Kdenlive's three track-layout modes, expressed over flat indices (video
+// tracks first, then audio). Split — the app default — is today's layout
+// (video lanes on top, audio below); Mixed interleaves each audio lane under
+// its video lane; MixedReverse puts the audio lane above. P4 exposes the
+// choice in the UI; until then every call site uses the default.
+enum class LaneOrder { Split, Mixed, MixedReverse };
+
+// Flat indices ordered top to bottom for the given layout.
+std::vector<int> lanePermutation(int videoCount, int audioCount,
+                                 LaneOrder order);
+// Lane position of a flat track (-1 when out of range), and its inverse.
+int laneForFlat(const bl::Sequence& seq, int flat,
+                LaneOrder order = LaneOrder::Split);
+int flatForLane(const bl::Sequence& seq, int lane,
+                LaneOrder order = LaneOrder::Split);
+
+qreal laneTop(const bl::Sequence& seq, int flat, int videoCount,
+              LaneOrder order = LaneOrder::Split);
 qreal laneHeight(const bl::Sequence& seq, int flat, int videoCount);
 qreal contentWidth(const bl::Sequence& seq, qreal pxPerFrame);
 qreal contentHeight(const bl::Sequence& seq);

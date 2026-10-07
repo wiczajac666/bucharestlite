@@ -2505,5 +2505,232 @@ TEST(ClipInspectorMutators, EffectEnableAndParams) {
     EXPECT_FALSE(tl.setEffectEnabledInAudioTrack(0, "a1", 0, true));
 }
 
+// ---------------------------------------------------------------------------
+// P1: Kdenlive-parity model additions — stream/state flags, hidden tracks,
+// clip groups, marker mutators, track structure operations.
+// ---------------------------------------------------------------------------
+
+TEST(ClipStreamFlagsTest, LegacyJsonLoadsWithBothStreamsEnabled) {
+    Clip c = makeClip("legacy", 0, 10);
+    nlohmann::json j = c;
+    j.erase("hasVideo");
+    j.erase("hasAudio");
+    j.erase("enabled");
+
+    Clip legacy = j.get<Clip>();
+    EXPECT_TRUE(legacy.hasVideo);
+    EXPECT_TRUE(legacy.hasAudio);
+    EXPECT_TRUE(legacy.enabled);
+}
+
+TEST(ClipStreamFlagsTest, JsonRoundTripAndEquality) {
+    Clip a = makeClip("x", 0, 10);
+    Clip b = a;
+    EXPECT_TRUE(a == b);
+
+    b.enabled = false;
+    EXPECT_FALSE(a == b);
+    b = a;
+    b.hasVideo = false;
+    EXPECT_FALSE(a == b);
+    b = a;
+    b.hasAudio = false;
+    EXPECT_FALSE(a == b);
+
+    a.hasVideo = false;
+    a.hasAudio = false;
+    a.enabled = false;
+    const nlohmann::json j = a;
+    const Clip a2 = j.get<Clip>();
+    EXPECT_TRUE(a == a2);
+    EXPECT_FALSE(a2.hasVideo);
+    EXPECT_FALSE(a2.hasAudio);
+    EXPECT_FALSE(a2.enabled);
+}
+
+TEST(TrackHiddenTest, JsonDefaultAndRoundTrip) {
+    VideoTrack t("V1");
+    const nlohmann::json j = t;
+    ASSERT_TRUE(j.contains("hidden"));
+    EXPECT_FALSE(j.at("hidden").get<bool>());
+    EXPECT_FALSE(j.get<VideoTrack>().hidden());
+
+    t.setHidden(true);
+    EXPECT_TRUE(t.hidden());
+    const nlohmann::json j2 = t;
+    EXPECT_TRUE(j2.get<VideoTrack>().hidden());
+}
+
+TEST(SequenceGroupsTest, JsonRoundTripAndLegacyDefault) {
+    Sequence seq;
+    seq.addVideoTrack("V1");
+    seq.videoTracks[0].addClip(makeClip("a", 0, 10));
+    seq.videoTracks[0].addClip(makeClip("b", 20, 10));
+    ASSERT_TRUE(seq.formGroup({"a", "b"}));
+
+    const nlohmann::json j = seq;
+    ASSERT_TRUE(j.contains("groups"));
+    const Sequence seq2 = j.get<Sequence>();
+    ASSERT_EQ(seq2.groups.size(), 1u);
+    EXPECT_EQ(seq2.groups[0].size(), 2u);
+
+    // Legacy project JSON without a groups key loads with no groups.
+    nlohmann::json legacy = j;
+    legacy.erase("groups");
+    EXPECT_TRUE(legacy.get<Sequence>().groups.empty());
+}
+
+TEST(SequenceGroupsTest, FormMergeUngroupAndMembers) {
+    Sequence seq;
+    seq.addVideoTrack("V1");
+    seq.addAudioTrack("A1");
+    seq.videoTracks[0].addClip(makeClip("a", 0, 10));
+    seq.videoTracks[0].addClip(makeClip("b", 20, 10));
+    seq.audioTracks[0].addClip(makeClip("aud", 0, 10));
+
+    ASSERT_TRUE(seq.formGroup({"a", "b"}));
+    ASSERT_EQ(seq.groupMembers("a").size(), 1u);
+    EXPECT_EQ(seq.groupMembers("a")[0], "b");
+    EXPECT_TRUE(seq.groupMembers("ungrouped").empty());
+    EXPECT_TRUE(seq.groupMembers("missing").empty());
+
+    // A group that overlaps an existing one absorbs it.
+    ASSERT_TRUE(seq.formGroup({"b", "aud"}));
+    ASSERT_EQ(seq.groups.size(), 1u);
+    EXPECT_EQ(seq.groupMembers("a").size(), 2u);
+    EXPECT_EQ(seq.groupMembers("aud").size(), 2u);
+
+    // Re-forming the already-grouped set changes nothing.
+    EXPECT_FALSE(seq.formGroup({"a", "b", "aud"}));
+
+    ASSERT_TRUE(seq.ungroup("b"));
+    EXPECT_TRUE(seq.groups.empty());
+    EXPECT_FALSE(seq.ungroup("b"));
+}
+
+TEST(SequenceGroupsTest, ValidationAndLiveMemberFiltering) {
+    Sequence seq;
+    seq.addVideoTrack("V1");
+    seq.videoTracks[0].addClip(makeClip("a", 0, 10));
+    seq.videoTracks[0].addClip(makeClip("b", 20, 10));
+
+    // Missing member, single member, and duplicate-only sets all refuse and
+    // leave groups untouched.
+    EXPECT_FALSE(seq.formGroup({"a", "missing"}));
+    EXPECT_FALSE(seq.formGroup({"a"}));
+    EXPECT_FALSE(seq.formGroup({"a", "a"}));
+    EXPECT_TRUE(seq.groups.empty());
+
+    ASSERT_TRUE(seq.formGroup({"a", "b"}));
+    // Deleted members are filtered from reads rather than rewritten...
+    seq.videoTracks[0].removeClip("b");
+    EXPECT_TRUE(seq.groupMembers("a").empty());
+
+    // ...and pruned for good by pruneGroups().
+    seq.videoTracks[0].addClip(makeClip("b", 20, 10));
+    ASSERT_EQ(seq.groupMembers("a").size(), 1u);
+    seq.videoTracks[0].removeClip("b");
+    seq.pruneGroups();
+    EXPECT_TRUE(seq.groups.empty());
+}
+
+TEST(SequenceMarkerMutatorsTest, FindEditRemoveByPosition) {
+    Sequence seq;
+    const Time p0 = Time::fromFrame(0, fps24());
+    const Time p1 = Time::fromFrame(24, fps24());
+    seq.addMarker(Marker(p0, "one", 1));
+
+    const auto idx = seq.findMarkerAt(p0);
+    ASSERT_TRUE(idx.has_value());
+    EXPECT_EQ(*idx, 0u);
+    EXPECT_FALSE(seq.findMarkerAt(p1).has_value());
+
+    EXPECT_TRUE(seq.setMarkerAt(*idx, Marker(p0, "renamed", 2)));
+    EXPECT_EQ(seq.markers[0].label, "renamed");
+    EXPECT_EQ(seq.markers[0].color, 2u);
+    EXPECT_FALSE(seq.setMarkerAt(9, Marker(p0, "x", 0)));
+
+    seq.addMarker(Marker(p1, "two", 3));
+    EXPECT_TRUE(seq.removeMarkerAt(0));
+    ASSERT_EQ(seq.markers.size(), 1u);
+    EXPECT_EQ(seq.markers[0].label, "two");
+    EXPECT_FALSE(seq.removeMarkerAt(9));
+}
+
+TEST(SequenceTrackOpsTest, InsertAtPosition) {
+    Sequence seq;
+    seq.addVideoTrack("V1");
+    seq.addVideoTrack("V2");
+    seq.addAudioTrack("A1");
+
+    ASSERT_TRUE(seq.insertVideoTrack(0, "V0"));
+    ASSERT_EQ(seq.videoTracks.size(), 3u);
+    EXPECT_EQ(seq.videoTracks[0].name(), "V0");
+    ASSERT_TRUE(seq.insertVideoTrack(3, "V3")); // index == size appends
+    EXPECT_EQ(seq.videoTracks.size(), 4u);
+    EXPECT_EQ(seq.videoTracks[3].name(), "V3");
+    EXPECT_FALSE(seq.insertVideoTrack(9, "nope"));
+
+    ASSERT_TRUE(seq.insertAudioTrack(1, "A0"));
+    ASSERT_EQ(seq.audioTracks.size(), 2u);
+    EXPECT_EQ(seq.audioTracks[1].name(), "A0");
+    EXPECT_FALSE(seq.insertAudioTrack(5, "nope"));
+
+    // Inserted tracks carry the right kind.
+    EXPECT_TRUE(seq.videoTracks[0].kind() == TrackKind::Video);
+    EXPECT_TRUE(seq.audioTracks[1].kind() == TrackKind::Audio);
+}
+
+TEST(SequenceTrackOpsTest, RemoveRefusesLastVideoAndPrunesGroups) {
+    Sequence seq;
+    seq.addVideoTrack("V1");
+    seq.addVideoTrack("V2");
+    seq.addAudioTrack("A1");
+    seq.videoTracks[0].addClip(makeClip("a", 0, 10));
+    seq.videoTracks[1].addClip(makeClip("v2", 0, 10));
+    seq.audioTracks[0].addClip(makeClip("aud", 0, 10));
+    ASSERT_TRUE(seq.formGroup({"a", "v2", "aud"}));
+
+    EXPECT_FALSE(seq.removeVideoTrack(9));
+
+    // Removing the audio track prunes its member but keeps the rest.
+    ASSERT_TRUE(seq.removeAudioTrack(0));
+    EXPECT_EQ(seq.audioTracks.size(), 0u);
+    ASSERT_EQ(seq.groups.size(), 1u);
+    EXPECT_EQ(seq.groups[0].size(), 2u);
+
+    // Removing V2 (with its clip) prunes the group down to one member — a
+    // singleton is not representable, so the group disappears.
+    ASSERT_TRUE(seq.removeVideoTrack(1));
+    EXPECT_EQ(seq.videoTracks.size(), 1u);
+    EXPECT_TRUE(seq.groups.empty());
+
+    // The last video track always survives.
+    EXPECT_FALSE(seq.removeVideoTrack(0));
+    EXPECT_EQ(seq.videoTracks.size(), 1u);
+}
+
+TEST(SequenceTrackOpsTest, MoveWithinKind) {
+    Sequence seq;
+    seq.addVideoTrack("V1");
+    seq.addVideoTrack("V2");
+    seq.addVideoTrack("V3");
+    seq.addAudioTrack("A1");
+    seq.addAudioTrack("A2");
+
+    ASSERT_TRUE(seq.moveVideoTrack(0, 2));
+    EXPECT_EQ(seq.videoTracks[0].name(), "V2");
+    EXPECT_EQ(seq.videoTracks[1].name(), "V3");
+    EXPECT_EQ(seq.videoTracks[2].name(), "V1");
+
+    ASSERT_TRUE(seq.moveAudioTrack(1, 0));
+    EXPECT_EQ(seq.audioTracks[0].name(), "A2");
+    EXPECT_EQ(seq.audioTracks[1].name(), "A1");
+
+    EXPECT_FALSE(seq.moveVideoTrack(1, 1)); // no-op
+    EXPECT_FALSE(seq.moveVideoTrack(0, 9)); // out of range
+    EXPECT_FALSE(seq.moveAudioTrack(7, 0));
+}
+
 } // namespace
 } // namespace bl

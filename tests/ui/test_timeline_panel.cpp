@@ -30,6 +30,7 @@ using bl::Clip;
 using bl::ClipId;
 using bl::Duration;
 using bl::Time;
+using bl::Sequence;
 using bl::Timeline;
 using bl::TrackKind;
 
@@ -607,4 +608,82 @@ TEST(TimelinePanel, DragEnterRejectsForeignMime) {
                           Qt::NoModifier);
     QApplication::sendEvent(target, &enter);
     EXPECT_FALSE(enter.isAccepted());
+}// ---------------------------------------------------------------------------
+// P1: Kdenlive-parity lane ordering — every order round-trips between flat
+// indices and lane numbers, and Split is identical to the legacy layout.
+// ---------------------------------------------------------------------------
+
+namespace tg = bl::ui::timeline_geometry;
+
+bl::Sequence laneOrderSequence(int videoCount, int audioCount) {
+    bl::Sequence seq;
+    for (int i = 0; i < videoCount; ++i)
+        seq.addVideoTrack("V" + std::to_string(i + 1));
+    for (int i = 0; i < audioCount; ++i)
+        seq.addAudioTrack("A" + std::to_string(i + 1));
+    return seq;
+}
+
+TEST(TimelineLaneOrder, SplitMatchesLegacyLayout) {
+    const Sequence seq = laneOrderSequence(2, 2);
+    for (int flat = 0; flat < 4; ++flat) {
+        EXPECT_EQ(tg::laneForFlat(seq, flat, tg::LaneOrder::Split),
+                  tg::laneForFlat(seq, flat));
+        EXPECT_EQ(tg::laneTop(seq, flat, 2, tg::LaneOrder::Split),
+                  tg::laneTop(seq, flat, 2));
+    }
+    EXPECT_EQ(tg::lanePermutation(2, 2, tg::LaneOrder::Split),
+              std::vector<int>({0, 1, 2, 3}));
+}
+
+TEST(TimelineLaneOrder, LanePermutationForEveryOrder) {
+    for (const auto order :
+         {tg::LaneOrder::Split, tg::LaneOrder::Mixed, tg::LaneOrder::MixedReverse}) {
+        const auto perm = tg::lanePermutation(3, 3, order);
+        ASSERT_EQ(perm.size(), 6u);
+        std::vector<bool> seen(6, false);
+        for (const int v : perm) {
+            ASSERT_GE(v, 0);
+            ASSERT_LT(v, 6);
+            EXPECT_FALSE(seen[static_cast<size_t>(v)])
+                << "duplicate lane in permutation";
+            seen[static_cast<size_t>(v)] = true;
+        }
+    }
+}
+
+TEST(TimelineLaneOrder, FlatAndLaneRoundTripForEveryOrder) {
+    const Sequence seq = laneOrderSequence(2, 3); // 5 flat tracks
+    for (const auto order :
+         {tg::LaneOrder::Split, tg::LaneOrder::Mixed, tg::LaneOrder::MixedReverse}) {
+        const auto perm = tg::lanePermutation(2, 3, order);
+        ASSERT_EQ(perm.size(), 5u);
+        for (size_t lane = 0; lane < perm.size(); ++lane) {
+            const int flat = perm[lane];
+            EXPECT_EQ(tg::laneForFlat(seq, flat, order),
+                      static_cast<int>(lane));
+            EXPECT_EQ(tg::flatForLane(seq, static_cast<int>(lane), order),
+                      flat);
+        }
+        // Out-of-range inputs map to -1.
+        EXPECT_EQ(tg::laneForFlat(seq, 5, order), -1);
+        EXPECT_EQ(tg::flatForLane(seq, 5, order), -1);
+    }
+}
+
+TEST(TimelineLaneOrder, LaneTopFollowsPermutationOrder) {
+    const Sequence seq = laneOrderSequence(2, 2);
+    for (const auto order :
+         {tg::LaneOrder::Split, tg::LaneOrder::Mixed, tg::LaneOrder::MixedReverse}) {
+        const auto perm = tg::lanePermutation(2, 2, order);
+        double prev = -1.0;
+        for (const int flat : perm) {
+            const double top = tg::laneTop(seq, flat, 2, order);
+            EXPECT_GT(top, prev) << "lane tops must descend the widget";
+            prev = top;
+        }
+        // Heights are per-kind, independent of the order.
+        EXPECT_EQ(tg::laneHeight(seq, 0, 2), tg::kVideoLaneHeight);
+        EXPECT_EQ(tg::laneHeight(seq, 2, 2), tg::kAudioLaneHeight);
+    }
 }

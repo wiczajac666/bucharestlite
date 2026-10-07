@@ -233,6 +233,9 @@ void to_json(nlohmann::json& j, const Clip& c) {
           {"rate", {{"num", c.timelineDuration.rate.num},
                     {"den", c.timelineDuration.rate.den}}}}},
         {"speed", c.speed},
+        {"hasVideo", c.hasVideo},
+        {"hasAudio", c.hasAudio},
+        {"enabled", c.enabled},
         {"effects", c.effects},
         {"audio", c.audio}
     };
@@ -260,6 +263,9 @@ void from_json(const nlohmann::json& j, Clip& c) {
     c.timelineDuration.rate.den =
         j.at("timelineDuration").at("rate").at("den").get<int64_t>();
     if (j.contains("speed")) from_json(j.at("speed"), c.speed);
+    c.hasVideo = j.value("hasVideo", true);
+    c.hasAudio = j.value("hasAudio", true);
+    c.enabled = j.value("enabled", true);
     if (j.contains("keyframes")) {
         from_json(j.at("keyframes"), c.keyframes.emplace());
     }

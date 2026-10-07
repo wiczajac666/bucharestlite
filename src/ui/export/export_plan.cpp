@@ -5,6 +5,9 @@
 namespace bl::ui {
 
 bl::Duration sequenceDuration(const bl::Sequence& sequence) {
+    // Deliberately counts every clip, including disabled ones: a disabled
+    // clip keeps its timeline slot (Kdenlive semantics), so it still
+    // contributes to the project's length. Do not gate on Clip::enabled here.
     bl::Time end;
     const auto scan = [&end](const std::vector<bl::Clip>& clips) {
         for (const auto& clip : clips) {

@@ -38,6 +38,7 @@ public:
     bool muted() const noexcept { return muted_; }
     bool soloed() const noexcept { return soloed_; }
     bool locked() const noexcept { return locked_; }
+    bool hidden() const noexcept { return hidden_; }
     double gain() const noexcept { return gain_; }
     double pan() const noexcept { return pan_; }
     int32_t height() const noexcept { return height_; }
@@ -46,6 +47,7 @@ public:
     void setMuted(bool m) { muted_ = m; }
     void setSoloed(bool s) { soloed_ = s; }
     void setLocked(bool l) { locked_ = l; }
+    void setHidden(bool h) { hidden_ = h; }
     void setGain(double g) { gain_ = g; }
     void setPan(double p) { pan_ = p; }
     void setHeight(int32_t h) { height_ = h; }
@@ -393,6 +395,15 @@ public:
         return true;
     }
 
+    // Kdenlive's "disable clip": the clip keeps its timeline slot but renders
+    // neither video nor audio.
+    bool setClipEnabled(const ClipId& id, bool enabled) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        clips_[*idx].enabled = enabled;
+        return true;
+    }
+
     bool setClipSourceRange(const ClipId& id, Time sourceIn, Time sourceOut) {
         auto idx = findClipById(id);
         if (!idx) return false;
@@ -572,6 +583,7 @@ private:
     bool muted_{false};
     bool soloed_{false};
     bool locked_{false};
+    bool hidden_{false};
     double gain_{1.0};
     double pan_{0.0};
     int32_t height_{60};

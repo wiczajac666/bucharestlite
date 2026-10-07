@@ -368,3 +368,35 @@ TEST(AudioMeterEngineTest, RemoveCancelsInFlightWithoutCaching) {
     engine.clear();
     EXPECT_EQ(engine.envelopeFor(id), nullptr);
 }
+
+TEST(AudioMeterQueryTest, InaudibleClipsProduceSilence) {
+    Sequence seq;
+    seq.addAudioTrack("A");
+    auto env = synthStereo(1.0f);
+
+    // First half of the track: a disabled clip (renders nothing).
+    auto disabled = makeClip("c", sec(0.0), dur(0.5), sec(0.0), sec(0.5), 0.5);
+    disabled.enabled = false;
+    // Second half: an audio-less (video-only) half of an A/V split.
+    auto videoOnly = makeClip("v", sec(0.5), dur(0.5), sec(0.0), sec(0.5), 0.5);
+    videoOnly.hasAudio = false;
+    ASSERT_TRUE(seq.appendClipToAudioTrack(0, disabled));
+    ASSERT_TRUE(seq.appendClipToAudioTrack(0, videoOnly));
+
+    const auto resolver = resolverWith(
+        {std::make_pair("c", std::make_shared<const AudioMeterEnvelope>(env)),
+         std::make_pair("v", std::make_shared<const AudioMeterEnvelope>(env))});
+
+    // Both clips resolve loud envelopes, but neither is audible.
+    const MeterLevels overDisabled =
+        bl::meterLevelsAt(seq, sec(0.25), resolver);
+    EXPECT_NEAR(trackAt(overDisabled).left, 0.0, 1e-6);
+    EXPECT_NEAR(trackAt(overDisabled).right, 0.0, 1e-6);
+    EXPECT_NEAR(overDisabled.master.left, 0.0, 1e-6);
+
+    const MeterLevels overVideoOnly =
+        bl::meterLevelsAt(seq, sec(0.75), resolver);
+    EXPECT_NEAR(trackAt(overVideoOnly).left, 0.0, 1e-6);
+    EXPECT_NEAR(trackAt(overVideoOnly).right, 0.0, 1e-6);
+    EXPECT_NEAR(overVideoOnly.master.left, 0.0, 1e-6);
+}

@@ -322,4 +322,42 @@ TEST(MixdownDetail, PcmAudioSourceDecodesOpusToEnd) {
 
 }  // namespace mixdown_detail
 
+TEST(Mixdown, DisabledClipIsNotMixed) {
+    MixFixture fx;
+    ASSERT_TRUE(fx.load());
+    fx.addClip("av", "c1");
+    ASSERT_TRUE(fx.seq.audioTracks[0].setClipEnabled("c1", false));
+
+    TimelineMixdownOptions opts;
+    opts.sampleRate = 48000;
+    opts.channels = 2;
+    Collected c;
+    ASSERT_TRUE(collectAll(opts, fx, c));
+    EXPECT_TRUE(c.samples.empty())
+        << "a disabled clip contributes nothing to the mix";
+}
+
+TEST(Mixdown, VideoOnlyHalfIsNotMixed) {
+    MixFixture fx;
+    ASSERT_TRUE(fx.load());
+    // The picture half of an A/V split: hasAudio = false.
+    bl::Clip clip;
+    clip.id = "vid";
+    clip.source.mediaItemId = "av";
+    clip.source.sourceIn = fr(0);
+    clip.source.sourceOut = fr(48);
+    clip.timelineStart = fr(0);
+    clip.timelineDuration = durF(48);
+    clip.hasAudio = false;
+    ASSERT_TRUE(fx.seq.audioTracks[0].addClip(clip));
+
+    TimelineMixdownOptions opts;
+    opts.sampleRate = 48000;
+    opts.channels = 2;
+    Collected c;
+    ASSERT_TRUE(collectAll(opts, fx, c));
+    EXPECT_TRUE(c.samples.empty())
+        << "an audio-less half contributes nothing to the mix";
+}
+
 }  // namespace

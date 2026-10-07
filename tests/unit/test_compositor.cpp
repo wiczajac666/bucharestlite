@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -510,6 +511,117 @@ TEST_F(CompositorTest, ReversedClipSamplesSourceBackwards) {
     result = comp->renderFrame(snap, frame(19), provider);
     ASSERT_TRUE(result.ok()) << result.message();
     EXPECT_EQ(provider.requested[0], frame(1));  // approaches sourceIn
+}
+
+// ---------------------------------------------------------------------------
+// P1: Kdenlive-parity gating — disabled clips, audio-only halves, and hidden
+// tracks render nothing.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// One red clip on a single video track, with a tweak applied first.
+Sequence singleRedSequence(const std::function<void(Clip&)>& tweak = {}) {
+    Sequence seq;
+    seq.settings.width = 1;
+    seq.settings.height = 1;
+
+    VideoTrack track("V1");
+    Clip clip;
+    clip.id = "c1";
+    clip.source.mediaItemId = "red.mp4";
+    clip.source.sourceIn = frame(0);
+    clip.source.sourceOut = frame(10);
+    clip.timelineStart = frame(0);
+    clip.timelineDuration = dur(10);
+    if (tweak) tweak(clip);
+    track.addClip(clip);
+    seq.videoTracks.push_back(std::move(track));
+    return seq;
+}
+
+} // namespace
+
+TEST_F(CompositorTest, DisabledClipSkipped) {
+    TimelineSnapshot snap(singleRedSequence([](Clip& c) { c.enabled = false; }));
+    auto comp = Compositor::create({1, 1});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+
+    auto result = comp->renderFrame(snap, frame(5), provider);
+    ASSERT_TRUE(result.ok()) << result.message();
+    // Disabled clip → black.
+    EXPECT_EQ(result->data[0], 0u);
+    EXPECT_EQ(result->data[1], 0u);
+    EXPECT_EQ(result->data[2], 0u);
+}
+
+TEST_F(CompositorTest, AudioOnlyClipSkipped) {
+    TimelineSnapshot snap(
+        singleRedSequence([](Clip& c) { c.hasVideo = false; }));
+    auto comp = Compositor::create({1, 1});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+
+    auto result = comp->renderFrame(snap, frame(5), provider);
+    ASSERT_TRUE(result.ok()) << result.message();
+    // Audio-only half → black.
+    EXPECT_EQ(result->data[0], 0u);
+    EXPECT_EQ(result->data[1], 0u);
+    EXPECT_EQ(result->data[2], 0u);
+}
+
+TEST_F(CompositorTest, HiddenTrackSkipped) {
+    Sequence seq = singleRedSequence();
+    seq.videoTracks[0].setHidden(true);
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({1, 1});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+
+    auto result = comp->renderFrame(snap, frame(5), provider);
+    ASSERT_TRUE(result.ok()) << result.message();
+    // Hidden track → black.
+    EXPECT_EQ(result->data[0], 0u);
+    EXPECT_EQ(result->data[1], 0u);
+    EXPECT_EQ(result->data[2], 0u);
+}
+
+TEST_F(CompositorTest, DisabledTopClipRevealsLowerTrack) {
+    Sequence seq = singleRedSequence(); // red on V0
+
+    VideoTrack top("V1");
+    Clip blue;
+    blue.id = "c2";
+    blue.source.mediaItemId = "blue.mp4";
+    blue.source.sourceIn = frame(0);
+    blue.source.sourceOut = frame(10);
+    blue.timelineStart = frame(0);
+    blue.timelineDuration = dur(10);
+    blue.enabled = false;
+    top.addClip(blue);
+    seq.videoTracks.push_back(std::move(top));
+
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({1, 1});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+    provider.setColor("blue.mp4", 0, 0, 255);
+
+    auto result = comp->renderFrame(snap, frame(5), provider);
+    ASSERT_TRUE(result.ok()) << result.message();
+    // The disabled blue clip on the top track must not cover the red one.
+    EXPECT_EQ(result->data[0], 0u);   // B
+    EXPECT_EQ(result->data[1], 0u);   // G
+    EXPECT_EQ(result->data[2], 255u); // R
 }
 
 } // namespace

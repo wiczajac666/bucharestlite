@@ -111,6 +111,9 @@ Result<void> TimelineMixdown::render(const Sequence& sequence,
     for (const auto& track : sequence.audioTracks) {
         if (track.muted() || (anySolo && !track.soloed())) continue;
         for (const bl::Clip& clip : track.clips()) {
+            // Disabled clips and video-only halves (hasAudio == false, e.g.
+            // the picture half of an A/V split) contribute no audio.
+            if (!clip.enabled || !clip.hasAudio) continue;
             if (clip.source.mediaItemId.empty()) continue;
             const double startSec = clip.timelineStart.toSeconds();
             const double endSec =

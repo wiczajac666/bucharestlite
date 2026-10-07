@@ -70,6 +70,16 @@ struct Clip {
     Duration timelineDuration{};
 
     SpeedRemap speed;
+
+    // Kdenlive stream/state flags: an A/V clip split across a video track and
+    // a linked audio track carries hasVideo/hasAudio on each half; enabled
+    // mirrors Kdenlive's "disable clip" (keeps timeline space, renders
+    // nothing). Defaults preserve the pre-split model: every clip has both
+    // streams and is enabled.
+    bool hasVideo{true};
+    bool hasAudio{true};
+    bool enabled{true};
+
     std::vector<EffectInstance> effects;
     AudioClipProps audio;
     std::optional<KeyframeTrackSet> keyframes;
@@ -89,7 +99,9 @@ inline bool operator==(const Clip& a, const Clip& b) {
            a.colorLabel == b.colorLabel && a.source == b.source &&
            a.timelineStart == b.timelineStart &&
            a.timelineDuration == b.timelineDuration &&
-           a.speed == b.speed && a.effects == b.effects &&
+           a.speed == b.speed &&
+           a.hasVideo == b.hasVideo && a.hasAudio == b.hasAudio &&
+           a.enabled == b.enabled && a.effects == b.effects &&
            a.audio == b.audio && a.keyframes == b.keyframes &&
            a.transitionOut == b.transitionOut &&
            a.subtitleText == b.subtitleText &&

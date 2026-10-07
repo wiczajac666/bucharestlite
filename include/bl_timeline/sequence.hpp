@@ -3,6 +3,7 @@
 #include <bl_timeline/sequence_settings.hpp>
 #include <bl_timeline/track.hpp>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,12 @@ struct Sequence {
     std::vector<VideoTrack> videoTracks;
     std::vector<AudioTrack> audioTracks;
     std::vector<Marker> markers;
+    // Kdenlive clip groups: sets of clip ids that move and select together.
+    // Members may reference clips that no longer exist (deleted members are
+    // filtered by groupMembers(), not rewritten); destructive track edits
+    // call pruneGroups(). Groups are unordered sets; equality/round-trips
+    // treat member order as insignificant.
+    std::vector<std::vector<ClipId>> groups;
 
     VideoTrack& addVideoTrack(const std::string& trackName = "") {
         videoTracks.emplace_back(trackName, TrackKind::Video);
@@ -26,6 +33,39 @@ struct Sequence {
     }
 
     void addMarker(const Marker& m) { markers.push_back(m); }
+
+    // --- Markers (identity is the position; markers carry no id) ---
+    std::optional<size_t> findMarkerAt(const Time& position) const;
+    bool removeMarkerAt(size_t index);
+    bool setMarkerAt(size_t index, const Marker& revised);
+
+    // --- Clip groups ---
+    // containsClip: true when any track holds `id`.
+    // groupMembers: the other *live* clips in `id`'s group ({} when ungrouped).
+    // formGroup: merges every group overlapping `ids` into one group holding
+    //            all of them; requires every id to be live and at least two
+    //            distinct ids; returns false without changes otherwise (also
+    //            false when the groups are already in the requested state).
+    // ungroup:   drops every group containing `id`.
+    // pruneGroups: removes dead ids and groups left with fewer than two
+    //            members.
+    bool containsClip(const ClipId& id) const;
+    std::vector<ClipId> groupMembers(const ClipId& id) const;
+    bool formGroup(const std::vector<ClipId>& ids);
+    bool ungroup(const ClipId& id);
+    void pruneGroups();
+
+    // --- Track structure ---
+    // insert* places a new track at `index` (`index == size()` appends).
+    // removeVideoTrack refuses to delete the last video track; remove* drops
+    // group members that lived on the deleted track. move* reorders within a
+    // kind (from == to is a no-op -> false).
+    bool insertVideoTrack(size_t index, std::string trackName = "");
+    bool insertAudioTrack(size_t index, std::string trackName = "");
+    bool removeVideoTrack(size_t index);
+    bool removeAudioTrack(size_t index);
+    bool moveVideoTrack(size_t from, size_t to);
+    bool moveAudioTrack(size_t from, size_t to);
 
     std::optional<Clip> insertClipInVideoTrack(size_t t, const Clip& clip,
                                                Time at) {

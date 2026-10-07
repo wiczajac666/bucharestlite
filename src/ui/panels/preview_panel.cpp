@@ -289,6 +289,8 @@ QString PreviewPanel::formatTimecode(bl::Time t, bl::Time total, bl::Rational fp
 }
 
 bl::Time PreviewPanel::sequenceDuration(const bl::Sequence& sequence) {
+    // Counts disabled clips too: they keep their timeline slot, so they still
+    // define how long the sequence is (see export_plan.cpp).
     bl::Time end;
     const auto scan = [&end](const std::vector<bl::Clip>& clips) {
         for (const auto& clip : clips) {

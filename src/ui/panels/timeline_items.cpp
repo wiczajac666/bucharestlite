@@ -278,11 +278,56 @@ void ClipItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget
 // ---------------------------------------------------------------------------
 namespace timeline_geometry {
 
-qreal laneTop(const bl::Sequence& seq, int flat, int videoCount) {
-    static_cast<void>(seq);
+std::vector<int> lanePermutation(int videoCount, int audioCount,
+                                 LaneOrder order) {
+    std::vector<int> perm;
+    perm.reserve(static_cast<size_t>(videoCount + audioCount));
+    switch (order) {
+    case LaneOrder::Split:
+        for (int v = 0; v < videoCount; ++v) perm.push_back(v);
+        for (int a = 0; a < audioCount; ++a) perm.push_back(videoCount + a);
+        break;
+    case LaneOrder::Mixed:
+        for (int i = 0; i < std::max(videoCount, audioCount); ++i) {
+            if (i < videoCount) perm.push_back(i);
+            if (i < audioCount) perm.push_back(videoCount + i);
+        }
+        break;
+    case LaneOrder::MixedReverse:
+        for (int i = 0; i < std::max(videoCount, audioCount); ++i) {
+            if (i < audioCount) perm.push_back(videoCount + i);
+            if (i < videoCount) perm.push_back(i);
+        }
+        break;
+    }
+    return perm;
+}
+
+int laneForFlat(const bl::Sequence& seq, int flat, LaneOrder order) {
+    const auto perm = lanePermutation(
+        static_cast<int>(seq.videoTracks.size()),
+        static_cast<int>(seq.audioTracks.size()), order);
+    for (size_t lane = 0; lane < perm.size(); ++lane) {
+        if (perm[lane] == flat) return static_cast<int>(lane);
+    }
+    return -1;
+}
+
+int flatForLane(const bl::Sequence& seq, int lane, LaneOrder order) {
+    const auto perm = lanePermutation(
+        static_cast<int>(seq.videoTracks.size()),
+        static_cast<int>(seq.audioTracks.size()), order);
+    if (lane < 0 || static_cast<size_t>(lane) >= perm.size()) return -1;
+    return perm[lane];
+}
+
+qreal laneTop(const bl::Sequence& seq, int flat, int videoCount, LaneOrder order) {
+    const auto perm = lanePermutation(
+        videoCount, static_cast<int>(seq.audioTracks.size()), order);
     qreal y = kRulerHeight;
-    for (int i = 0; i < flat; ++i) {
-        y += i < videoCount ? kVideoLaneHeight : kAudioLaneHeight;
+    for (size_t lane = 0; lane < perm.size(); ++lane) {
+        if (perm[lane] == flat) return y;
+        y += perm[lane] < videoCount ? kVideoLaneHeight : kAudioLaneHeight;
     }
     return y;
 }

@@ -136,6 +136,7 @@ struct Compositor::Impl {
         for (size_t ti = 0; ti < seq.videoTracks.size(); ++ti) {
             const auto& track = seq.videoTracks[ti];
             if (track.muted()) continue;
+            if (track.hidden()) continue;
 
             bool anySolo = false;
             for (const auto& tr : seq.videoTracks) {
@@ -144,6 +145,9 @@ struct Compositor::Impl {
             if (anySolo && !track.soloed()) continue;
 
             for (const auto& clip : track.clips()) {
+                // Disabled clips keep their timeline slot but render nothing;
+                // audio-only halves never carry picture.
+                if (!clip.enabled || !clip.hasVideo) continue;
                 if (!isClipActive(clip, t)) continue;
 
                 Duration clipRelative = t - clip.timelineStart;
@@ -224,7 +228,12 @@ struct Compositor::Impl {
         const auto& clips = seq.videoTracks[trackIdx].clips();
         for (size_t i = 0; i + 1 < clips.size(); ++i) {
             if (clips[i].id == current.id) {
-                return clips[i + 1];
+                // Skip clips that render nothing: a transition must not blend
+                // toward a disabled or audio-only clip.
+                for (size_t j = i + 1; j < clips.size(); ++j) {
+                    if (clips[j].enabled && clips[j].hasVideo) return clips[j];
+                }
+                return std::nullopt;
             }
         }
         return std::nullopt;

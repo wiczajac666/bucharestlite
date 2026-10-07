@@ -44,10 +44,13 @@ Result<void> EdlExporter::writeTimeline(std::ofstream& out) {
     for (int v = 0; v < (int)seq.videoTracks.size(); v++) {
         out << "    <videoTrack number=\"" << (v + 1) << "\">\n";
         const auto& videoTrack = seq.videoTracks[v];
+        int written = 0;
         for (int c = 0; c < (int)videoTrack.clips().size(); c++) {
             const Clip& clip = videoTrack.clips()[c];
+            // Disabled clips and audio-only halves render nothing.
+            if (!clip.enabled || !clip.hasVideo) continue;
             out << "      <clip in=\"0\" out=\"0\" number=\""
-                << (c + 1) << "\">\n";
+                << (++written) << "\">\n";
             out << "        <name>" << clip.name.c_str() << "</name>\n";
             out << "        <property name=\"transition_in\" value=\"0\"/>\n";
             out << "        <property name=\"transition_out\" value=\"0\"/>\n";
@@ -60,10 +63,13 @@ Result<void> EdlExporter::writeTimeline(std::ofstream& out) {
     for (int a = 0; a < (int)seq.audioTracks.size(); a++) {
         out << "    <audioTrack number=\"" << (a + 1) << "\">\n";
         const auto& audioTrack = seq.audioTracks[a];
+        int written = 0;
         for (int c = 0; c < (int)audioTrack.clips().size(); c++) {
             const Clip& clip = audioTrack.clips()[c];
+            // Disabled clips and video-only halves are inaudible.
+            if (!clip.enabled || !clip.hasAudio) continue;
             out << "      <clip in=\"0\" out=\"0\" number=\""
-                << (c + 1) << "\">\n";
+                << (++written) << "\">\n";
             out << "        <name>" << clip.name.c_str() << "</name>\n";
             out << "        <property name=\"transition_in\" value=\"0\"/>\n";
             out << "        <property name=\"transition_out\" value=\"0\"/>\n";
