@@ -3,6 +3,43 @@
 ## Unreleased
 
 ### Added
+- **Kdenlive-parity timeline, phase 1: model + controller foundations**
+  (no visible UI change yet — the UI phases build on these seams):
+  - **Clip stream flags** `hasVideo`, `hasAudio`, `enabled` (additive JSON
+    keys; older projects load as both-streams-and-enabled). The compositor
+    skips disabled and audio-only clips and clips on hidden tracks, and the
+    audio mixdown, meter analysis and EDL exporter skip disabled or
+    audio-less clips. Duration scans in export planning and the preview
+    panel deliberately ignore the flags so timeline totals do not change
+    when clips are muted.
+  - **Track `hidden` flag** and per-clip `setClipEnabled` (mute without
+    deleting).
+  - **Clip groups, markers and track structure on `Sequence`**: groups
+    (JSON key `"groups"`, span video + linked-audio tracks, merge on
+    overlap, prune on track removal), marker find/set/remove mutators, and
+    `insert`/`remove`/`moveTrack` (removing the last video track is
+    refused).
+  - **`TimelineEditController` lockdown and new mutators**: layout edits on
+    a locked track refuse with `"Track is locked"`; every refusal is
+    reported through `lastError`. New: `setClipEnabled`, `slipClip`,
+    `rollTrim`, `groupClips`/`ungroupClips`, `splitAudioVideo` (halves
+    linked as a group), timeline-marker add/edit/remove,
+    `insert/remove/moveTrack`, `liftZone`/`extractZone` (zone ops skip
+    locked tracks).
+  - **`timeline_geometry::LaneOrder`** (Split / Mixed / MixedReverse) — the
+    flat-index ↔ lane mapping seam for the upcoming A/V lane UI; `Split`
+    reproduces the current layout exactly.
+
+### Fixed
+- **Clip edges and markers did not participate in snapping**:
+  `TimelineEditController::snapToNearest` returned after frame-grid
+  rounding before its clip-edge/marker loops ever ran (the rounded frame
+  always compared equal), so drop/move snapping never considered clip
+  boundaries or markers. It now picks the nearest edge/marker within the
+  pixel tolerance and falls back to frame rounding, and marker positions
+  are snap candidates alongside clip edges.
+
+### Added
 - **Matroska export in the export engine**: the muxer now picks the soft-text
   subtitle codec from the resolved output format instead of assuming MP4 —
   `MOV_TEXT` for MP4/MOV, SubRip for Matroska, WebVTT for WebM — so a timeline

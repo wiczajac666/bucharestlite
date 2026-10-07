@@ -168,12 +168,14 @@ Sequence
  ├── settings : fps, resolution, pixelAspect, sampleRate, channelLayout
  ├── videoTracks : VideoTrack[]           // index 0 = topmost
  ├── audioTracks : AudioTrack[]
+ ├── groups : ClipId[][]                  // flat clip-id groups (Kdenlive-parity; JSON key "groups")
  └── markers : Marker[]
 Track (kind: video | audio)
- ├── name, mute, solo, lock, height
+ ├── name, mute, solo, lock, hidden, height
  └── clips : Clip[]                       // invariant: non-overlapping, sorted by start
 Clip
  ├── id, name, colorLabel
+ ├── hasVideo, hasAudio, enabled          // stream flags; JSON load defaults = legacy behaviour (§19 #12)
  ├── source : SourceRef                   // MediaBinItem id + source In/Out
  ├── start, duration                      // timeline position (TimeRange)
  ├── speed : SpeedRemap {rate, reversed}  // feature #5
@@ -390,6 +392,8 @@ Edit semantics decisions (v1):
 - Overwrite is the default drag behavior; insert requires modifier (Shift).
 - Ripple moves subsequent clips on affected tracks only (v1); "all tracks" ripple is a toggle.
 - Transitions occupy overlap space between adjacent clips (center-aligned by default); rendering treats the overlap region as a two-input effect.
+- Clip stream flags (`hasVideo`/`hasAudio`/`enabled`) gate where clips are *consumed* — compositor, mixdown, meters, EDL — but deliberately not duration scans (export planning, preview totals), so muting a clip never changes reported timeline duration (§19 #12).
+- Track locks gate timeline **layout** mutations in `TimelineEditController` (refusal: `"Track is locked"`); grouping, marker and track-structure edits are intentionally ungated, and zone ops skip locked tracks instead of failing. Refusals surface through `lastError` (§19 #12).
 
 ### 8.3 bl_render — Compositing & Preview
 
@@ -474,7 +478,7 @@ Bundled presets: YouTube 1080p/1440p/4K, Vimeo HD/4K, DVD (MPEG-2 in MPG contain
 | Widget | Implementation notes |
 |---|---|
 | MainWindow | Dockable panels via `QMainWindow` save/restore; layouts named + persisted; dark/light themes via QSS |
-| TimelinePanel | `QGraphicsView` scene; tracks as lanes; clips as items with trim handles, fade handles; ruler + playhead; zoom (px/frame adaptive); snap indicator overlay; A/V linked selection |
+| TimelinePanel | `QGraphicsView` scene; tracks as lanes; clips as items with trim handles, fade handles; ruler + playhead; zoom (px/frame adaptive); snap indicator overlay; A/V linked selection; flat-index↔lane mapping delegated to `timeline_geometry::LaneOrder` (Split / Mixed / MixedReverse — Split is the legacy layout, so the P1 seam is invisible until the UI phases adopt it) |
 | PreviewPanel | `QOpenGLWidget` hosting `GLRenderBackend`; transport controls; jog/shuttle; frame-step buttons (feature #4) |
 | MediaBinPanel | Tree/list hybrid, search-as-you-type filter, drag-out proxy items, metadata columns |
 | InspectorPanel | Context-sensitive: clip props, speed, keyframe editor (curve view), effect stack with add/remove/reorder |
@@ -759,6 +763,7 @@ No open questions remain for Gate 1.
 9. **Bezier keyframes evaluated as smoothstep** (`u²(3−2u)`) in v1; editable per-keyframe handles arrive with the RND-4/UI-4 curve editor. Also: keyframe times are clip-relative (survive move/retime), and fragment-producing edits (split / insert-split / overwrite remnants) partition keys half-open — a key exactly on the cut goes to the right fragment. Recorded 2026-08-26 (TL-6).
 10. **Transitions stored as edge-metadata** (`Clip.transitionOut`) rather than physically overlapping clips. Virtual overlap at render time (RND-5). Single-owner: only the left clip holds the transition spec; dual `transitionsIn/out` refs from §5.2 spec deferred to avoid desync. A cheap `pruneInvalidTransitions()` sweep is called after every mutating op and drops any transition whose adjacency or duration bound has been invalidated. Keyframe pruning is inherent to the half-open partition rules in #9; transition pruning is adjacency-aware. Recorded 2026-08-26 (TL-7).
 11. **One `Muxer` for every container; subtitle codec chosen per resolved output format** (Matroska P2). Reason: the format is already resolved by `avformat_alloc_output_context2`, so keying off `oformat->name` is both more robust than string-matching the filename (`.m4v` → `mp4`, `.mka` → `matroska`) and the only way to tell `webm` from `matroska`, which share a demuxer family. `MOV_TEXT` is MP4-only and `matroskaenc` rejects it, so soft text subtitles use `SUBRIP` (Matroska's `S_TEXT/UTF8`) and `WEBVTT` for WebM; both take the bare authored UTF-8 with timing from the block header, which is what the subtitle writer already emits. The unused `MKVMuxer` was deleted rather than extended — it hardcoded H.264/AAC, had no extradata setters, and so could never satisfy §19 item 7's `CodecPrivate` requirement. Recorded 2026-10-01.
+12. **Kdenlive-parity P1 foundations** (TL-9, 2026-10-07; model + controller only, no visible UI change). Decisions that deviate from or extend the v1 sketches above: (a) **Stream flags** — `Clip` gains `hasVideo`/`hasAudio`/`enabled`; JSON load defaults (`j.value(...)` with `true`) mean legacy projects open as both-streams-and-enabled, so the new keys are purely additive. Gating applies only where clips are *consumed* (compositor skips disabled/audio-only clips and clips on hidden tracks; mixdown, `meterLevelsAt` and the EDL exporter skip `!enabled || !hasAudio`); duration scans in `export_plan.cpp` and `preview_panel.cpp` are deliberately **not** gated so per-track/total durations never jump when clips are muted. (b) **Groups live in `Sequence::groups`** (JSON key `"groups"`, flat id lists) instead of per-track structures — a Kdenlive group routinely spans the video track and its linked audio track. Overlapping groups merge on `formGroup`, dead ids are filtered on read and pruned on track removal, and `groupClips` refuses a no-change grouping ("Clips are already grouped"). (c) **Lock gating rule** — only layout mutators in `TimelineEditController` check `ensureEditable` ("Track is locked"); `groupClips`/`ungroupClips`, marker edits and `insert/remove/moveTrack` are intentionally ungated (they do not reflow a locked track's clips — `removeTrack` additionally refuses the last video track and clips on the removed track, in that precedence), and zone ops (`liftZone`/`extractZone`) skip locked tracks rather than failing the whole op. Audio-path reads (`audioTracks`) remain lock-agnostic because they are reads. (d) **`timeline_geometry::LaneOrder`** (`Split`/`Mixed`/`MixedReverse` with `laneForFlat`/`flatForLane`/`laneTop`) is the seam the later UI phases will consume; `Split` reproduces the pre-P1 layout exactly, which is why P1 ships with zero visible change. (e) **`snapToNearest` fix** — the clip-edge/marker loops were dead code: the early return `distanceInFrames(best, t) == 0` always fired because `best` came from rounding `t` to the frame grid, so edges and markers were never considered. It now picks the nearest edge/marker within `maxDistanceFrames` and falls back to frame rounding, with marker positions added as snap candidates. Recorded 2026-10-07.
 
 ## 20. Gate 1 Sign-Off
 
