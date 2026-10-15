@@ -6,9 +6,34 @@ artifacts for Windows:
 - `bucharest-lite-<version>-windows-x64-setup.exe` — NSIS per-machine installer (Admin)
 - `bucharest-lite-<version>-windows-x64-portable.zip` — run from anywhere, no install
 
+## Version numbering
+
+`project(BucharestLite VERSION ...)` in the top-level `CMakeLists.txt` is the
+**single source of truth**. Nothing in this directory hardcodes a version:
+
+| Where | How it gets the version |
+|---|---|
+| `bucharest-lite.exe` metadata | `version.rc.in` is `configure_file`'d from `PROJECT_VERSION_{MAJOR,MINOR,PATCH}` + `BL_VERSION_BUILD` |
+| Installer filename / uninstaller `DisplayVersion` | `build_installer.ps1` reads `windows-version.txt` (written by CMake at configure time) and passes `-DAPP_VERSION=` to `makensis` |
+| Portable zip filename | same `$Version` variable |
+
+To cut a release, edit **only** the `VERSION` in `CMakeLists.txt` (and add the
+matching `CHANGELOG.md` heading, which is kept separate on purpose).
+
+These used to be four independent hardcoded copies. They drifted: the 1.7.38
+release shipped an exe whose `VS_FIXEDFILEINFO` still read `1.0.1.0` while
+only the string fields said `1.7.38`, so Explorer's *Details* tab, the
+Programs-and-Features entry and the NSIS `DisplayVersion` all disagreed. If you
+ever need to reintroduce a hardcoded version, don't — add a `configure_file` or
+a stamp file instead.
+
 ## Host prerequisites
 
-Run on a Windows x64 build host (the CI VM is Windows 10 Pro 22H2):
+Run on a Windows x64 build host (the CI VM is Windows 10 Pro 22H2), or just push
+a `v*` tag / dispatch the `windows-package` job in `.github/workflows/ci.yml`,
+which runs this script on `windows-latest` and uploads both artifacts. That job
+also asserts the built exe's `FILEVERSION` matches `project(... VERSION ...)`
+before it will publish anything.
 
 | Tool | Version used | Notes |
 |---|---|---|

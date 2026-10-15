@@ -1,11 +1,18 @@
 !define APP_NAME "Bucharest Lite"
 !define APP_NAME_SHORT "BucharestLite"
-!define APP_VERSION "1.7.38"
 !define APP_PUBLISHER "BucharestLite contributors"
 !define APP_EXE "bucharest-lite.exe"
 !define APP_ICON "bucharest-lite.ico"
 !define APP_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME_SHORT}"
 !define APP_REG_KEY "Software\BucharestLite"
+; APP_VERSION is passed on the makensis command line by build_installer.ps1,
+; which reads it from the CMake project version. It is deliberately NOT
+; defaulted here: a second hardcoded copy is how this script and
+; version.rc.in fell out of sync with CMakeLists.txt in the first place.
+!ifndef APP_VERSION
+    !error "APP_VERSION is not defined. Build via build_installer.ps1, which passes -DAPP_VERSION= from the CMake project version."
+!endif
+
 ; APP_STAGE_DIR is set on the makensis command line by build_installer.ps1.
 !ifndef APP_STAGE_DIR
     !define APP_STAGE_DIR "staging"

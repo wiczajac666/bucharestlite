@@ -1,5 +1,5 @@
 Name:           bucharest-lite
-Version:        1.7.38
+Version:        1.9.14
 Release:        1%{?dist}
 Summary:        Bucharest Lite - open-source non-linear video editor (NLE)
 
@@ -60,16 +60,41 @@ gtk-update-icon-cache %{_datadir}/icons/hicolor &> /dev/null || :
 %{_datadir}/metainfo/com.github.harlemi.bucharestlite.metainfo.xml
 %{_datadir}/icons/hicolor/*/apps/bucharest-lite.png
 %{_datadir}/icons/hicolor/scalable/apps/bucharest-lite.svg
-%{_datadir}/bucharest-lite/plugins/video/*.so
-%{_datadir}/bucharest-lite/plugins/audio/*.so
+# Arch-dependent files belong under libdir, not datadir.
+%{_libdir}/bucharest-lite/plugins/video/*.so
+%{_libdir}/bucharest-lite/plugins/audio/*.so
 %doc README.md FEATURES.md CHANGELOG.md PROJECT_STATUS.md
 
 %changelog
-* Sun Sep 27 2026 Harlemi <harlemi@www> - 1.7.38-1
+%changelog
+* Wed Oct 14 2026 Wictoria Zajac <wiczajac666@github.com> - 1.9.14-1
+- Release 1.9.14: completes the v1 feature backlog. PSNR/SSIM quality
+  comparison (Tools -> Compare Quality...), media-bin folders/collections,
+  project templates (File -> New from Template...), transition rendering on the
+  shared composition path (crossfade, dissolve, fade-through-black, wipe,
+  slide), multi-monitor full-screen preview, and stream to IP (RTMP/FLV and
+  UDP/MPEG-TS, H.264 + AAC, no real-time pacing; SRT not supported in v1).
+  Removed the dead proxy_generator stub (proxy editing remains post-v1).
+* Wed Oct 14 2026 Wictoria Zajac <wiczajac666@github.com> - 1.9.11-1
+- Release 1.9.11: video scopes (luma/RGB histogram, luma waveform, chroma
+  vectorscope in a new Scopes dock), in-place title re-editing, timeline audio
+  waveform display, and the title editor / subtitle-import / image-sequence
+  import workflows.
+* Tue Oct 10 2026 Wictoria Zajac <wiczajac666@github.com> - 1.8.14-1
+- Release 1.8.14: media bin context menu with "Add to Timeline", double-click
+  to add a clip without dragging, and precise status-bar reasons for every
+  refused drag or drop; double-click no longer removes the row.
+* Tue Oct 06 2026 Wictoria Zajac <wiczajac666@github.com> - 1.8.12-1
+- Release 1.8.12: Matroska subtitle export in the engine, plugin ABI v3 with
+  codec extradata publication, and packaging fixes.
+- Codec plugins moved from %{_datadir} to %{_libdir}/bucharest-lite/plugins to
+  match the runtime scan root; arch-dependent files do not belong in /usr/share.
+
+* Sun Sep 27 2026 Wictoria Zajac <wiczajac666@github.com> - 1.7.38-1
 - Release 1.7.38: alpha compositing, 5 new effects, speed/reverse editing, soft subtitles
 - Rebuilt from v1.7.38 sources for x86_64
 
-* Fri Sep 18 2026 Harlemi <harlemi@www> - 1.0.1-1
+* Fri Sep 18 2026 Wictoria Zajac <wiczajac666@github.com> - 1.0.1-1
 - Initial Fedora RPM packaging for Bucharest Lite 1.0.1
 - Wire bl_export module into the cmake build (BL_BUILD_EXPORT)
 - Install desktop entry, AppStream metainfo and hicolor icon set

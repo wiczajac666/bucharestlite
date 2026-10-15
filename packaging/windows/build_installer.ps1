@@ -14,9 +14,10 @@
 #   $env:FFMPEG_ROOT = 'C:\dev\ffmpeg-gyan\ffmpeg-9.0.2-full_build-shared'
 #   .\build_installer.ps1
 #
-# Produces, in packaging\windows\:
-#   bucharest-lite-1.7.38-windows-x64-setup.exe
-#   bucharest-lite-1.7.38-windows-x64-portable.zip
+# Produces, in packaging\windows\, where <version> is `project(... VERSION ...)`
+# read from the top-level CMakeLists.txt (never hardcoded here):
+#   bucharest-lite-<version>-windows-x64-setup.exe
+#   bucharest-lite-<version>-windows-x64-portable.zip
 
 param(
     [string]$Preset = 'windows-release',
@@ -31,7 +32,6 @@ $ProgressPreference = 'SilentlyContinue'
 $Ps1Dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $Ps1Dir)
 $BuildDir = Join-Path $RepoRoot "build\windows\$Preset"
-$Version = '1.7.38'
 
 if (-not $QtRoot)     { throw 'QT_ROOT not set.' }
 if (-not $FfmpegRoot) { throw 'FFMPEG_ROOT not set.' }
@@ -87,7 +87,22 @@ $env:QT_ROOT = $QtRoot
 $env:FFMPEG_ROOT = $FfmpegRoot
 $env:PATH = "$FfmpegBin;$QtBin;$env:PATH"
 Invoke-VcEnv "cd /d `"$RepoRoot`" && cmake --preset $Preset"
-Invoke-VcEnv "cd /d `"$RepoRoot`" && cmake --build --preset $Preset"
+Invoke-VcEnv "cd /d `"$RepoRoot`" && cmake --build --preset $Preset --parallel"
+
+# The project version is the single source of truth for every version number
+# this script stamps: it drives the artifact filenames, the NSIS
+# DisplayVersion and (via version.rc.in) the exe's own FILEVERSION. Read it
+# back from the file CMake just wrote rather than keeping a fourth hardcoded
+# copy in this script, which is what let 1.7.38 ship with 1.0.1.0 metadata.
+$VersionFile = Join-Path $BuildDir 'windows-version.txt'
+if (-not (Test-Path $VersionFile)) {
+    throw "Version stamp not found at $VersionFile (expected after 'cmake --preset $Preset')."
+}
+$Version = (Get-Content -Path $VersionFile -Raw).Trim()
+if ($Version -notmatch '^\d+(\.\d+)*$') {
+    throw "Could not parse a version from $VersionFile (got '$Version')."
+}
+Write-Host "==> Packaging version $Version"
 
 Write-Host "==> Running tests"
 Invoke-VcEnv "cd /d `"$RepoRoot`" && ctest --preset $Preset"
@@ -136,7 +151,7 @@ Set-Content -Path "$StageDir\deploy.nsh" -Value $deployNsh -Encoding Ascii
 Write-Host "==> Building NSIS installer"
 Push-Location $Ps1Dir
 try {
-    & $Makensis "-DAPP_STAGE_DIR=$StageDir" bucharest-lite.nsi
+    & $Makensis "-DAPP_VERSION=$Version" "-DAPP_STAGE_DIR=$StageDir" bucharest-lite.nsi
     if ($LASTEXITCODE -ne 0) { throw 'makensis failed.' }
 } finally {
     Pop-Location

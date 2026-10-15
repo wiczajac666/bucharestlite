@@ -6,12 +6,21 @@ Build-Depends: debhelper-compat (= 13),
                cmake,
                pkgconf,
                qt6-base-dev,
-               nlohmann-json3-dev,
+               libgl1-mesa-dev,
+               libxkbcommon-dev,
                libavcodec-dev,
                libavformat-dev,
                libavutil-dev,
                libswscale-dev,
                libswresample-dev
+# nlohmann-json3-dev is deliberately absent: the tree vendors the header in
+# third_party/nlohmann and CMake prefers find_package -> system headers ->
+# vendored copy -> FetchContent, so the build never needs the -dev package.
+# Listing it only made dpkg-checkbuilddeps fail on machines that had the
+# vendored path satisfied.
+#
+# GoogleTest is likewise not listed: tests/ pulls it via FetchContent, and the
+# Debian build sets BL_BUILD_TESTS=OFF anyway.
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
 Homepage: https://github.com/wiczajac666/bucharestlite

@@ -1,3 +1,79 @@
+bucharest-lite (1.9.14-1) unstable; urgency=medium
+
+  * Release 1.9.14: completes the v1 feature backlog.
+  * PSNR/SSIM quality comparison (Tools → Compare Quality…) — Qt-free
+    bl_render/quality_metrics analyzer wired to a UI-only dialog.
+  * Media-bin folders/collections (additive JSON, undoable folder operations,
+    deleting a folder rehomes its media and children to the root).
+  * Project templates (File → New from Template…; built-ins plus user
+    templates under <userDataRoot>/templates).
+  * Transition rendering on the shared composition path (crossfade, dissolve,
+    fade-through-black, wipe, slide with alignment).
+  * Multi-monitor full-screen preview (View → Full Screen Preview).
+  * Stream to IP: RTMP (FLV) and UDP (MPEG-TS), H.264 + AAC, no real-time
+    pacing; SRT is not supported in v1.
+  * Removed the dead proxy_generator stub; proxy editing remains post-v1.
+
+ -- Wictoria Zajac <wiczajac666@github.com>  Wed, 14 Oct 2026 18:00:00 +0300
+
+bucharest-lite (1.9.11-1) unstable; urgency=medium
+
+  * Release 1.9.11: video scopes, in-place title re-editing, timeline audio
+    waveform display, and the title editor / subtitle-import / image-sequence
+    import workflows.
+  * New Scopes dock (Ctrl+6): Qt-free bl::computeScopes fills Rec.709
+    luma + per-channel RGB histograms, a luma waveform grid and a chroma
+    vectorscope in one subsampled pass over the composited preview frame
+    (fed by a new PreviewPanel::frameRendered tap).
+  * Edit a title in place: right-click a title clip or its media-bin row and
+    choose "Edit Title…"; ProjectController::updateTitle rewrites the spec and
+    still as one undoable command (undo re-renders from the old spec).
+  * Audio waveform display drawn inside every audio-bearing timeline clip,
+    reused from the mixer meter analysis (bl::waveformColumns).
+  * Title editor (File → Add Title…), SRT/ASS/WebVTT subtitle import, and
+    image-sequence (frame-run) import.
+
+ -- Wictoria Zajac <wiczajac666@github.com>  Wed, 14 Oct 2026 12:00:00 +0300
+
+bucharest-lite (1.8.14-1) unstable; urgency=medium
+
+  * Release 1.8.14: media bin context menu with "Add to Timeline", double-click
+    to add without dragging, and precise status-bar reasons for every refused
+    drag or drop.
+  * Right-click a media row → Add to Timeline / Remove from Project (empty
+    area shows no menu; right-clicking selects the row). Double-click or Enter
+    now adds the clip instead of deleting the row — itemActivated had been
+    wired to removeSelected() since the panel was written.
+  * TimelinePanel::addMediaToTimeline() probes the media, picks the first
+    compatible lane (video → first video lane, audio-only → first audio lane)
+    and appends at that lane's end as one undoable command; every refusal
+    (missing media, unreadable file, no streams, unknown duration, no
+    compatible track, occupied end) is reported through statusMessage.
+  * Drop refusals state their reason (ruler, occupied spot, incompatible
+    track, unknown duration, unreadable file, no room for all files),
+    deduplicated during drag-move; a partly readable file-manager batch still
+    drags with a warning; dragging a media row shows a row pixmap.
+
+ -- Wictoria Zajac <wiczajac666@github.com>  Tue, 06 Oct 2026 13:30:00 +0300
+
+bucharest-lite (1.8.12-1) unstable; urgency=medium
+
+  * Release 1.8.12: Matroska subtitle export in the engine, plugin ABI v3 with
+    codec extradata publication, and packaging fixes.
+  * Codec plugins now install to ${libdir}/bucharest-lite/plugins instead of
+    /usr/share. Arch-dependent files under /usr/share are a Debian policy
+    violation and lintian rejected every build with
+    arch-dependent-file-in-usr-share. The install destination and the runtime
+    scan root now derive from one CMake variable.
+  * This also fixes Flatpak, where the /usr/share path never existed inside the
+    /app sandbox, so the bundle shipped plugins the app could not find.
+  * Added docs/bucharest-lite.1 (fixes no-manual-page).
+  * Fixed the invalid maintainer address in the 1.0.0/1.0.1 entries, and
+    unified the package author across debian/ and rpm/ on
+    wiczajac666@github.com.
+
+ -- Wictoria Zajac <wiczajac666@github.com>  Tue, 06 Oct 2026 00:00:00 +0000
+
 bucharest-lite (1.7.38-1) unstable; urgency=medium
 
   * Feature release 1.7.38: alpha compositing, five new video effects,
@@ -19,10 +95,10 @@ bucharest-lite (1.0.1) unstable; urgency=low
   * Patch release 1.0.1 — duplicate CMake option fixed, redundant
     BL_BUILD_EXPORT removed.
 
- -- harlemi <harlemi@www>  Tue, 15 Sep 2026 21:05:08 +0300
+ -- Wictoria Zajac <wiczajac666@github.com>  Tue, 15 Sep 2026 21:05:08 +0300
 
 bucharest-lite (1.0.0) unstable; urgency=low
 
   * Initial release.
 
- -- harlemi <harlemi@www>  Tue, 15 Sep 2026 21:05:08 +0300
+ -- Wictoria Zajac <wiczajac666@github.com>  Tue, 15 Sep 2026 21:05:08 +0300
