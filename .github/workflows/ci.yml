@@ -195,15 +195,23 @@ jobs:
           if (-not $exe) { throw 'bucharest-lite.exe was not produced.' }
 
           $fi = (Get-Item $exe.FullName).VersionInfo
+          # The resource's *string* fields carry the 3-part project version, so
+          # only the numeric FILEVERSION/PRODUCTVERSION append the build
+          # component (0). Compare each against what it actually holds.
+          $numeric = "$($fi.FileMajorPart).$($fi.FileMinorPart).$($fi.FileBuildPart).$($fi.FilePrivatePart)"
           "project version : $version"
           "app FileVersion : $($fi.FileVersion)"
           "app ProductVer. : $($fi.ProductVersion)"
+          "app numeric     : $numeric"
 
-          if ($fi.FileVersion -ne $expected) {
-            throw "bucharest-lite.exe FileVersion is '$($fi.FileVersion)', expected '$expected'."
+          if ($fi.FileVersion -ne $version) {
+            throw "bucharest-lite.exe FileVersion is '$($fi.FileVersion)', expected '$version'."
           }
-          if ($fi.ProductVersion -ne $expected) {
-            throw "bucharest-lite.exe ProductVersion is '$($fi.ProductVersion)', expected '$expected'."
+          if ($fi.ProductVersion -ne $version) {
+            throw "bucharest-lite.exe ProductVersion is '$($fi.ProductVersion)', expected '$version'."
+          }
+          if ($numeric -ne $expected) {
+            throw "bucharest-lite.exe numeric FILEVERSION is '$numeric', expected '$expected'."
           }
 
           $setup = Get-ChildItem `
