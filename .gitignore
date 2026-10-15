@@ -1,5 +1,6 @@
 build/
 build-*/
+build2/
 obj-*/
 .cache/
 compile_commands.json
@@ -8,6 +9,13 @@ compile_commands.json
 
 # packaging artifacts
 debian/staging/
+# dpkg-buildpackage scratch
+debian/.debhelper/
+debian/bucharest-lite/
+debian/debhelper-build-stamp
+debian/files
+debian/*.substvars
+debian/*.debhelper.log
 doc-pak/
 description-pak
 *.deb
