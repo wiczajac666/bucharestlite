@@ -66,7 +66,6 @@ gtk-update-icon-cache %{_datadir}/icons/hicolor &> /dev/null || :
 %doc README.md FEATURES.md CHANGELOG.md PROJECT_STATUS.md
 
 %changelog
-%changelog
 * Wed Oct 14 2026 Wictoria Zajac <wiczajac666@github.com> - 1.9.14-1
 - Release 1.9.14: completes the v1 feature backlog. PSNR/SSIM quality
   comparison (Tools -> Compare Quality...), media-bin folders/collections,
