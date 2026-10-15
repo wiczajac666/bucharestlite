@@ -10,17 +10,17 @@ Bucharest Lite implements the features below. Items marked **planned** are
 documented gaps, not shipped functionality (see `docs/user-guide.md` →
 "Known limitations").
 
-| Category | Features (v1.7.38) |
+| Category | Features (unreleased) |
 |---|---|
-| **Core Editing** | Multi-track timeline ✅, drag-and-drop import (media bin → timeline) ✅, trimming/splitting/ripple editing ✅, 3-point editing ✅, snapping ✅, zoom ✅, frame-accurate step editing ✅, speed/time remapping + reverse ✅, keyframeable properties ✅ |
-| **Transitions & Effects** | Keyframeable video effects — color correction, box blur, chroma key, sharpen, hue/saturation, levels/crop, greyscale, transform ✅; effect params as sliders ✅; transition *model* (fade/wipe/dissolve edge-metadata) ✅, transition rendering in preview/export *planned* |
+| **Core Editing** | Multi-track timeline ✅, drag-and-drop import (file manager → media bin / timeline, and media bin → timeline) ✅, trimming/splitting/ripple editing ✅, 3-point editing ✅, snapping ✅, zoom ✅, frame-accurate step editing ✅, speed/time remapping + reverse ✅, keyframeable properties ✅ |
+| **Transitions & Effects** | Keyframeable video effects — color correction, color wheels (lift/gamma/gain), box blur, chroma key, sharpen, hue/saturation, levels/curves, greyscale, transform ✅; `.cube` LUT import (1D/3D) ✅; effect params as sliders ✅; transition *model* (fade/wipe/dissolve edge-metadata) ✅, transition rendering (crossfade, dissolve, fade-through-black, wipe, slide with alignment) in preview/export ✅ |
 | **Compositing** | Layer-based alpha blending (premultiplied) ✅, chroma key ✅, picture-in-picture via opacity/position keyframes ✅; masking/roto *planned* |
-| **Titles & Text** | Per-clip soft subtitles (Inspector text → MOV_TEXT stream in MP4) ✅; SRT/ASS/WebVTT import *planned*; title editor, scrolling credits, lower thirds, SVG/animated titles *planned* |
-| **Audio** | Multi-track mixer with gain/pan/M/S ✅, live L/R peak-dB meters ✅, audio export mixdown (AAC/FLAC/Opus/Vorbis) ✅; waveform display, audio syncing tools *planned* |
-| **Color Grading** | Brightness/contrast/gamma color correction ✅; color wheels/curves, 3D LUT (`.cube`) import, scopes *planned* |
-| **Media & Codecs** | 9 FFmpeg-backed codec plugins (H.264, VP9, AV1, Theora, MPEG-4, AAC, FLAC, Vorbis, Opus) ✅, format detection + metadata probe ✅, media-bin thumbnails + metadata ✅, batch export ✅, Matroska import ✅; Matroska export, image-sequence import, proxy editing *planned* |
-| **Export & Rendering** | Custom export settings, MP4 + WebM, batch queue with persistence ✅; render presets (YouTube/Vimeo/DVD/Blu-ray/mobile), PSNR/SSIM, stream-to-IP, Matroska, per-clip/per-range export *planned* |
-| **UI & Workflow** | Dockable layouts ✅, remappable keyboard shortcuts ✅, dark/light themes ✅, unlimited undo/redo ✅, media-bin search/filter ✅, project auto-save + crash recovery ✅; multi-monitor, project templates, bin folders/collections *planned* |
+| **Titles & Text** | Per-clip soft subtitles (Inspector text → MOV_TEXT/subrip/WebVTT stream) ✅; SRT/ASS/WebVTT import (File → Import Subtitles…) ✅; text title editor (File → Add Title…, rendered to a transparent PNG still with font/colour/outline/background/position controls) ✅; re-edit a title in place (Edit Title… on the bin row or a clip) ✅; scrolling credits, lower thirds, SVG/animated titles *planned* |
+| **Audio** | Multi-track mixer with gain/pan/M/S ✅, live L/R peak-dB meters ✅, audio export mixdown (AAC/FLAC/Opus/Vorbis) ✅, timeline waveform display on audio clips ✅; audio syncing tools *planned* |
+| **Color Grading** | Brightness/contrast/gamma color correction ✅; color wheels (lift/gamma/gain) ✅; levels/curves ✅; 3D LUT (`.cube`) import ✅; video scopes (Scopes dock: luma/RGB histogram, luma waveform, chroma vectorscope) ✅ plus playhead-driven audio meters ✅ |
+| **Media & Codecs** | 9 FFmpeg-backed codec plugins (H.264, VP9, AV1, Theora, MPEG-4, AAC, FLAC, Vorbis, Opus) ✅, format detection + metadata probe ✅, media-bin thumbnails + metadata ✅, image-sequence import (PNG/JPG/EXR/DPX… via `%04d` patterns) ✅, batch export ✅, Matroska import ✅, Matroska export ✅; proxy editing *planned* |
+| **Export & Rendering** | Custom export settings, MP4 + WebM + Matroska, render presets (YouTube/Vimeo/WebM/DVD/Blu-ray/mobile) ✅, per-range (timeline zone) + per-clip export ✅, batch queue with persistence ✅, stream to IP (RTMP → FLV / UDP → MPEG-TS, H.264 + AAC, no SRT) ✅, PSNR/SSIM comparison (Tools → Compare Quality…) ✅ |
+| **UI & Workflow** | Dockable layouts ✅, remappable keyboard shortcuts ✅, dark/light themes ✅, unlimited undo/redo ✅, media-bin search/filter ✅, media-bin folders/collections ✅, project auto-save + crash recovery ✅, new-project from a template ✅, multi-monitor full-screen preview ✅ |
 | **Advanced** | Portable/standalone builds (Windows portable zip, Flatpak) ✅; multi-cam, motion tracking, stabilization, 8K, online resources, OpenFX/frei0r/LADSPA plugin architecture — v2+ |
 
 ## 📦 Quick Start
@@ -197,6 +197,6 @@ See [Developer Guide](docs/developer-guide.md) for full plugin development tutor
 
 ---
 
-**Version 1.7.38** — September 2026
+**Version 1.9.14** — October 2026
 
 *Built with passion by the open-source community.*

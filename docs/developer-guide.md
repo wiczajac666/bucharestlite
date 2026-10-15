@@ -379,6 +379,48 @@ and stream kind, snaps the start, shows a placement ghost (green valid / red
 overlap), routes video/audio to matching lanes and commits one undoable "Add
 clip" command per drop through `TimelineEditController::addClip`.
 
+## External media drops (file manager → bin / timeline)
+
+Both panels also accept `text/uri-list`, which is what every OS file manager
+publishes. `media_bin_detail::localFilePaths(const QMimeData*)` is the single
+reader: it keeps only `isLocalFile()` entries and drops directories, so a
+selection mixing files and folders still imports the files. Both panels keep
+their own drag-enter/move/drop handlers and simply ignore any other payload.
+
+`MediaBinList` is in `DragDrop` mode (it has to be, to receive drops at all) but
+its `dragEnterEvent` rejects the internal `kMediaBinMime` payload on purpose:
+accepting it would hand the row back to `QListWidget`'s own move handling and
+let users reorder the bin by dragging. A row drag out of the bin is unaffected.
+
+`TimelineView::DropSession` holds a **vector** of `DropCandidate`s — one per
+dragged item — rather than a single id, so a multi-file selection works. Two
+consequences worth knowing:
+
+- **External files are probed on drag-enter, not on drop.** `startDropSessionFromFiles()`
+  calls `MediaSource::probe` for every candidate so the ghost can show real
+  durations. Nothing is imported until the commit, so a drag that is abandoned
+  (`dragLeaveEvent`) leaves no media-bin entry behind. Probing N files on the
+  GUI thread is a real cost for very large selections — it is the same blocking
+  work UI-10 already did once per drag, just repeated per file.
+- **The session must be snapshotted before the commit mutates anything.**
+  `addToMediaBin`/`addClip` emit `projectChanged`/`timelineChanged`, the panel
+  rebuilds, and the rebuild calls `cancelActiveGesture()` → `clearDropSession()`.
+  `finishDropSession` therefore copies `dropSession_.items` into a local and
+  clears the session *before* the first push. Reading the session after a commit
+  is a use-after-clear (it asserted on `items.front()`).
+
+Placement rules in `dropTargetAt()`: the first candidate must fit exactly on the
+lane under the cursor (an occupied slot rejects the drop rather than silently
+relocating it — the UI-10 behaviour), while later candidates of the same drag may
+spill onto the next compatible lane. Validation runs against a **copy** of the
+sequence into which each planned clip is inserted, so later candidates see the
+space the earlier ones reserved.
+
+An importing drop pushes its imports and clips inside one
+`UndoStack::beginMacro`/`endMacro` pair, so a multi-file drop is one Ctrl+Z.
+`UndoStack` asserts on nested macros, and the macro must begin and end on the
+same thread — keep the pair tight around the commit.
+
 The filter box is a plain substring match (case-insensitive) over the item
 name, implemented in the widget-free `media_bin_detail::matchesFilter` helper so
 it is unit-testable without a QApplication.

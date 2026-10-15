@@ -428,6 +428,10 @@ public: void play(); void pause(); void seek(Time, SeekMode exact|fast);
 
 class ScopeTap { public: HistogramData histogram(TargetHandle);
                   WaveformData luminanceWaveform(TargetHandle); };  // feeds feature #14
+                  // v1 realisation (resolved decision #14): not a render-graph
+                  // node — `bl::computeScopes` (bl_render) reads the composited
+                  // BGRA frame that `PreviewPanel` already has, tapped through
+                  // its `frameRendered` signal into the Scopes dock.
 }
 ```
 
@@ -482,7 +486,7 @@ Bundled presets: YouTube 1080p/1440p/4K, Vimeo HD/4K, DVD (MPEG-2 in MPG contain
 | PreviewPanel | `QOpenGLWidget` hosting `GLRenderBackend`; transport controls; jog/shuttle; frame-step buttons (feature #4) |
 | MediaBinPanel | Tree/list hybrid, search-as-you-type filter, drag-out proxy items, metadata columns |
 | InspectorPanel | Context-sensitive: clip props, speed, keyframe editor (curve view), effect stack with add/remove/reorder |
-| ColorPanel | Wheels (lift/gamma/gain), RGB curves, histogram/waveform scopes (fed by `ScopeTap`), `.cube` LUT import |
+| ColorPanel | Wheels (lift/gamma/gain), RGB curves, `.cube` LUT import; histogram/waveform/vectorscope ship as a dedicated **Scopes** dock fed from the composited preview frame (resolved decision #14) |
 | AudioMixerPanel | Per-track fader, pan, mute/solo, RMS+peak meters with hold, master strip |
 | TitleEditor | Text items rendered to transparent texture; font/color/align/spacing; animation presets: fade, slide, typewriter; templates saved as JSON |
 | ExportDialog | Preset picker, per-codec param editors (schema-driven from plugin caps), batch list |
@@ -570,7 +574,7 @@ extern BlCodecPlugin* bl_get_codec_plugin(void);
 Lifecycle & rules:
 
 1. Loader `dlopen`s candidates from **both** plugin roots, `{video,audio}` subdirectories:
-   - System dir (read-only, distro/packager-shipped): `/usr/share/bucharest-lite/plugins` (Linux only)
+   - System dir (read-only, distro/packager-shipped): `${libdir}/bucharest-lite/plugins` (Linux only) — e.g. `/usr/lib/x86_64-linux-gnu/bucharest-lite/plugins` on Debian/Ubuntu, `/app/lib/bucharest-lite/plugins` under Flatpak. Injected into the binary by CMake from the same variable as the `install()` rules, so the two cannot disagree.
    - User dir: `~/.local/share/bucharest-lite/plugins` (Linux), `%APPDATA%\BucharestLite\plugins` (Windows), `~/Library/Application Support/BucharestLite/plugins` (macOS)
    Scan order: system dir first, then user dir. On duplicate plugin names the **user-local copy wins** (allows overriding shipped plugins without root). Resolves `bl_get_codec_plugin`, checks `abi_version` — mismatch ⇒ skip with log.
 2. Plugins are **stateless factories**: all state lives in `ctx`. Calls are single-threaded per instance; the host creates one instance per concurrent use.
@@ -618,6 +622,12 @@ Container muxing/demuxing is **not** per-plugin: `bl_core` owns libavformat wrap
 
 ## 12. Proxy Workflow
 
+> **Post-v1.** The v1 build ships **no proxy workflow**. The partially-written
+> `proxy_generator` stub (`include/bl_core/proxy/*` + `src/core/proxy/*`) was
+> non-functional, wired into no UI, and included two non-existent headers, so it
+> was removed in v1. High-resolution media plays directly via demand decode
+> (see §1). The design below is retained as the post-v1 plan.
+
 - Trigger: import of any source with width ≥ 3840 (configurable) auto-queues a proxy job; user can force/disable globally.
 - Proxy format: H.264, half-or-quarter resolution, high-quality CRF 18, burned-in `proxy/` folder beside project (or central cache dir).
 - Toggle: global "Use proxies" switch + per-clip override; toggling is instant (both files stay open in the demuxer cache).
@@ -645,7 +655,7 @@ Benchmark harness in `tests/performance/`: scripted timeline builds, render-thro
 | Concern | Linux | Windows | macOS |
 |---|---|---|---|
 | Plugin suffix | `.so` | `.dll` | `.dylib` |
-| Plugin dir | `/usr/share/bucharest-lite/plugins` + `~/.local/share/bucharest-lite/plugins` (user wins) | `%APPDATA%\BucharestLite\plugins` | `~/Library/Application Support/BucharestLite/plugins` |
+| Plugin dir | `${libdir}/bucharest-lite/plugins` + `~/.local/share/bucharest-lite/plugins` (user wins) | `%APPDATA%\BucharestLite\plugins` | `~/Library/Application Support/BucharestLite/plugins` |
 | GL | desktop 3.3 | WGL 3.3 | CGL 3.3 (Metal via MoltenVK later) |
 | FFmpeg | distro packages | vendored shared builds (GPL) | homebrew/vendored |
 | CI | GitHub Actions ubuntu | windows-latest | macos-latest |
@@ -702,7 +712,9 @@ Order respects the dependency graph; groups match ORCHESTRATOR.md builder roles.
 - AUD-1: AudioEngine + TrackStrip mixer (f32 planar), device IO
 - AUD-2: FX (EQ, compressor, reverb), per-clip volume/pan/fades
 - AUD-3: MasterClock + A/V sync policy
-- AUD-4: meters (RMS/peak/hold); AUD-5: waveform mipmaps
+- AUD-4: meters (RMS/peak/hold); AUD-5: waveform mipmaps (v1 draws clip
+  waveforms from the AUD-4 peak/RMS envelope via `bl::waveformColumns` instead
+  of separate mipmaps; dedicated mipmaps remain future work)
 
 **Group 3 — Codec plugins (Builder-Plugins)** — independent after CORE-2/3
 - PLG-1..9: h264, vp9, av1, theora, mpeg4, aac, flac, vorbis, opus — each with round-trip unit tests against golden vectors
@@ -764,6 +776,8 @@ No open questions remain for Gate 1.
 10. **Transitions stored as edge-metadata** (`Clip.transitionOut`) rather than physically overlapping clips. Virtual overlap at render time (RND-5). Single-owner: only the left clip holds the transition spec; dual `transitionsIn/out` refs from §5.2 spec deferred to avoid desync. A cheap `pruneInvalidTransitions()` sweep is called after every mutating op and drops any transition whose adjacency or duration bound has been invalidated. Keyframe pruning is inherent to the half-open partition rules in #9; transition pruning is adjacency-aware. Recorded 2026-08-26 (TL-7).
 11. **One `Muxer` for every container; subtitle codec chosen per resolved output format** (Matroska P2). Reason: the format is already resolved by `avformat_alloc_output_context2`, so keying off `oformat->name` is both more robust than string-matching the filename (`.m4v` → `mp4`, `.mka` → `matroska`) and the only way to tell `webm` from `matroska`, which share a demuxer family. `MOV_TEXT` is MP4-only and `matroskaenc` rejects it, so soft text subtitles use `SUBRIP` (Matroska's `S_TEXT/UTF8`) and `WEBVTT` for WebM; both take the bare authored UTF-8 with timing from the block header, which is what the subtitle writer already emits. The unused `MKVMuxer` was deleted rather than extended — it hardcoded H.264/AAC, had no extradata setters, and so could never satisfy §19 item 7's `CodecPrivate` requirement. Recorded 2026-10-01.
 12. **Kdenlive-parity P1 foundations** (TL-9, 2026-10-07; model + controller only, no visible UI change). Decisions that deviate from or extend the v1 sketches above: (a) **Stream flags** — `Clip` gains `hasVideo`/`hasAudio`/`enabled`; JSON load defaults (`j.value(...)` with `true`) mean legacy projects open as both-streams-and-enabled, so the new keys are purely additive. Gating applies only where clips are *consumed* (compositor skips disabled/audio-only clips and clips on hidden tracks; mixdown, `meterLevelsAt` and the EDL exporter skip `!enabled || !hasAudio`); duration scans in `export_plan.cpp` and `preview_panel.cpp` are deliberately **not** gated so per-track/total durations never jump when clips are muted. (b) **Groups live in `Sequence::groups`** (JSON key `"groups"`, flat id lists) instead of per-track structures — a Kdenlive group routinely spans the video track and its linked audio track. Overlapping groups merge on `formGroup`, dead ids are filtered on read and pruned on track removal, and `groupClips` refuses a no-change grouping ("Clips are already grouped"). (c) **Lock gating rule** — only layout mutators in `TimelineEditController` check `ensureEditable` ("Track is locked"); `groupClips`/`ungroupClips`, marker edits and `insert/remove/moveTrack` are intentionally ungated (they do not reflow a locked track's clips — `removeTrack` additionally refuses the last video track and clips on the removed track, in that precedence), and zone ops (`liftZone`/`extractZone`) skip locked tracks rather than failing the whole op. Audio-path reads (`audioTracks`) remain lock-agnostic because they are reads. (d) **`timeline_geometry::LaneOrder`** (`Split`/`Mixed`/`MixedReverse` with `laneForFlat`/`flatForLane`/`laneTop`) is the seam the later UI phases will consume; `Split` reproduces the pre-P1 layout exactly, which is why P1 ships with zero visible change. (e) **`snapToNearest` fix** — the clip-edge/marker loops were dead code: the early return `distanceInFrames(best, t) == 0` always fired because `best` came from rounding `t` to the frame grid, so edges and markers were never considered. It now picks the nearest edge/marker within `maxDistanceFrames` and falls back to frame rounding, with marker positions added as snap candidates. Recorded 2026-10-07.
+13. **Title stills are re-rendered on undo, not byte-cached** (2026-10-12). `ProjectController::updateTitle` re-rasterises the title PNG inside the undo/redo command from the stored `TitleSpec` rather than snapshotting the previous PNG bytes. Reason: the renderer is a pure function of `(spec, canvasW, canvasH)`, so the file is always reproducible from project data, undo/redo stay symmetric, and a title stays a single source of truth instead of a binary blob living inside the command. The canvas size is captured with the command, and `updateTitle` refuses (pushing nothing) when the id is not a title, the stored spec is unreadable, or the still cannot be written — so a failed edit never leaves a half-applied state. Recorded 2026-10-12.
+14. **Scopes read the post-composite frame through a signal tap, not a `ScopeTap` render-graph node** (2026-10-13). The §12 sketch had a `ScopeTap` that asks a render target for histogram/waveform data; v1 instead computes scopes in a Qt-free `bl::computeScopes` from the same `CompositorResult` the preview already produces, and `PreviewPanel` re-emits it via `frameRendered(const bl::CompositorResult&)`. Reason: the preview compositor is the single source of truth for "what will export", so tapping its output needs no second render and no render-graph plumbing, and it keeps `bl_render/scopes` a pure, unit-testable function of a BGRA buffer (one `step`-subsampled pass fills histogram + waveform + vectorscope). The metatype is declared in the UI layer (`Q_DECLARE_METATYPE(bl::CompositorResult)` in `preview_panel.hpp`) so `bl_render` stays Qt-free. A true `ScopeTap` node is only warranted if/when scopes must read pre-effect or per-node data. Recorded 2026-10-13.
 
 ## 20. Gate 1 Sign-Off
 

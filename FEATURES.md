@@ -19,6 +19,8 @@
 
 **Core Editing:**
 - Multi-track timeline (unlimited video + audio tracks)
+- Videotracks are on top and Audio tracks are on bottom
+- video track and audio track editing in the same timeline
 - Drag-and-drop media import
 - Timeline trimming, splitting, ripple editing
 - 3-point editing (in/out points)
@@ -30,6 +32,7 @@
 - Nested compositions / subclips
 - Proxy editing (low-res workflow for high-res media)
 - Project auto-save / backup
+- timeline mimics kdenline with separate audio and video tracks audio and video tracks to have option to lock and unlock for editing 
 
 **Transitions & Effects:**
 - Video transitions (fade, wipe, dissolve, slide, zoom, etc.)
@@ -91,8 +94,11 @@
 - Dark/light themes
 - Undo/redo (unlimited)
 - Search / filter media bins
-- Collections / bins / folders
-- Project templates
+- Collections / bins / folders ✅ (bin folders)
+- Project templates ✅ (new-project from template)
+- drag n drop media import to media library and timeline ✅ (UI-12)
+- drag n drop from media library to timeline ✅ (UI-10)
+- right-click / double-click media bin → add to timeline ✅ (UI-13)
 
 **Advanced:**
 - Multi-cam editing
@@ -146,14 +152,28 @@ These are the **must-have** features — the baseline for any functional NLE:
 8. **Video effects** — color correction, brightness/contrast/gamma/hue, blur/sharpen
 9. **Chroma key** — green/blue screen compositing
 10. **Layer-based compositing** — alpha blending, overlays, watermarks
-11. **Built-in title editor** — text with fonts, colors, basic animation
+11. **Built-in title editor** — text with fonts, colors, alignment, spacing
+    (v1 ships a text title editor: `File → Add Title…` renders text with
+    font/size/bold/italic, colour, outline, background, alignment and anchor
+    position to a transparent PNG at the sequence resolution and appends it as a
+    still clip; titles can be re-opened and re-rendered in place via **Edit
+    Title…** on the media bin or a clip; title templates, scrolling credits and
+    animation remain planned)
 12. **Subtitle support** — SRT/ASS import, burn-in
-13. **Multi-track audio** — waveform display, mixing, per-clip volume
+13. **Multi-track audio** — waveform display, mixing, per-clip volume (v1 ships
+    the multi-track mixer with gain/pan/mute/solo, live meters, and a waveform
+    drawn inside every audio clip on the timeline from the same background
+    analysis)
 14. **Scopes** — audio meters, histogram, waveform (v1 ships playhead-driven
-    peak-dB meters on the mixer strips and master bus)
+    peak-dB meters on the mixer strips and master bus, plus a Scopes dock with
+    luma/RGB **histogram**, luma **waveform** and chroma **vectorscope** views
+    tapped from the composited preview frame)
 15. **Modular codec support** — plugin-based encoder/decoder loading
-16. **Proxy editing** — auto-generated low-res for smooth editing
+16. **Proxy editing** — auto-generated low-res for smooth editing (out of v1
+    scope: high-res media plays directly via demand decode; see
+    `docs/architecture/ARCHITECTURE.md` §1)
 17. **Project auto-save** — crash recovery
 18. **Unlimited undo/redo**
 19. **Custom export** — format selection, quality presets, batch render
 20. **Cross-platform** — Linux and Windows (macOS packaging is out of scope; see Packaging)
+21. **Kdenlive timeline line** — A/V linking (linked selection, group/ungroup Ctrl+G/Ctrl+Shift+G, linked trim/delete as single undo step, auto-split on drop); timeline shortcuts and persistence; docs and test coverage matching Kdenlive parity.

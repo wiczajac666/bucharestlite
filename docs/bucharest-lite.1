@@ -1,0 +1,48 @@
+.TH BUCHAREST\-LITE 1 "2026-10-14" "bucharest-lite 1.9.14" "User Commands"
+.SH NAME
+bucharest\-lite \- open\-source non\-linear video editor (NLE)
+.SH SYNOPSIS
+.B bucharest\-lite
+.SH DESCRIPTION
+.B Bucharest Lite
+is a GPL\-3.0 licensed non\-linear video editor built on Qt6 and C++17, using
+FFmpeg for media IO. It supports multi\-track timeline editing, keyframeable
+clip properties, transitions, effects, color grading, chroma key compositing,
+subtitle support and audio mixing.
+.PP
+Projects are saved as JSON files and can reference media by relative path.
+Export supports the MP4, MKV and WebM containers with the H.264, VP9, AV1 and
+AAC codecs.
+.SH FILES
+.TP
+.I ~/.local/share/bucharest-lite/
+User projects and autosaves. Autosaves are written every 60 seconds while a
+project is dirty and on focus loss, keeping a rolling ring of ten; a newer
+autosave than the last manual save is offered for recovery on next launch.
+.TP
+.I ~/.local/share/bucharest-lite/plugins/
+User\-installable codec plugins. A plugin here overrides the shipped copy of
+the same name, so plugins can be updated without root.
+.SH PLUGINS
+Codec plugins are loaded dynamically at startup from the system directory and
+then the user directory, each scanned for
+.I video
+and
+.I audio
+subdirectories. The system directory is
+.IR /usr/lib/bucharest\-lite/plugins ,
+resolved at build time from the install prefix, and carries the nine bundled
+codecs (h264, vp9, av1, theora, mpeg4, aac, flac, vorbis, opus).
+.PP
+Each plugin exports
+.BR bl_get_codec_plugin ()
+and declares an ABI version; a plugin whose ABI does not match the host is
+skipped with a log entry. Plugins are stateless factories: all state lives in
+the context passed to them.
+.SH SEE ALSO
+The project README, FEATURES.md and docs/architecture/ARCHITECTURE.md in the
+source distribution.
+.SH BUGS
+Report issues at https://github.com/wiczajac666/bucharestlite
+.SH AUTHOR
+BucharestLite contributors.

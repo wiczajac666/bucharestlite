@@ -3,6 +3,17 @@
 
 ---
 
+> **Historical planning doc.** This captures the original multi-agent build plan.
+> Two goals have since changed, and the current docs are authoritative:
+> - **Rendering:** v1 ships a **CPU compositor**; GPU (Vulkan/OpenGL) acceleration
+>   is *planned*, not implemented. See `docs/architecture/ARCHITECTURE.md` §1.
+> - **Platforms:** **macOS is out of scope** (no `.dmg`/`.app`); v1 targets
+>   **Linux + Windows** only.
+>
+> For current status see `PROJECT_STATUS.md` and `docs/PLAN_V1.md`.
+
+---
+
 ## 1. Project Overview
 
 **Project:** Bucharest Lite — Open-source non-linear video editor (NLE)
