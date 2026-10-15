@@ -1,10 +1,13 @@
 add_library(bl_render STATIC
     effect.cpp
+    cube_lut.cpp
     frame_cache.cpp
     compositor.cpp
+    scopes.cpp
     media_decode_source.cpp
     preview_engine.cpp
     thumbnail.cpp
+    quality_metrics.cpp
     media_bin_thumbnail_engine.cpp
 )
 

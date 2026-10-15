@@ -266,4 +266,49 @@ MeterLevels meterLevelsAt(const Sequence& sequence, Time position,
     return out;
 }
 
+std::vector<float> waveformColumns(const AudioMeterEnvelope& envelope,
+                                   double srcInSeconds, double srcOutSeconds,
+                                   int columns) {
+    if (columns <= 0) return {};
+
+    std::vector<float> out(static_cast<size_t>(columns), 0.0f);
+    if (envelope.empty()) return out;
+
+    const double lo = std::min(srcInSeconds, srcOutSeconds);
+    const double hi = std::max(srcInSeconds, srcOutSeconds);
+    const double span = hi - lo;
+    if (span <= 0.0) return out;
+
+    const size_t windowCount = envelope.windowCount();
+    const double hz = envelope.windowHz > 0.0 ? envelope.windowHz : 1.0;
+
+    for (int c = 0; c < columns; ++c) {
+        const double colStart =
+            lo + span * (static_cast<double>(c) / static_cast<double>(columns));
+        const double colEnd = lo + span * (static_cast<double>(c + 1) /
+                                           static_cast<double>(columns));
+
+        int64_t firstWindow = static_cast<int64_t>(std::floor(colStart * hz));
+        int64_t lastWindow = static_cast<int64_t>(std::floor(colEnd * hz));
+        if (firstWindow >= static_cast<int64_t>(windowCount)) {
+            continue;  // column entirely past the analyzed range
+        }
+        if (lastWindow < 0) continue;  // entirely before it
+        if (firstWindow < 0) firstWindow = 0;
+        if (lastWindow >= static_cast<int64_t>(windowCount)) {
+            lastWindow = static_cast<int64_t>(windowCount) - 1;
+        }
+        if (firstWindow > lastWindow) continue;
+
+        float peak = 0.0f;
+        for (int64_t w = firstWindow; w <= lastWindow; ++w) {
+            for (float p : envelope.peak[static_cast<size_t>(w)]) {
+                peak = std::max(peak, std::fabs(p));
+            }
+        }
+        out[static_cast<size_t>(c)] = std::min(peak, 1.0f);
+    }
+    return out;
+}
+
 } // namespace bl

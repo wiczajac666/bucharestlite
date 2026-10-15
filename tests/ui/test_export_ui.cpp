@@ -37,6 +37,7 @@ using bl::Duration;
 using bl::Rational;
 using bl::Time;
 using bl::ui::ExportDialog;
+using bl::ui::ExportTarget;
 using bl::ui::ExportWorker;
 using bl::ui::ResolutionScale;
 
@@ -199,6 +200,131 @@ TEST(ExportWorker, RendersAndReportsProgress) {
     if (fi.exists()) {
         std::remove(out.c_str());
     }
+}
+
+TEST(ExportDialog, PresetComboAppliesEncodeSettings) {
+    ExportDialog dialog;
+    auto* preset = dialog.findChild<QComboBox*>(QStringLiteral("exportPreset"));
+    auto* container =
+        dialog.findChild<QComboBox*>(QStringLiteral("exportContainer"));
+    auto* codec =
+        dialog.findChild<QComboBox*>(QStringLiteral("exportVideoCodec"));
+    auto* audio =
+        dialog.findChild<QComboBox*>(QStringLiteral("exportAudioCodec"));
+    ASSERT_NE(preset, nullptr);
+    ASSERT_NE(container, nullptr);
+    ASSERT_NE(codec, nullptr);
+
+    preset->setCurrentIndex(preset->findData(QStringLiteral("webm-vp9")));
+    auto s = dialog.settings();
+    EXPECT_EQ(s.container, "webm");
+    EXPECT_EQ(s.videoCodec, "vp9");
+    EXPECT_EQ(s.audioCodec, "opus");
+    EXPECT_EQ(container->currentData().toString().toStdString(), "webm");
+    EXPECT_EQ(codec->currentData().toString().toStdString(), "vp9");
+    ASSERT_NE(audio, nullptr);
+    EXPECT_EQ(audio->currentData().toString().toStdString(), "opus");
+
+    // Switching to a "Custom" selection keeps the current encode fields.
+    preset->setCurrentIndex(0);
+    EXPECT_EQ(dialog.settings().container, "webm");
+}
+
+TEST(ExportDialog, RangeDefaultsToEntireProject) {
+    ExportDialog dialog;
+    EXPECT_EQ(dialog.settings().range, bl::ui::ExportRange::EntireProject);
+}
+
+TEST(ExportDialog, StreamTargetForcesH264Aac) {
+    ExportDialog dialog;
+    auto* target = dialog.findChild<QComboBox*>(QStringLiteral("exportTarget"));
+    auto* url = dialog.findChild<QLineEdit*>(QStringLiteral("exportStreamUrl"));
+    auto* path =
+        dialog.findChild<QLineEdit*>(QStringLiteral("exportOutputPath"));
+    auto* exportButton =
+        dialog.findChild<QPushButton*>(QStringLiteral("exportStart"));
+    auto* codec =
+        dialog.findChild<QComboBox*>(QStringLiteral("exportVideoCodec"));
+    auto* audio =
+        dialog.findChild<QComboBox*>(QStringLiteral("exportAudioCodec"));
+    ASSERT_NE(target, nullptr);
+    ASSERT_NE(url, nullptr);
+    ASSERT_NE(path, nullptr);
+    ASSERT_NE(exportButton, nullptr);
+    ASSERT_NE(codec, nullptr);
+    ASSERT_NE(audio, nullptr);
+
+    // Neither a file path nor a URL yet -> Export disabled.
+    EXPECT_FALSE(exportButton->isEnabled());
+
+    target->setCurrentIndex(
+        target->findData(static_cast<int>(ExportTarget::Stream)));
+    // The file path row is irrelevant while streaming; the URL is still empty.
+    EXPECT_FALSE(path->isEnabled());
+    EXPECT_FALSE(exportButton->isEnabled()) << "URL still empty";
+
+    url->setText(QStringLiteral("rtmp://localhost:1935/live/key"));
+    EXPECT_TRUE(exportButton->isEnabled())
+        << "a non-empty URL is enough to enable Export with no file path";
+
+    const auto s = dialog.settings();
+    EXPECT_EQ(s.target, ExportTarget::Stream);
+    EXPECT_EQ(s.streamUrl, "rtmp://localhost:1935/live/key");
+    EXPECT_EQ(s.videoCodec, "h264");
+    EXPECT_EQ(s.audioCodec, "aac");
+    EXPECT_TRUE(s.outputPath.empty());
+
+    // The dialog forces the codecs and locks them down while streaming.
+    EXPECT_EQ(codec->currentData().toString().toStdString(), "h264");
+    EXPECT_EQ(audio->currentData().toString().toStdString(), "aac");
+    EXPECT_FALSE(codec->isEnabled());
+    EXPECT_FALSE(audio->isEnabled());
+
+    // Switching back to a file target restores the file row and codec picker.
+    target->setCurrentIndex(
+        target->findData(static_cast<int>(ExportTarget::File)));
+    EXPECT_TRUE(path->isEnabled());
+    EXPECT_TRUE(codec->isEnabled());
+    EXPECT_EQ(dialog.settings().target, ExportTarget::File);
+}
+
+TEST(ExportDialog, ZoneEnablesInOutRange) {
+    ExportDialog dialog;
+    auto* range = dialog.findChild<QComboBox*>(QStringLiteral("exportRange"));
+    ASSERT_NE(range, nullptr);
+
+    // No zone: the "Timeline zone" item is disabled and cannot be picked.
+    dialog.setZone(false, Time{}, Time{});
+    EXPECT_FALSE(range->model()->index(1, 0).flags().testFlag(Qt::ItemIsEnabled));
+
+    const Time in = fr(24);
+    const Time out = fr(48);
+    dialog.setZone(true, in, out);
+    EXPECT_TRUE(range->model()->index(1, 0).flags().testFlag(Qt::ItemIsEnabled));
+    range->setCurrentIndex(1);
+
+    const auto s = dialog.settings();
+    EXPECT_EQ(s.range, bl::ui::ExportRange::InOut);
+    EXPECT_EQ(s.inPoint.toFrameAt(kFps), 24);
+    EXPECT_EQ(s.outPoint.toFrameAt(kFps), 48);
+}
+
+TEST(ExportDialog, ClipRangeEnablesSelectedClipOption) {
+    ExportDialog dialog;
+    auto* range = dialog.findChild<QComboBox*>(QStringLiteral("exportRange"));
+    ASSERT_NE(range, nullptr);
+
+    dialog.setClipRange(false, Time{}, Time{});
+    EXPECT_FALSE(range->model()->index(2, 0).flags().testFlag(Qt::ItemIsEnabled));
+
+    dialog.setClipRange(true, fr(10), fr(22));
+    EXPECT_TRUE(range->model()->index(2, 0).flags().testFlag(Qt::ItemIsEnabled));
+    range->setCurrentIndex(2);
+
+    const auto s = dialog.settings();
+    EXPECT_EQ(s.range, bl::ui::ExportRange::Clip);
+    EXPECT_EQ(s.inPoint.toFrameAt(kFps), 10);
+    EXPECT_EQ(s.outPoint.toFrameAt(kFps), 22);
 }
 
 } // namespace

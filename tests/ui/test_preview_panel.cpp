@@ -132,6 +132,24 @@ TEST(PreviewPanelTest, SetPlayheadFromTimelineRendersAndEmits) {
     EXPECT_FALSE(f.panel.surface()->lastFrame().isNull());
 }
 
+TEST(PreviewPanelTest, EmitsCompositedFrameForScopes) {
+    Fixture f;
+
+    int frames = 0;
+    bl::CompositorResult last;
+    QObject::connect(&f.panel, &bl::ui::PreviewPanel::frameRendered,
+                     [&](const bl::CompositorResult& frame) {
+                         ++frames;
+                         last = frame;
+                     });
+
+    f.panel.setPlayheadFromTimeline(fr(5));
+    ASSERT_GE(frames, 1);
+    EXPECT_GT(last.width, 0u);
+    EXPECT_GT(last.height, 0u);
+    EXPECT_FALSE(last.data.empty());
+}
+
 TEST(PreviewPanelTest, ScrubLoopIsFinitelyCoupled) {
     Fixture f;
 

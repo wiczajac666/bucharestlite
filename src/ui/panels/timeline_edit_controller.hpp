@@ -4,6 +4,7 @@
 #include <bl_core/undo_stack.hpp>
 #include <bl_timeline/clip.hpp>
 #include <bl_timeline/sequence.hpp>
+#include <bl_timeline/subtitle_import.hpp>
 #include <bl_timeline/timeline.hpp>
 
 #include <functional>
@@ -101,12 +102,42 @@ public:
     // Mutators (all validated; push one undoable command each).
     bool moveClip(int fromTrack, int toTrack, const ClipId& id, Time newStart);
     bool groupMove(const std::vector<MoveEntry>& entries);
+    // Insert-mode move (Kdenlive "insert"): the moved clips are re-inserted at
+    // their destinations, shifting any clips at/after the insertion point
+    // right (Track::insertClip semantics) instead of refusing an overlap.
+    // One undo step.
+    bool insertMove(const std::vector<MoveEntry>& entries);
+    // Ripple-mode move: move `id` on `flat` to `newStart` and shift every clip
+    // that started at/after the moved clip's old end by the same delta, so the
+    // gap the clip leaves is closed and the gap it opens is preserved. Refuses
+    // when it would overlap a clip before the moved one. One undo step.
+    bool rippleMove(int flatTrack, const ClipId& id, Time newStart);
+    // Spacer primitives: open `dur` of blank space at `at` (shifting every clip
+    // that starts at/after it right), or close `dur` of blank space before it
+    // (shifting them left, refusing when that would overlap or go negative).
+    bool addSpacer(int flatTrack, Time at, Duration dur);
+    bool removeSpacer(int flatTrack, Time at, Duration dur);
     // Adds a new clip, generating an id when the caller left it empty.
     bool addClip(int flatTrack, Clip clip);
     bool trimLeft(int flatTrack, const ClipId& id, Time newStart, bool ripple);
     bool trimRight(int flatTrack, const ClipId& id, Time newEnd, bool ripple);
     bool splitClip(int flatTrack, const ClipId& id, Time at);
     bool removeClip(int flatTrack, const ClipId& id, bool ripple);
+
+    // Phase 6 (A/V linking). Removes several clips as ONE undo step, used for
+    // linked A/V delete and multi-selection delete. `clips` are (flat, id)
+    // pairs; duplicates are ignored. Refuses when any target track is locked or
+    // any clip is missing (all-or-nothing).
+    bool removeClips(const std::vector<std::pair<int, ClipId>>& clips,
+                     bool ripple);
+
+    // Trims `id` and every clip in its group by the same timeline delta, so a
+    // linked A/V pair stays aligned. One undo step. `newEdge` is the anchor
+    // clip's new left edge (leftEdge) or right edge; the delta is applied to
+    // each group member. Any member that cannot take the trim refuses the whole
+    // edit.
+    bool trimLinked(int flatTrack, const ClipId& id, Time newEdge,
+                    bool leftEdge, bool ripple);
 
     // Kdenlive-parity primitives (P1 foundation: no UI wired yet).
     // Toggle Clip::enabled (keeps timeline space, renders nothing).
@@ -127,10 +158,51 @@ public:
     // `audioFlat`, and both are linked via Sequence::groups.
     bool splitAudioVideo(int flatTrack, const ClipId& id, int audioFlat);
 
+    // Phase 6: adds a linked A/V pair for freshly-inserted media. The video
+    // half (hasAudio = false) goes on `flatTrack`, a generated audio half
+    // (hasVideo = false) with the same source range goes on `audioFlat`, and
+    // the two are grouped. One undo step. `clip` supplies the source range,
+    // name and speed; its id is generated when empty.
+    bool addLinkedAudioVideo(int flatTrack, int audioFlat, Clip clip);
+
     // Markers (sequence-level; identity is the marker position).
     bool addTimelineMarker(const Marker& m);
     bool editTimelineMarker(Time position, const Marker& revised);
     bool removeTimelineMarker(Time position);
+
+    // Imported subtitles: creates one soft-subtitle clip per cue. When
+    // `flatTrack` is < 0 a new "Subtitles" video track is created and used.
+    // Cues that would overlap an existing clip are skipped. One undo step;
+    // returns the number of cues placed (0 = refused, lastError() explains).
+    int importSubtitleCues(const std::vector<bl::SubtitleCue>& cues,
+                           int flatTrack = -1);
+
+    // --- Clipboard (Phase 7) -------------------------------------------------
+    // A deep copy of one selected clip plus the flat lane it came from. The
+    // clipboard is not part of the document model, so setting it is not
+    // undoable; a paste, however, is a single undo step.
+    struct ClipboardEntry {
+        int sourceFlat{-1};
+        bl::Clip clip;
+    };
+
+    void setClipboard(std::vector<ClipboardEntry> entries);
+    void clearClipboard();
+    bool hasClipboard() const noexcept { return !clipboard_.empty(); }
+    int clipboardCount() const noexcept {
+        return static_cast<int>(clipboard_.size());
+    }
+    const std::vector<ClipboardEntry>& clipboard() const noexcept {
+        return clipboard_;
+    }
+
+    // Pastes the clipboard with the earliest copied clip at `at`, preserving
+    // each clip's offset from that earliest start. `targetFlat` (when >= 0 and
+    // compatible) anchors the paste; otherwise each clip returns to its source
+    // lane when that lane still exists and accepts it, else the first
+    // compatible lane. Clips that fit nowhere are skipped. Returns the number
+    // of clips pasted (0 = refused, lastError() explains).
+    int pasteClips(const Time& at, int targetFlat = -1);
 
     // Track structure. removeTrack refuses a locked track and, unless
     // `force`, a track that still holds clips; it never removes the last
@@ -154,6 +226,9 @@ private:
     bool addClipAt(int flatTrack, const Clip& clip);
     void removeClipAt(int flatTrack, const ClipId& id);
 
+    // Flat index of the live clip `id`, or -1 when it is not on any track.
+    int flatTrackOf(const Sequence& seq, const ClipId& id) const;
+
     // Clears lastError_ (call first) and checks bounds + lock for `flat`.
     bool ensureEditable(int flat);
     // Runs `fn` against the live sequence inside one snapshot command:
@@ -174,6 +249,7 @@ private:
     size_t idSeed_{0};
     std::string lastError_;
     MediaDurationFn mediaDuration_;
+    std::vector<ClipboardEntry> clipboard_;
 };
 
 } // namespace bl::ui

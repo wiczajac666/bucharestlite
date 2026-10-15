@@ -43,6 +43,20 @@ const TrackT& TimelineEditController::trackAt(const Sequence& seq,
     return seq.audioTracks[static_cast<size_t>(kindIndex(seq, flat))];
 }
 
+int TimelineEditController::flatTrackOf(const Sequence& seq,
+                                        const ClipId& id) const {
+    for (size_t v = 0; v < seq.videoTracks.size(); ++v) {
+        if (seq.videoTracks[v].findClipById(id)) return static_cast<int>(v);
+    }
+    const int base = static_cast<int>(seq.videoTracks.size());
+    for (size_t a = 0; a < seq.audioTracks.size(); ++a) {
+        if (seq.audioTracks[a].findClipById(id)) {
+            return base + static_cast<int>(a);
+        }
+    }
+    return -1;
+}
+
 bool TimelineEditController::canPlaceAt(const Sequence& seq, int flatTrack,
                                         const Clip& clip, Time newStart) const {
     const TimeRange candidate{newStart, clip.effectiveDuration()};
@@ -302,6 +316,227 @@ bool TimelineEditController::groupMove(const std::vector<MoveEntry>& entries) {
     return true;
 }
 
+bool TimelineEditController::insertMove(const std::vector<MoveEntry>& entries) {
+    lastError_.clear();
+    if (!valid()) {
+        lastError_ = "No timeline";
+        return false;
+    }
+    if (entries.empty()) {
+        lastError_ = "Nothing to move";
+        return false;
+    }
+    const Sequence& seq = timeline_->sequence();
+
+    struct Data {
+        MoveEntry e;
+        Clip clip;
+    };
+    std::vector<Data> data;
+    bool anyChange = false;
+    for (const MoveEntry& e : entries) {
+        if (!ensureEditable(e.fromTrack)) return false;
+        if (!ensureEditable(e.toTrack)) return false;
+        const Clip* clip = findClip(seq, e.fromTrack, e.id);
+        if (!clip) {
+            lastError_ = "Clip not found";
+            return false;
+        }
+        if (clip->timelineDuration <= Duration{}) {
+            lastError_ = "Clip has no duration";
+            return false;
+        }
+        if (e.fromTrack != e.toTrack || e.oldStart != e.newStart) anyChange = true;
+        data.push_back({e, *clip});
+    }
+    if (!anyChange) {
+        lastError_ = "No change";
+        return false;
+    }
+    // Plan insertions left-to-right per destination so each insertion sees the
+    // ones before it (the shift is cumulative).
+    std::sort(data.begin(), data.end(), [](const Data& a, const Data& b) {
+        if (a.e.toTrack != b.e.toTrack) return a.e.toTrack < b.e.toTrack;
+        return a.e.newStart < b.e.newStart;
+    });
+
+    Sequence after = seq;
+    for (const Data& d : data) {
+        mutableTrackAt(after, d.e.fromTrack).removeClip(d.e.id);
+    }
+    for (const Data& d : data) {
+        Clip placed = d.clip;
+        placed.timelineStart = d.e.newStart;
+        if (!mutableTrackAt(after, d.e.toTrack).insertClip(placed, d.e.newStart)) {
+            lastError_ = "Cannot insert here";
+            return false;
+        }
+    }
+    undoStack_->push(std::make_unique<FunctionCommand>(
+        "Insert clips",
+        [this, after] { timeline_->sequence() = after; },
+        [this, before = seq] { timeline_->sequence() = before; }));
+    return true;
+}
+
+bool TimelineEditController::rippleMove(int flatTrack, const ClipId& id,
+                                        Time newStart) {
+    lastError_.clear();
+    if (!ensureEditable(flatTrack)) return false;
+    const Sequence& seq = timeline_->sequence();
+    const Clip* clip = findClip(seq, flatTrack, id);
+    if (!clip) {
+        lastError_ = "Clip not found";
+        return false;
+    }
+    const Time oldStart = clip->timelineStart;
+    const Time oldEnd = oldStart + clip->timelineDuration;
+    const Duration delta = newStart - oldStart;
+    if (delta == Duration{}) {
+        lastError_ = "No change";
+        return false;
+    }
+    if (newStart < Time{}) {
+        lastError_ = "Cannot move before the start";
+        return false;
+    }
+
+    Sequence after = seq;
+    TrackT& tr = mutableTrackAt(after, flatTrack);
+    Clip moved = *clip;
+    tr.removeClip(id);
+
+    // Every clip that used to start at/after the moved clip's end rides along
+    // by the same delta, so the clip's relative spacing is preserved.
+    std::vector<std::pair<ClipId, Time>> suffix;
+    for (const auto& c : tr.clips()) {
+        if (c.timelineStart >= oldEnd) suffix.push_back({c.id, c.timelineStart});
+    }
+    // Move the far clips first when shifting right so each lands in free space.
+    if (delta > Duration{}) {
+        std::sort(suffix.begin(), suffix.end(),
+                  [](const auto& a, const auto& b) { return a.second > b.second; });
+    } else {
+        std::sort(suffix.begin(), suffix.end(),
+                  [](const auto& a, const auto& b) { return a.second < b.second; });
+    }
+    for (const auto& [sid, sstart] : suffix) {
+        const Time ns = sstart + delta;
+        if (ns < Time{} || !tr.moveClip(sid, ns)) {
+            lastError_ = "That spot is occupied";
+            return false;
+        }
+    }
+    moved.timelineStart = newStart;
+    if (!tr.addClip(moved)) {
+        lastError_ = "That spot is occupied";
+        return false;
+    }
+
+    undoStack_->push(std::make_unique<FunctionCommand>(
+        "Ripple move",
+        [this, after] { timeline_->sequence() = after; },
+        [this, before = seq] { timeline_->sequence() = before; }));
+    return true;
+}
+
+bool TimelineEditController::addSpacer(int flatTrack, Time at, Duration dur) {
+    lastError_.clear();
+    if (!ensureEditable(flatTrack)) return false;
+    if (dur <= Duration{}) {
+        lastError_ = "Empty spacer";
+        return false;
+    }
+    if (at < Time{}) {
+        lastError_ = "Invalid position";
+        return false;
+    }
+    const Sequence& seq = timeline_->sequence();
+    const TrackT& track = trackAt(seq, flatTrack);
+    for (const auto& c : track.clips()) {
+        if (c.timelineStart < at && at < c.timelineStart + c.timelineDuration) {
+            lastError_ = "Cannot insert space inside a clip";
+            return false;
+        }
+    }
+    std::vector<std::pair<ClipId, Time>> suffix;
+    for (const auto& c : track.clips()) {
+        if (c.timelineStart >= at) suffix.push_back({c.id, c.timelineStart});
+    }
+    if (suffix.empty()) {
+        lastError_ = "Nothing to shift";
+        return false;
+    }
+    std::sort(suffix.begin(), suffix.end(),
+              [](const auto& a, const auto& b) { return a.second > b.second; });
+
+    Sequence after = seq;
+    TrackT& tr = mutableTrackAt(after, flatTrack);
+    for (const auto& [sid, sstart] : suffix) {
+        if (!tr.moveClip(sid, sstart + dur)) {
+            lastError_ = "Cannot insert space here";
+            return false;
+        }
+    }
+    undoStack_->push(std::make_unique<FunctionCommand>(
+        "Insert space",
+        [this, after] { timeline_->sequence() = after; },
+        [this, before = seq] { timeline_->sequence() = before; }));
+    return true;
+}
+
+bool TimelineEditController::removeSpacer(int flatTrack, Time at, Duration dur) {
+    lastError_.clear();
+    if (!ensureEditable(flatTrack)) return false;
+    if (dur <= Duration{}) {
+        lastError_ = "Empty spacer";
+        return false;
+    }
+    if (at < Time{}) {
+        lastError_ = "Invalid position";
+        return false;
+    }
+    const Sequence& seq = timeline_->sequence();
+    const TrackT& track = trackAt(seq, flatTrack);
+
+    std::vector<std::pair<ClipId, Time>> suffix;
+    bool hasPrev = false;
+    Time prevEnd{};
+    for (const auto& c : track.clips()) {
+        if (c.timelineStart >= at) {
+            suffix.push_back({c.id, c.timelineStart});
+        } else {
+            hasPrev = true;
+            prevEnd = c.timelineStart + c.timelineDuration;
+        }
+    }
+    if (suffix.empty()) {
+        lastError_ = "Nothing to shift";
+        return false;
+    }
+    std::sort(suffix.begin(), suffix.end(),
+              [](const auto& a, const auto& b) { return a.second < b.second; });
+    const Time newFirst = suffix.front().second - dur;
+    if (newFirst < Time{} || (hasPrev && newFirst < prevEnd)) {
+        lastError_ = "Not enough space to remove";
+        return false;
+    }
+
+    Sequence after = seq;
+    TrackT& tr = mutableTrackAt(after, flatTrack);
+    for (const auto& [sid, sstart] : suffix) {
+        if (!tr.moveClip(sid, sstart - dur)) {
+            lastError_ = "Cannot remove space here";
+            return false;
+        }
+    }
+    undoStack_->push(std::make_unique<FunctionCommand>(
+        "Remove space",
+        [this, after] { timeline_->sequence() = after; },
+        [this, before = seq] { timeline_->sequence() = before; }));
+    return true;
+}
+
 bool TimelineEditController::trimLeft(int flatTrack, const ClipId& id,
                                       Time newStart, bool ripple) {
     lastError_.clear();
@@ -509,6 +744,111 @@ bool TimelineEditController::removeClip(int flatTrack, const ClipId& id,
             addClipAt(flatTrack, original);
             for (const auto& f : followers) addClipAt(flatTrack, f);
         }));
+    return true;
+}
+
+bool TimelineEditController::removeClips(
+    const std::vector<std::pair<int, ClipId>>& clips, bool ripple) {
+    lastError_.clear();
+    if (clips.empty()) {
+        lastError_ = "Nothing to delete";
+        return false;
+    }
+    const Sequence& seq = timeline_->sequence();
+
+    struct Item {
+        int flat;
+        ClipId id;
+    };
+    std::vector<Item> items;
+    for (const auto& [flat, id] : clips) {
+        if (!ensureEditable(flat)) return false;
+        if (!findClip(seq, flat, id)) {
+            lastError_ = "Clip not found";
+            return false;
+        }
+        const bool dup =
+            std::any_of(items.begin(), items.end(),
+                        [&](const Item& it) { return it.id == id; });
+        if (!dup) items.push_back({flat, id});
+    }
+    if (items.empty()) {
+        lastError_ = "Nothing to delete";
+        return false;
+    }
+
+    return runSequenceEdit(ripple ? "Ripple delete" : "Delete clip",
+                           [&](Sequence& s) {
+        bool changed = false;
+        for (const Item& it : items) {
+            TrackT& tr = mutableTrackAt(s, it.flat);
+            const bool ok = ripple ? tr.rippleDelete(it.id) : tr.removeClip(it.id);
+            if (ok) changed = true;
+        }
+        return changed;
+    });
+}
+
+bool TimelineEditController::trimLinked(int flatTrack, const ClipId& id,
+                                        Time newEdge, bool leftEdge,
+                                        bool ripple) {
+    lastError_.clear();
+    if (!ensureEditable(flatTrack)) return false;
+    const Sequence& seq = timeline_->sequence();
+    const Clip* found = findClip(seq, flatTrack, id);
+    if (!found) {
+        lastError_ = "Clip not found";
+        return false;
+    }
+
+    // The anchor plus every live group member, capturing each one's current
+    // span so the trim can be expressed as a shared timeline delta. This keeps
+    // arbitrary groups aligned rather than forcing every member to the anchor's
+    // absolute edge.
+    struct Member {
+        int flat;
+        ClipId id;
+        Time start;
+        Duration dur;
+    };
+    std::vector<Member> members;
+    const auto addMember = [&](int flat, const ClipId& cid) {
+        const Clip* c = findClip(seq, flat, cid);
+        if (c) members.push_back({flat, cid, c->timelineStart, c->timelineDuration});
+    };
+    addMember(flatTrack, id);
+    for (const ClipId& m : seq.groupMembers(id)) {
+        const int mf = flatTrackOf(seq, m);
+        if (mf >= 0) addMember(mf, m);
+    }
+
+    const Duration delta =
+        leftEdge ? (newEdge - found->timelineStart)
+                 : (newEdge - (found->timelineStart + found->timelineDuration));
+
+    Sequence after = seq;
+    for (const Member& mem : members) {
+        if (!ensureEditable(mem.flat)) return false;
+        TrackT& tr = mutableTrackAt(after, mem.flat);
+        bool ok = false;
+        if (leftEdge) {
+            const Time t = mem.start + delta;
+            ok = ripple ? tr.rippleTrimLeft(mem.id, t) : tr.trimClipLeft(mem.id, t);
+        } else {
+            const Time t = mem.start + mem.dur + delta;
+            ok = ripple ? tr.rippleTrimRight(mem.id, t) : tr.trimClipRight(mem.id, t);
+        }
+        if (!ok) {
+            lastError_ = "Cannot trim here";
+            return false;
+        }
+    }
+
+    const Sequence before = seq;
+    undoStack_->push(std::make_unique<FunctionCommand>(
+        leftEdge ? "Trim left" : "Trim right",
+        [this, after] { timeline_->sequence() = after; },
+        [this, before] { timeline_->sequence() = before; }));
     return true;
 }
 
@@ -829,6 +1169,52 @@ bool TimelineEditController::splitAudioVideo(int flatTrack, const ClipId& id,
     });
 }
 
+bool TimelineEditController::addLinkedAudioVideo(int flatTrack, int audioFlat,
+                                                  Clip clip) {
+    lastError_.clear();
+    if (!ensureEditable(flatTrack)) return false;
+    if (!ensureEditable(audioFlat)) return false;
+    const Sequence& seq = timeline_->sequence();
+    if (!isVideoTrack(seq, flatTrack)) {
+        lastError_ = "Not a video track";
+        return false;
+    }
+    if (isVideoTrack(seq, audioFlat)) {
+        lastError_ = "Not an audio track";
+        return false;
+    }
+
+    Clip video = clip;
+    video.id = clip.id.empty() ? ("ui:" + std::to_string(++idSeed_)) : clip.id;
+    video.hasVideo = true;
+    video.hasAudio = false;
+    Clip audio = clip;
+    audio.id = "ui:" + std::to_string(++idSeed_);
+    audio.hasVideo = false;
+    audio.hasAudio = true;
+
+    if (!canPlaceAt(seq, flatTrack, video, video.timelineStart)) {
+        lastError_ = "That spot is occupied";
+        return false;
+    }
+    if (!canPlaceAt(seq, audioFlat, audio, audio.timelineStart)) {
+        lastError_ = "That spot is occupied";
+        return false;
+    }
+
+    const ClipId videoId = video.id;
+    const ClipId audioId = audio.id;
+    return runSequenceEdit("Add A/V clip", [&](Sequence& s) {
+        if (!mutableTrackAt(s, flatTrack).addClip(video)) return false;
+        if (!mutableTrackAt(s, audioFlat).addClip(audio)) {
+            mutableTrackAt(s, flatTrack).removeClip(videoId);
+            return false;
+        }
+        s.formGroup({videoId, audioId});
+        return true;
+    });
+}
+
 bool TimelineEditController::addTimelineMarker(const Marker& m) {
     lastError_.clear();
     if (!valid()) {
@@ -893,6 +1279,132 @@ bool TimelineEditController::removeTimelineMarker(Time position) {
     }
     return true;
 }
+
+// --- Imported subtitles ----------------------------------------------------
+
+int TimelineEditController::importSubtitleCues(
+    const std::vector<bl::SubtitleCue>& cues, int flatTrack) {
+    lastError_.clear();
+    if (!valid()) {
+        lastError_ = "No timeline";
+        return 0;
+    }
+    if (cues.empty()) {
+        lastError_ = "No subtitles found";
+        return 0;
+    }
+
+    int placed = 0;
+    const bool ok = runSequenceEdit("Import subtitles", [&](Sequence& s) -> bool {
+        placed = 0;
+        int lane = flatTrack;
+        if (lane < 0) {
+            // Drop imported captions onto their own lane so they never collide
+            // with cut footage.
+            s.addVideoTrack("Subtitles");
+            lane = static_cast<int>(s.videoTracks.size()) - 1;
+        }
+        if (!isVideoTrack(s, lane)) return false;
+        TrackT& track = mutableTrackAt(s, lane);
+        for (const bl::SubtitleCue& cue : cues) {
+            Clip c;
+            c.id = "ui:sub:" + std::to_string(++idSeed_);
+            c.name = cue.text.substr(0, 24);
+            c.hasVideo = true;
+            c.hasAudio = false;
+            c.timelineStart = cue.start;
+            c.timelineDuration = cue.end - cue.start;
+            c.subtitleText = cue.text;
+            c.subtitleStyle = cue.style;
+            if (track.addClip(c)) ++placed;
+        }
+        return placed > 0;
+    });
+    if (!ok) {
+        if (lastError_.empty()) lastError_ = "No subtitles placed";
+        return 0;
+    }
+    return placed;
+}
+
+// --- Clipboard (Phase 7) ---------------------------------------------------
+
+void TimelineEditController::setClipboard(std::vector<ClipboardEntry> entries) {
+    clipboard_ = std::move(entries);
+}
+
+void TimelineEditController::clearClipboard() { clipboard_.clear(); }
+
+int TimelineEditController::pasteClips(const Time& at, int targetFlat) {
+    lastError_.clear();
+    if (!valid()) {
+        lastError_ = "No timeline";
+        return 0;
+    }
+    if (clipboard_.empty()) {
+        lastError_ = "Clipboard is empty";
+        return 0;
+    }
+
+    // Earliest copied start defines the paste origin; every clip keeps its
+    // offset from it, so a multi-clip copy lands as the same arrangement.
+    Time origin = clipboard_.front().clip.timelineStart;
+    for (const auto& e : clipboard_) {
+        if (e.clip.timelineStart < origin) origin = e.clip.timelineStart;
+    }
+
+    // A lane accepts a clip when it exposes the stream the clip carries; an
+    // A/V clip (both streams) fits either kind.
+    auto accepts = [this](const Sequence& s, int flat, const Clip& c) {
+        if (flat < 0 || flat >= trackCount(s)) return false;
+        return isVideoTrack(s, flat) ? c.hasVideo : c.hasAudio;
+    };
+    // Prefer the clip's original lane, then `targetFlat`, then the first lane
+    // of a compatible kind that has room.
+    auto findLane = [&](const Sequence& s, const Clip& c, Time start,
+                        int preferred) -> int {
+        if (preferred >= 0 && accepts(s, preferred, c) &&
+            canPlaceAt(s, preferred, c, start)) {
+            return preferred;
+        }
+        if (targetFlat >= 0 && targetFlat != preferred &&
+            accepts(s, targetFlat, c) &&
+            canPlaceAt(s, targetFlat, c, start)) {
+            return targetFlat;
+        }
+        for (int flat = 0; flat < trackCount(s); ++flat) {
+            if (flat == preferred || flat == targetFlat) continue;
+            if (accepts(s, flat, c) && canPlaceAt(s, flat, c, start)) {
+                return flat;
+            }
+        }
+        return -1;
+    };
+
+    int placed = 0;
+    const bool ok = runSequenceEdit("Paste clips", [&](Sequence& s) -> bool {
+        placed = 0;
+        for (const auto& e : clipboard_) {
+            Clip copy = e.clip;
+            copy.id = "ui:" + std::to_string(++idSeed_);
+            const Time start = at + (e.clip.timelineStart - origin);
+            const int flat = findLane(s, copy, start, e.sourceFlat);
+            if (flat < 0) continue; // no room; skip this clip
+            copy.timelineStart = start;
+            if (!mutableTrackAt(s, flat).addClip(copy)) continue;
+            ++placed;
+        }
+        return placed > 0;
+    });
+    if (!ok) {
+        if (lastError_.empty()) {
+            lastError_ = "Nowhere to paste";
+        }
+        return 0;
+    }
+    return placed;
+}
+
 
 bool TimelineEditController::insertTrack(bool video, size_t index,
                                          std::string name) {

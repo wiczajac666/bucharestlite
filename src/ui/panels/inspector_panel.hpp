@@ -42,6 +42,9 @@ public:
     // Adds an effect to the selected clip by registry id (test + menu entry).
     void addEffectById(const QString& effectId);
 
+    // Adds a LUT (.cube) effect to the selected clip, sourced from `path`.
+    void addCubeLutEffect(const QString& path);
+
     // Test helpers.
     bool hasClip() const { return currentFlat_.has_value(); }
     bool isPlaceholderShown() const;

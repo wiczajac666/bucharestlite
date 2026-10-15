@@ -74,4 +74,15 @@ Result<AudioMeterEnvelope> analyzeAudio(const std::string& path,
 MeterLevels meterLevelsAt(const Sequence& sequence, Time position,
                           const SourceMeterResolver& resolve);
 
+// Reduces an analyzed envelope to one normalized amplitude per output column
+// covering the source window [srcInSeconds, srcOutSeconds) — the shape a
+// timeline clip draws. Each column takes the maximum |amplitude| across every
+// channel and every envelope window its time span overlaps, so a zoomed-out
+// clip still shows its transients and a zoomed-in one stays smooth. Values are
+// clamped to [0, 1]. An empty envelope, a non-positive column count or a
+// degenerate range yields `columns` zeros (callers can still draw a flat line).
+std::vector<float> waveformColumns(const AudioMeterEnvelope& envelope,
+                                   double srcInSeconds, double srcOutSeconds,
+                                   int columns);
+
 } // namespace bl

@@ -4,6 +4,8 @@
 
 #include <gtest/gtest.h>
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -32,6 +34,9 @@ using bl::Time;
 using bl::TimelineSnapshot;
 using bl::Track;
 using bl::TrackKind;
+using bl::TransitionAlignment;
+using bl::TransitionKind;
+using bl::TransitionSpec;
 using bl::VideoTrack;
 
 static const Rational kFps{24000, 1001};
@@ -622,6 +627,428 @@ TEST_F(CompositorTest, DisabledTopClipRevealsLowerTrack) {
     EXPECT_EQ(result->data[0], 0u);   // B
     EXPECT_EQ(result->data[1], 0u);   // G
     EXPECT_EQ(result->data[2], 255u); // R
+}
+
+// ---------------------------------------------------------------------------
+// Transition rendering. Preview and export both composite through the single
+// Compositor::renderFrame path, so these assertions cover both surfaces.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Two adjacent clips on one video track: A (red) then B (blue), both starting
+// at source frame 0. `tweak` runs after both clips exist so it can call
+// addTransition() (addClip's prune sweep would drop a hand-set transitionOut).
+Sequence twoClipSequence(int64_t aDur, int64_t bDur, uint32_t w, uint32_t h,
+                         const std::function<void(VideoTrack&)>& tweak = {}) {
+    Sequence seq;
+    seq.settings.width = w;
+    seq.settings.height = h;
+
+    VideoTrack track("V1");
+    Clip a;
+    a.id = "a";
+    a.name = "A";
+    a.source.mediaItemId = "red.mp4";
+    a.source.sourceIn = frame(0);
+    a.source.sourceOut = frame(aDur);
+    a.timelineStart = frame(0);
+    a.timelineDuration = dur(aDur);
+
+    Clip b;
+    b.id = "b";
+    b.name = "B";
+    b.source.mediaItemId = "blue.mp4";
+    b.source.sourceIn = frame(0);
+    b.source.sourceOut = frame(bDur);
+    b.timelineStart = frame(aDur);
+    b.timelineDuration = dur(bDur);
+
+    EXPECT_TRUE(track.addClip(a));
+    EXPECT_TRUE(track.addClip(b));
+    if (tweak) tweak(track);
+    seq.videoTracks.push_back(std::move(track));
+    return seq;
+}
+
+TransitionSpec makeSpec(TransitionKind kind, TransitionAlignment alignment,
+                        int64_t durFrames,
+                        nlohmann::json params = nlohmann::json::object()) {
+    TransitionSpec s;
+    s.kind = kind;
+    s.alignment = alignment;
+    s.duration = dur(durFrames);
+    s.params = std::move(params);
+    return s;
+}
+
+// Asserts one BGRA pixel (column `x` of a single-row result) plus its alpha.
+void expectPixel(const CompositorResult& r, uint32_t x, uint8_t b, uint8_t g,
+                 uint8_t rr, uint8_t a = 255) {
+    EXPECT_EQ(r.data[x * 4 + 0], b) << "col " << x << " B";
+    EXPECT_EQ(r.data[x * 4 + 1], g) << "col " << x << " G";
+    EXPECT_EQ(r.data[x * 4 + 2], rr) << "col " << x << " R";
+    EXPECT_EQ(r.data[x * 4 + 3], a) << "col " << x << " A";
+}
+
+} // namespace
+
+TEST_F(CompositorTest, CrossfadeMidpointBlendsHalfway) {
+    // A red (255,0,0) → B blue (0,0,255), crossfade duration 4, Left-aligned
+    // to the outgoing tail: span is [aEnd-4, aEnd) = [6, 10).
+    Sequence seq = twoClipSequence(10, 10, 4, 1, [](VideoTrack& t) {
+        EXPECT_TRUE(t.addTransition(
+            "a", makeSpec(TransitionKind::Crossfade, TransitionAlignment::Left,
+                          4)));
+    });
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({4, 1});
+    ASSERT_TRUE(comp.ok()) << comp.message();
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+    provider.setColor("blue.mp4", 0, 0, 255);
+
+    // Midpoint of the 4-frame span (frame 8) is 50/50. Truncated per channel:
+    // A red contributes 255*0.5 = 127 to R, B blue contributes 255*0.5 = 127
+    // to B, so the blend is (B=127, G=0, R=127). A contributes, so this is a
+    // real blend rather than an overwrite toward B.
+    auto result = comp->renderFrame(snap, frame(8), provider);
+    ASSERT_TRUE(result.ok()) << result.message();
+    expectPixel(*result, 0, 127, 0, 127);
+    expectPixel(*result, 3, 127, 0, 127);
+}
+
+TEST_F(CompositorTest, LeftAlignmentSpanIsOutgoingTail) {
+    Sequence seq = twoClipSequence(10, 10, 4, 1, [](VideoTrack& t) {
+        EXPECT_TRUE(t.addTransition(
+            "a", makeSpec(TransitionKind::Crossfade, TransitionAlignment::Left,
+                          4)));
+    });
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({4, 1});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+    provider.setColor("blue.mp4", 0, 0, 255);
+
+    // Frame 5: before the span → the normal path renders pure A.
+    auto r = comp->renderFrame(snap, frame(5), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 0, 0, 255);
+
+    // Frame 6 == span start: progress 0 → pure A.
+    r = comp->renderFrame(snap, frame(6), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 0, 0, 255);
+
+    // Frame 9 (last tick in [6,10)): progress 3/4 → R 255*0.25 = 63,
+    // B 255*0.75 = 191 (truncated).
+    r = comp->renderFrame(snap, frame(9), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 191, 0, 63);
+
+    // Frame 10 == aEnd: span end is exclusive, so the normal path renders B.
+    r = comp->renderFrame(snap, frame(10), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 255, 0, 0);
+}
+
+TEST_F(CompositorTest, CenterAlignmentStraddlesCut) {
+    // Dissolve (the standard alpha crossfade) duration 4, Center: half = 2,
+    // span = [aEnd-2, aEnd+2) = [8, 12).
+    Sequence seq = twoClipSequence(10, 10, 4, 1, [](VideoTrack& t) {
+        EXPECT_TRUE(t.addTransition(
+            "a", makeSpec(TransitionKind::Dissolve,
+                          TransitionAlignment::Center, 4)));
+    });
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({4, 1});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+    provider.setColor("blue.mp4", 0, 0, 255);
+
+    // Frame 8 == span start: pure A.
+    auto r = comp->renderFrame(snap, frame(8), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 0, 0, 255);
+
+    // Frame 10 == aEnd: progress 0.5 → exact 50/50. B's offset is clamped to
+    // its first frame here (t < b.timelineStart).
+    r = comp->renderFrame(snap, frame(10), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 127, 0, 127);
+
+    // Frame 11 (just before aEnd+dur/2): progress 3/4 → R 63, B 191.
+    r = comp->renderFrame(snap, frame(11), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 191, 0, 63);
+
+    // Frame 12 == span end (exclusive) → normal path renders pure B.
+    r = comp->renderFrame(snap, frame(12), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 255, 0, 0);
+}
+
+TEST_F(CompositorTest, RightAlignmentSpanIsIncomingHead) {
+    // Crossfade duration 4, Right: span = [aEnd, aEnd+4) = [10, 14).
+    Sequence seq = twoClipSequence(10, 10, 4, 1, [](VideoTrack& t) {
+        EXPECT_TRUE(t.addTransition(
+            "a", makeSpec(TransitionKind::Crossfade,
+                          TransitionAlignment::Right, 4)));
+    });
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({4, 1});
+    ASSERT_TRUE(comp.ok());
+
+    RecordingProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+    provider.setColor("blue.mp4", 0, 0, 255);
+
+    // Frame 10 == span start: progress 0 → pure A, sourced from A's last frame
+    // (offset 10 clamped to A's 10-frame span) while B is at its first frame.
+    auto r = comp->renderFrame(snap, frame(10), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 0, 0, 255);
+    ASSERT_EQ(provider.requested.size(), 2u);
+    EXPECT_EQ(provider.requested[0], frame(10));  // A clamped to its end
+    EXPECT_EQ(provider.requested[1], frame(0));   // B's first frame
+
+    // Frame 12: progress 0.5 → exact 50/50; A stays clamped at its end.
+    provider.requested.clear();
+    r = comp->renderFrame(snap, frame(12), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 127, 0, 127);
+    ASSERT_EQ(provider.requested.size(), 2u);
+    EXPECT_EQ(provider.requested[0], frame(10));  // A clamped
+    EXPECT_EQ(provider.requested[1], frame(2));   // B advances
+
+    // Frame 14 == span end (exclusive) → normal path renders pure B.
+    r = comp->renderFrame(snap, frame(14), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 255, 0, 0);
+}
+
+TEST_F(CompositorTest, WipeEdgePosition) {
+    Sequence seq = twoClipSequence(10, 10, 4, 1, [](VideoTrack& t) {
+        EXPECT_TRUE(t.addTransition(
+            "a", makeSpec(TransitionKind::Wipe, TransitionAlignment::Left, 4,
+                          nlohmann::json{{"direction", "left"}})));
+    });
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({4, 1});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+    provider.setColor("blue.mp4", 0, 0, 255);
+
+    // Frame 8 → p = 0.5, W = 4: the incoming blue is revealed over the first
+    // half of the width (columns 0,1) and red remains on columns 2,3.
+    auto r = comp->renderFrame(snap, frame(8), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 255, 0, 0);  // blue
+    expectPixel(*r, 1, 255, 0, 0);  // blue
+    expectPixel(*r, 2, 0, 0, 255);  // red
+    expectPixel(*r, 3, 0, 0, 255);  // red
+}
+
+TEST_F(CompositorTest, WipeSoftnessRampsAcrossEdge) {
+    Sequence seq = twoClipSequence(10, 10, 4, 1, [](VideoTrack& t) {
+        EXPECT_TRUE(t.addTransition(
+            "a", makeSpec(TransitionKind::Wipe, TransitionAlignment::Left, 4,
+                          nlohmann::json{{"direction", "left"},
+                                         {"softness", 2}})));
+    });
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({4, 1});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+    provider.setColor("blue.mp4", 0, 0, 255);
+
+    // p = 0.5 → edge at x = 2, a 2-pixel ramp straddling it: coverage
+    // [1, 1, 0.5, 0] for columns 0..3 → blue, blue, 50/50, red.
+    auto r = comp->renderFrame(snap, frame(8), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 255, 0, 0);  // full B
+    expectPixel(*r, 1, 255, 0, 0);  // full B
+    expectPixel(*r, 2, 127, 0, 127);  // ramp midpoint
+    expectPixel(*r, 3, 0, 0, 255);  // full A
+}
+
+TEST_F(CompositorTest, SlideDirection) {
+    Sequence seq = twoClipSequence(10, 10, 4, 1, [](VideoTrack& t) {
+        EXPECT_TRUE(t.addTransition(
+            "a", makeSpec(TransitionKind::Slide, TransitionAlignment::Left, 4,
+                          nlohmann::json{{"direction", "left"}})));
+    });
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({4, 1});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+    provider.setColor("blue.mp4", 0, 0, 255);
+
+    // p = 0.5, slide from the left: the left half samples B, the right half
+    // samples A (solid colours, so this is a pure copy).
+    auto r = comp->renderFrame(snap, frame(8), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 255, 0, 0);  // B
+    expectPixel(*r, 1, 255, 0, 0);  // B
+    expectPixel(*r, 2, 0, 0, 255);  // A
+    expectPixel(*r, 3, 0, 0, 255);  // A
+}
+
+TEST_F(CompositorTest, SlideVerticalDirection) {
+    // 1x4 canvas to exercise the up/down sampling axes.
+    Sequence seq = twoClipSequence(10, 10, 1, 4, [](VideoTrack& t) {
+        EXPECT_TRUE(t.addTransition(
+            "a", makeSpec(TransitionKind::Slide, TransitionAlignment::Left, 4,
+                          nlohmann::json{{"direction", "up"}})));
+    });
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({1, 4});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+    provider.setColor("blue.mp4", 0, 0, 255);
+
+    // p = 0.5, slide up: rows 0,1 sample B; rows 2,3 sample A.
+    auto r = comp->renderFrame(snap, frame(8), provider);
+    ASSERT_TRUE(r.ok());
+    auto checkRow = [&](uint32_t y, uint8_t b, uint8_t g, uint8_t rr) {
+        const uint8_t* p = r->data.data() + y * r->linesize;
+        EXPECT_EQ(p[0], b) << "row " << y << " B";
+        EXPECT_EQ(p[1], g) << "row " << y << " G";
+        EXPECT_EQ(p[2], rr) << "row " << y << " R";
+        EXPECT_EQ(p[3], 255) << "row " << y << " A";
+    };
+    checkRow(0, 255, 0, 0);  // B
+    checkRow(1, 255, 0, 0);  // B
+    checkRow(2, 0, 0, 255);  // A
+    checkRow(3, 0, 0, 255);  // A
+}
+
+TEST_F(CompositorTest, FadeThroughBlack) {
+    // No dedicated Fade kind exists; a fade is a transition flagged
+    // through-black. Duration 8, Left → span [2, 10).
+    Sequence seq = twoClipSequence(10, 10, 4, 1, [](VideoTrack& t) {
+        EXPECT_TRUE(t.addTransition(
+            "a", makeSpec(TransitionKind::Crossfade, TransitionAlignment::Left,
+                          8, nlohmann::json{{"throughBlack", true}})));
+    });
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({4, 1});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+    provider.setColor("blue.mp4", 0, 0, 255);
+
+    // Frame 2 == span start: progress 0 → pure A.
+    auto r = comp->renderFrame(snap, frame(2), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 0, 0, 255);
+
+    // Frame 5: progress 3/8 = 0.375 → first half dims A by (1 - 2p) = 0.25 →
+    // R 255*0.25 = 63 (near black).
+    r = comp->renderFrame(snap, frame(5), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 0, 0, 63);
+
+    // Frame 6: progress 0.5 → the dip bottoms out exactly at black.
+    r = comp->renderFrame(snap, frame(6), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 0, 0, 0);
+
+    // Frame 7: progress 0.625 → B lifts from black by (2p - 1) = 0.25 →
+    // B 255*0.25 = 63.
+    r = comp->renderFrame(snap, frame(7), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 63, 0, 0);
+
+    // Frame 10 == span end (exclusive) → normal path renders pure B.
+    r = comp->renderFrame(snap, frame(10), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 255, 0, 0);
+}
+
+TEST_F(CompositorTest, FadeThroughBlackStringParam) {
+    // The "fade": "through_black" spelling is equivalent to throughBlack:true.
+    Sequence seq = twoClipSequence(10, 10, 4, 1, [](VideoTrack& t) {
+        EXPECT_TRUE(t.addTransition(
+            "a", makeSpec(TransitionKind::Crossfade, TransitionAlignment::Left,
+                          8, nlohmann::json{{"fade", "through_black"}})));
+    });
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({4, 1});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+    provider.setColor("blue.mp4", 0, 0, 255);
+
+    auto r = comp->renderFrame(snap, frame(6), provider);  // progress 0.5
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 0, 0, 0);
+}
+
+TEST_F(CompositorTest, DisabledIncomingClipSkipsTransition) {
+    // B disabled → the pair is ignored, so the outgoing clip renders normally
+    // through the per-clip loop at its own (keyframed) opacity.
+    Sequence seq = twoClipSequence(10, 10, 4, 1, [](VideoTrack& t) {
+        EXPECT_TRUE(t.addTransition(
+            "a", makeSpec(TransitionKind::Crossfade, TransitionAlignment::Left,
+                          4)));
+        EXPECT_TRUE(t.setClipEnabled("b", false));
+        EXPECT_TRUE(t.setClipKeyframe("a", bl::KeyChannel::Opacity, frame(0), 0.5,
+                                      bl::Interpolation::Linear));
+    });
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({4, 1});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+    provider.setColor("blue.mp4", 0, 0, 255);
+
+    // At frame 8 (inside the transition span) only A renders, at 50% opacity:
+    // R = 255*0.5 = 127, alpha = 255*0.5 = 127.
+    auto r = comp->renderFrame(snap, frame(8), provider);
+    ASSERT_TRUE(r.ok());
+    expectPixel(*r, 0, 0, 0, 127, 127);
+}
+
+TEST_F(CompositorTest, TransitionRenderIsDeterministic) {
+    // Rendering the same transitioned frame twice through the single shared
+    // Compositor::renderFrame entry point (used by both preview and export)
+    // must be byte-identical.
+    Sequence seq = twoClipSequence(10, 10, 4, 1, [](VideoTrack& t) {
+        EXPECT_TRUE(t.addTransition(
+            "a", makeSpec(TransitionKind::Wipe, TransitionAlignment::Center, 4,
+                          nlohmann::json{{"direction", "right"},
+                                         {"softness", 1}})));
+    });
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({4, 1});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+    provider.setColor("blue.mp4", 0, 0, 255);
+
+    auto first = comp->renderFrame(snap, frame(10), provider);
+    ASSERT_TRUE(first.ok());
+    auto second = comp->renderFrame(snap, frame(10), provider);
+    ASSERT_TRUE(second.ok());
+    EXPECT_EQ(first->data, second->data);
 }
 
 } // namespace

@@ -36,14 +36,21 @@ add_executable(bl_core_tests
     test_effects.cpp
     test_frame_cache.cpp
     test_compositor.cpp
+    test_scopes.cpp
     test_audio_mixer.cpp
     test_audio_meter_analysis.cpp
     test_media_jobs.cpp
     test_persistence.cpp
     test_timeline.cpp
+    test_subtitle_import.cpp
+    test_image_sequence.cpp
+    test_cube_lut.cpp
+    test_title_spec.cpp
+    test_project_template.cpp
     test_codec_plugins.cpp
     test_preview_engine.cpp
     test_media_thumbnail.cpp
+    test_quality_metrics.cpp
     test_export_roundtrip.cpp
 )
 

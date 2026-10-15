@@ -36,11 +36,24 @@ struct ExportPlan {
 
     const export_::BlFormatPreset* preset() const noexcept { return &preset_; }
 
+    // True when the plan publishes to a network endpoint rather than a file.
+    bool isStream() const noexcept { return isStream_; }
+    // Resolved output target: the file path for a file target, the stream URL
+    // for a network target. Always non-null.
+    const char* outputPath() const noexcept { return outputPath_.c_str(); }
+    // Explicit libavformat muxer name for a stream ("flv"/"mpegts"), or
+    // nullptr for the file path (format auto-detected from the extension).
+    const char* formatName() const noexcept {
+        return formatName_.empty() ? nullptr : formatName_.c_str();
+    }
+
 private:
     std::string outputPath_;
     std::string container_;
     std::string videoCodec_;
     std::string audioCodec_;
+    bool isStream_{false};
+    std::string formatName_;
     export_::BlFormatPreset preset_{};
     export_::BlQualityPreset quality_{};
 };

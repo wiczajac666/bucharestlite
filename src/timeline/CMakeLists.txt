@@ -4,6 +4,9 @@ add_library(bl_timeline STATIC
     track.cpp
     sequence.cpp
     timeline.cpp
+    subtitle_import.cpp
+    title.cpp
+    project_template.cpp
 )
 
 target_include_directories(bl_timeline PUBLIC

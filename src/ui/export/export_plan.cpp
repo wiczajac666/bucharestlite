@@ -27,6 +27,8 @@ bl::Duration sequenceDuration(const bl::Sequence& sequence) {
 Result<void> ExportPlan::build(const bl::Sequence& sequence,
                                bl::Duration totalDuration) {
     const auto& seq = sequence.settings;
+    isStream_ = false;
+    formatName_.clear();
 
     width = outputWidth(settings, seq);
     height = outputHeight(settings, seq);
@@ -34,14 +36,88 @@ Result<void> ExportPlan::build(const bl::Sequence& sequence,
         return Result<void>::err(Err::InvalidArgument,
                                  "output resolution must be non-zero");
     }
-    if (settings.outputPath.empty()) {
-        return Result<void>::err(Err::InvalidArgument, "output path is empty");
-    }
-    if (!isSupportedContainer(settings.container.empty() ? "mp4"
-                                                          : settings.container)) {
-        return Result<void>::err(
-            Err::InvalidArgument,
-            "unsupported container for this version: only mp4, webm and mkv");
+
+    if (settings.target == ExportTarget::Stream) {
+        // Network publish: the container is inferred from the URL scheme and
+        // the codecs are constrained to the ones both flv and mpegts carry.
+        if (settings.streamUrl.empty()) {
+            return Result<void>::err(Err::InvalidArgument,
+                                     "stream URL is empty");
+        }
+        const std::string format = streamFormatForUrl(settings.streamUrl);
+        if (format.empty()) {
+            return Result<void>::err(
+                Err::InvalidArgument,
+                "unsupported stream URL (use rtmp:// or udp://)");
+        }
+
+        isStream_ = true;
+        formatName_ = format;
+        outputPath_ = settings.streamUrl;
+        container_ = format;
+
+        videoCodec_ =
+            settings.videoCodec.empty() ? "h264" : settings.videoCodec;
+        if (videoCodec_ != "h264") {
+            return Result<void>::err(
+                Err::InvalidArgument,
+                "streaming requires the H.264 video codec");
+        }
+        if (settings.includeAudio) {
+            audioCodec_ =
+                settings.audioCodec.empty() ? "aac" : settings.audioCodec;
+            if (audioCodec_ != "aac") {
+                return Result<void>::err(
+                    Err::InvalidArgument,
+                    "streaming requires the AAC audio codec");
+            }
+        } else {
+            audioCodec_.clear();
+        }
+    } else {
+        if (settings.outputPath.empty()) {
+            return Result<void>::err(Err::InvalidArgument,
+                                     "output path is empty");
+        }
+        if (!isSupportedContainer(settings.container.empty() ? "mp4"
+                                                              : settings.container)) {
+            return Result<void>::err(
+                Err::InvalidArgument,
+                "unsupported container for this version: only mp4, webm and mkv");
+        }
+
+        outputPath_ = settings.outputPath;
+        container_ = settings.container.empty() ? "mp4" : settings.container;
+        videoCodec_ = settings.videoCodec;
+        audioCodec_ = settings.audioCodec;
+        if (settings.includeAudio && audioCodec_.empty()) {
+            // Pick a codec the container actually accepts when the caller asked
+            // for audio but did not name one.
+            audioCodec_ = container_ == "mp4" ? "aac" : "opus";
+        }
+        if (!settings.includeAudio) {
+            audioCodec_.clear();
+        }
+        if (settings.includeAudio && !audioCodec_.empty()) {
+            // MP4 and WebM are the restricted pair; Matroska carries every audio
+            // codec the app offers.
+            bool containerOk = false;
+            if (container_ == "mp4") {
+                containerOk = audioCodec_ == "aac" || audioCodec_ == "flac" ||
+                              audioCodec_ == "opus";
+            } else if (container_ == "webm") {
+                containerOk = audioCodec_ == "opus" || audioCodec_ == "vorbis";
+            } else {
+                containerOk = audioCodec_ == "aac" || audioCodec_ == "flac" ||
+                              audioCodec_ == "opus" || audioCodec_ == "vorbis";
+            }
+            if (!containerOk) {
+                return Result<void>::err(
+                    Err::InvalidArgument,
+                    "'" + settings.audioCodec + "' is not a valid " +
+                        container_ + " audio codec");
+            }
+        }
     }
 
     range = frameRange(settings, seq, totalDuration);
@@ -55,39 +131,6 @@ Result<void> ExportPlan::build(const bl::Sequence& sequence,
     sampleRate = static_cast<uint32_t>(seq.sampleRate);
     channels = static_cast<uint32_t>(seq.channelLayout > 0 ? seq.channelLayout
                                                            : 2);
-
-    outputPath_ = settings.outputPath;
-    container_ = settings.container.empty() ? "mp4" : settings.container;
-    videoCodec_ = settings.videoCodec;
-    audioCodec_ = settings.audioCodec;
-    if (settings.includeAudio && audioCodec_.empty()) {
-        // Pick a codec the container actually accepts when the caller asked
-        // for audio but did not name one.
-        audioCodec_ = container_ == "mp4" ? "aac" : "opus";
-    }
-    if (!settings.includeAudio) {
-        audioCodec_.clear();
-    }
-    if (settings.includeAudio && !audioCodec_.empty()) {
-        // MP4 and WebM are the restricted pair; Matroska carries every audio
-        // codec the app offers.
-        bool containerOk = false;
-        if (container_ == "mp4") {
-            containerOk = audioCodec_ == "aac" || audioCodec_ == "flac" ||
-                          audioCodec_ == "opus";
-        } else if (container_ == "webm") {
-            containerOk = audioCodec_ == "opus" || audioCodec_ == "vorbis";
-        } else {
-            containerOk = audioCodec_ == "aac" || audioCodec_ == "flac" ||
-                          audioCodec_ == "opus" || audioCodec_ == "vorbis";
-        }
-        if (!containerOk) {
-            return Result<void>::err(
-                Err::InvalidArgument,
-                "'" + settings.audioCodec + "' is not a valid " + container_ +
-                    " audio codec");
-        }
-    }
 
     preset_.name = "custom";
     preset_.container = container_.c_str();

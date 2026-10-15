@@ -107,6 +107,11 @@ PreviewPanel::PreviewPanel(ProjectController* controller,
     setObjectName(QStringLiteral("PreviewPanel"));
     setWindowTitle(tr("Preview"));
 
+    // The scopes dock receives frames through a signal; register the payload so
+    // Qt can carry it (direct connections copy nothing, but this keeps queued
+    // use legal too).
+    qRegisterMetaType<bl::CompositorResult>("bl::CompositorResult");
+
     surface_ = new PreviewSurface(this);
 
     playButton_ = new QToolButton(this);
@@ -210,6 +215,7 @@ void PreviewPanel::refresh() {
     }
     if (!engine_) {
         updateTimecode();
+        emit frameRendered(bl::CompositorResult{});
         return;
     }
 
@@ -217,9 +223,11 @@ void PreviewPanel::refresh() {
                                  transport_.playhead());
     if (result.ok()) {
         surface_->setFrame(result.value());
+        emit frameRendered(result.value());
     } else {
         BL_LOG_TRACE("preview", "render skipped: " + result.message());
         surface_->clearFrame();
+        emit frameRendered(bl::CompositorResult{});
     }
     updateTimecode();
 }

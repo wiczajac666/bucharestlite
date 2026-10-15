@@ -400,3 +400,77 @@ TEST(AudioMeterQueryTest, InaudibleClipsProduceSilence) {
     EXPECT_NEAR(trackAt(overVideoOnly).right, 0.0, 1e-6);
     EXPECT_NEAR(overVideoOnly.master.left, 0.0, 1e-6);
 }
+
+// ---------------------------------------------------------------------------
+// Waveform reduction (P1 #13): AudioMeterEnvelope -> per-column amplitude shape
+// drawn inside a timeline audio clip.
+// ---------------------------------------------------------------------------
+
+TEST(AudioWaveformTest, FlatEnvelopeYieldsConstantColumns) {
+    const AudioMeterEnvelope env = synthStereo(0.5f);
+    const std::vector<float> cols = bl::waveformColumns(env, 0.0, 1.0, 10);
+    ASSERT_EQ(cols.size(), 10u);
+    for (float c : cols) EXPECT_NEAR(c, 0.5f, 1e-4f);
+}
+
+TEST(AudioWaveformTest, MaxAcrossChannelsAndWindows) {
+    // Right channel silent, left loud: the column must follow the loud channel.
+    AudioMeterEnvelope env = synthStereo(0.0f, 60);
+    for (size_t w = 0; w < env.windowCount(); ++w) env.peak[w][0] = 0.9f;
+    const std::vector<float> cols = bl::waveformColumns(env, 0.0, 1.0, 4);
+    ASSERT_EQ(cols.size(), 4u);
+    for (float c : cols) EXPECT_NEAR(c, 0.9f, 1e-4f);
+}
+
+TEST(AudioWaveformTest, MapsSubRangeOfSourceToColumns) {
+    // 60 windows over 1 s; only windows 30..39 are loud. Asking for the columns
+    // covering [0.5, 0.5 + 10/60) must trace that loud window run exactly.
+    AudioMeterEnvelope env = synthStereo(0.0f, 60);
+    for (size_t w = 30; w < 40; ++w) env.peak[w][0] = 0.8f;
+
+    const std::vector<float> cols =
+        bl::waveformColumns(env, 0.5, 0.5 + 10.0 / 60.0, 10);
+    ASSERT_EQ(cols.size(), 10u);
+    for (float c : cols) EXPECT_NEAR(c, 0.8f, 1e-4f);
+
+    // A range over the quiet head of the same envelope reads as silence.
+    const std::vector<float> head = bl::waveformColumns(env, 0.0, 0.4, 4);
+    ASSERT_EQ(head.size(), 4u);
+    for (float c : head) EXPECT_FLOAT_EQ(c, 0.0f);
+}
+
+TEST(AudioWaveformTest, ClampsAboveUnityAndNormalisesReversedRange) {
+    const AudioMeterEnvelope env = synthStereo(2.5f);  // pathological > 1
+    for (float c : bl::waveformColumns(env, 0.0, 1.0, 6)) {
+        EXPECT_FLOAT_EQ(c, 1.0f);
+    }
+    // srcIn > srcOut is treated as the same span, not an empty one.
+    EXPECT_EQ(bl::waveformColumns(env, 1.0, 0.0, 6),
+              bl::waveformColumns(env, 0.0, 1.0, 6));
+}
+
+TEST(AudioWaveformTest, DegenerateInputsYieldZerosOrEmpty) {
+    // No columns requested -> empty regardless of the envelope.
+    const AudioMeterEnvelope env = synthStereo(0.5f);
+    EXPECT_TRUE(bl::waveformColumns(env, 0.0, 1.0, 0).empty());
+    EXPECT_TRUE(bl::waveformColumns(env, 0.0, 1.0, -3).empty());
+
+    // An empty envelope still returns `columns` zeros so callers can draw flat.
+    const AudioMeterEnvelope empty;
+    const std::vector<float> zeros = bl::waveformColumns(empty, 0.0, 1.0, 4);
+    ASSERT_EQ(zeros.size(), 4u);
+    for (float c : zeros) EXPECT_FLOAT_EQ(c, 0.0f);
+
+    // A zero-length source range is silent, not a crash.
+    const std::vector<float> degenerate = bl::waveformColumns(env, 0.5, 0.5, 3);
+    ASSERT_EQ(degenerate.size(), 3u);
+    for (float c : degenerate) EXPECT_FLOAT_EQ(c, 0.0f);
+}
+
+TEST(AudioWaveformTest, RangePastTheAnalysisIsSilent) {
+    const AudioMeterEnvelope env = synthStereo(0.7f, 60);  // 1 s of audio
+    const std::vector<float> past =
+        bl::waveformColumns(env, 5.0, 6.0, 5);  // well beyond the last window
+    ASSERT_EQ(past.size(), 5u);
+    for (float c : past) EXPECT_FLOAT_EQ(c, 0.0f);
+}

@@ -14,7 +14,7 @@ namespace bl::ui {
 
 namespace {
 
-constexpr qreal kSnapBarWidth = 56.0; // min content width margin (px)
+constexpr qreal kSnapBarWidth = timeline_geometry::kContentMargin;
 
 int64_t toFrame(const bl::Time& t, const bl::Rational& fps) {
     return static_cast<int64_t>(
@@ -126,6 +126,33 @@ void SnapIndicatorItem::setHeight(qreal height) {
 }
 
 // ---------------------------------------------------------------------------
+// ZoneItem
+// ---------------------------------------------------------------------------
+ZoneItem::ZoneItem() : QGraphicsRectItem() { setZValue(1); }
+
+void ZoneItem::setRange(qreal x, qreal width, qreal top, qreal height) {
+    setRect(x, top, std::max<qreal>(width, 1.0), height);
+}
+
+void ZoneItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget*) {
+    const QRectF r = rect();
+    QColor fill(0x4d, 0xa3, 0xf0);
+    fill.setAlpha(40);
+    painter->fillRect(r, fill);
+
+    // In/out grab handles.
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(QColor(0x4d, 0xa3, 0xf0, 220));
+    painter->drawRect(QRectF(r.left(), r.top(), 4.0, r.height()));
+    painter->drawRect(QRectF(r.right() - 4.0, r.top(), 4.0, r.height()));
+
+    // Boundaries.
+    painter->setPen(QPen(QColor(0x4d, 0xa3, 0xf0), 1.0, Qt::DashLine));
+    painter->drawLine(QPointF(r.left(), r.top()), QPointF(r.left(), r.bottom()));
+    painter->drawLine(QPointF(r.right(), r.top()), QPointF(r.right(), r.bottom()));
+}
+
+// ---------------------------------------------------------------------------
 // MarkerItem
 // ---------------------------------------------------------------------------
 MarkerItem::MarkerItem(const bl::Marker& marker, qreal x, qreal topY,
@@ -229,6 +256,38 @@ void ClipItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget
     painter->setPen(QPen(QColor(0x1a, 0x1c, 0x1e), 1.0));
     painter->setBrush(labelColor(clip_.colorLabel, selected));
     painter->drawRect(r);
+
+    // Audio waveform (P1 #13): reduce the analyzed envelope to one bar per
+    // pixel column over the clip's source range and draw it inside the body,
+    // before the label so the clip name stays readable on top.
+    if (waveform_ && !waveform_->empty() && clip_.hasAudio) {
+        const qreal innerW = r.width() - 2.0;
+        if (innerW >= 2.0) {
+            const int columns = std::max(
+                1, static_cast<int>(
+                       std::min<qreal>(std::floor(innerW), 4096.0)));
+            const std::vector<float> amps =
+                waveformColumns(*waveform_, clip_.source.sourceIn.toSeconds(),
+                                clip_.source.sourceOut.toSeconds(), columns);
+            const qreal colW = innerW / static_cast<double>(columns);
+            const qreal midY = r.center().y();
+            const qreal maxAmp = std::max<qreal>(1.0, r.height() * 0.5 - 4.0);
+            painter->save();
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(QColor(0xf0, 0xf2, 0xf4, 140));
+            for (int c = 0; c < columns; ++c) {
+                const qreal amp =
+                    std::min<qreal>(amps[static_cast<size_t>(c)], 1.0);
+                if (amp <= 0.0) continue;
+                const qreal half = amp * maxAmp;
+                const qreal x = r.left() + 1.0 + colW * c;
+                painter->drawRect(QRectF(x, midY - half,
+                                         std::max<qreal>(colW, 1.0),
+                                         half * 2.0));
+            }
+            painter->restore();
+        }
+    }
 
     QFont f = painter->font();
     f.setPixelSize(10);

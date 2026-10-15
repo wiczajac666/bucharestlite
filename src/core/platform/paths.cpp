@@ -83,7 +83,17 @@ std::vector<std::string> pluginRootDirectories() {
                         "/Library/Application Support/BucharestLite/plugins");
     }
 #else
-    roots.push_back("/usr/share/bucharest-lite/plugins");
+    // Distro-packaged plugins. The path is injected by CMake from the same
+    // variable the install() rules use, so it tracks CMAKE_INSTALL_LIBDIR
+    // (multiarch triplet on Debian/Ubuntu) and the Flatpak /app prefix. Do
+    // not hardcode it: /usr/share is both a Debian policy violation for
+    // arch-dependent files and simply wrong under /app.
+#ifdef BL_SYSTEM_PLUGIN_DIR
+    roots.push_back(BL_SYSTEM_PLUGIN_DIR);
+#else
+    // Only reachable in a build that bypassed the top-level CMakeLists.txt.
+    roots.push_back("/usr/lib/bucharest-lite/plugins");
+#endif
     const char* xdg = std::getenv("XDG_DATA_HOME");
     if (xdg && *xdg) {
         roots.push_back(std::string(xdg) + "/bucharest-lite/plugins");

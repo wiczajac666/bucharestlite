@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(BucharestLite
-    VERSION 1.7.38
+    VERSION 1.9.14
     DESCRIPTION "Bucharest Lite - open-source non-linear video editor"
     LANGUAGES C CXX
 )
@@ -28,6 +28,27 @@ endif()
 include(FetchContent)
 
 list(PREPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+
+# ---------------------------------------------------------------------------
+# Where the distro-packaged codec plugins get installed, and where the app
+# looks for them at runtime. These must be the same string, so derive both
+# from one variable instead of hardcoding a path in C++ and again in the
+# install() rules (which is how they drifted before).
+#
+# GNUInstallDirs matters here: it yields the multiarch triplet on Debian and
+# Ubuntu ("lib/x86_64-linux-gnu") and plain "lib" elsewhere, which is what
+# each distro expects for arch-dependent files. Note that putting these .so
+# files under share/ is a Debian policy violation (FSH, "arch-dependent-file-
+# in-usr-share") and lintian rejects it.
+#
+# Deriving from CMAKE_INSTALL_PREFIX also fixes Flatpak, where the prefix is
+# /app rather than /usr: a hardcoded /usr/share/bucharest-lite/plugins root
+# silently finds no plugins at all inside the sandbox.
+# ---------------------------------------------------------------------------
+include(GNUInstallDirs)
+set(BL_SYSTEM_PLUGIN_DIR "${CMAKE_INSTALL_FULL_LIBDIR}/bucharest-lite/plugins"
+    CACHE PATH "Install destination for the distro-shipped codec plugins")
+message(STATUS "BucharestLite: codec plugins install to ${BL_SYSTEM_PLUGIN_DIR}")
 
 find_package(nlohmann_json 3.2.0 QUIET)
 if(NOT TARGET nlohmann_json::nlohmann_json)

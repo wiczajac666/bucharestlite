@@ -10,6 +10,7 @@
 
 #include <QElapsedTimer>
 #include <QImage>
+#include <QMetaType>
 #include <QWidget>
 
 #include <memory>
@@ -20,6 +21,10 @@
 class QTimer;
 class QLabel;
 class QToolButton;
+
+// Let a composited frame travel through Qt signal/slot connections (the scopes
+// dock taps PreviewPanel::frameRendered).
+Q_DECLARE_METATYPE(bl::CompositorResult)
 
 namespace bl::ui {
 
@@ -71,6 +76,9 @@ public:
 
 signals:
     void playheadChanged(const bl::Time& current);
+    // Emitted after each render with the composited frame (an empty frame when
+    // none is available) so scope views can tap the post-composite image.
+    void frameRendered(const bl::CompositorResult& frame);
 
 public slots:
     // Called by the timeline when the user scrubs the ruler; mirrors the new

@@ -52,6 +52,8 @@ bool statusFromName(const std::string& name, ExportJobStatus& out) {
 nlohmann::json jobToJson(const ExportJob& job) {
     const ExportSettings& s = job.settings;
     return {{"id", job.id},
+            {"target", static_cast<IntegerType>(s.target)},
+            {"streamUrl", s.streamUrl},
             {"outputPath", s.outputPath},
             {"container", s.container},
             {"videoCodec", s.videoCodec},
@@ -78,6 +80,11 @@ void jobFromJson(const nlohmann::json& in, ExportJob& job) {
         job.id = "job-" + in.value("outputPath", std::string{});
     }
     job.settings.outputPath = readStr("outputPath");
+    job.settings.target = in.value("target", static_cast<IntegerType>(0)) ==
+                                  static_cast<IntegerType>(ExportTarget::Stream)
+                              ? ExportTarget::Stream
+                              : ExportTarget::File;
+    job.settings.streamUrl = readStr("streamUrl");
     job.settings.container = readStr("container");
     job.settings.videoCodec = readStr("videoCodec");
     job.settings.audioCodec = readStr("audioCodec");

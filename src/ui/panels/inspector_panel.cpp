@@ -7,6 +7,7 @@
 
 #include <QCheckBox>
 #include <QDoubleSpinBox>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -526,8 +527,20 @@ QWidget* InspectorPanel::buildEffectSection(QWidget* parent) {
 
     connect(effectList_, &QListWidget::currentRowChanged, this,
             &InspectorPanel::onEffectEnabledChanged);
-    connect(effectAddMenu_, &QMenu::triggered, this,
-            [this](QAction* action) { addEffectById(action->data().toString()); });
+    connect(effectAddMenu_, &QMenu::triggered, this, [this](QAction* action) {
+        const QString id = action->data().toString();
+        // A LUT effect is meaningless without its `.cube` file, so prompt for
+        // one instead of inserting an inert effect.
+        if (id == QStringLiteral("lut.cube")) {
+            const QString path = QFileDialog::getOpenFileName(
+                this, tr("Load LUT"), QString(),
+                tr("Cube LUT (*.cube);;All Files (*)"));
+            if (path.isEmpty()) return;
+            addCubeLutEffect(path);
+            return;
+        }
+        addEffectById(id);
+    });
     connect(effectRemove_, &QPushButton::clicked, this,
             &InspectorPanel::onRemoveEffect);
     connect(effectUp_, &QPushButton::clicked, this,
@@ -697,6 +710,25 @@ void InspectorPanel::addEffectById(const QString& effectId) {
             bl::EffectRegistry::instance().find(effect.effectId)) {
         effect.params = bl::makeDefaultParams(fx->paramSpecs());
     }
+
+    editor_.addEffect(*currentFlat_, currentId_, effect);
+    reloadFromModel();
+    if (effectList_ && effectList_->count() > 0) {
+        effectList_->setCurrentRow(effectList_->count() - 1);
+    }
+    emit clipChanged();
+}
+
+void InspectorPanel::addCubeLutEffect(const QString& path) {
+    if (suppress_ || !currentFlat_.has_value() || path.isEmpty()) return;
+    const Sequence& seq = controller_->timeline().sequence();
+    const Clip* clip = editor_.findClip(seq, *currentFlat_, currentId_);
+    if (!clip) return;
+
+    EffectInstance effect;
+    effect.effectId = "lut.cube";
+    effect.params = nlohmann::json::object();
+    effect.params["path"] = path.toStdString();
 
     editor_.addEffect(*currentFlat_, currentId_, effect);
     reloadFromModel();

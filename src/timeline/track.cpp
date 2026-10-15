@@ -1,5 +1,7 @@
 #include <bl_timeline/track.hpp>
 
+#include <utility>
+
 namespace bl {
 
 void to_json(nlohmann::json& j, const VideoTrack& t) {
@@ -13,7 +15,8 @@ void to_json(nlohmann::json& j, const VideoTrack& t) {
         {"gain", t.gain()},
         {"pan", t.pan()},
         {"height", t.height()},
-        {"clips", t.clips()}
+        {"clips", t.clips()},
+        {"effects", t.effects()}
     };
 }
 
@@ -32,6 +35,13 @@ void from_json(const nlohmann::json& j, VideoTrack& t) {
             Clip c;
             from_json(item, c);
             t.addClip(c);
+        }
+    }
+    if (j.contains("effects")) {
+        for (const auto& item : j.at("effects")) {
+            EffectInstance effect;
+            from_json(item, effect);
+            t.addEffect(std::move(effect));
         }
     }
 }

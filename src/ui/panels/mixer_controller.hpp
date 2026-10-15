@@ -46,6 +46,12 @@ public:
     bool setTrackMuted(int flatTrack, bool muted);
     bool setTrackSoloed(int flatTrack, bool soloed);
     bool setTrackLocked(int flatTrack, bool locked);
+    // Kdenlive "hide" for video tracks (muting keeps the slot but renders
+    // nothing). Audio tracks carry the same flag; the header UI only exposes
+    // it for video, matching Kdenlive.
+    bool setTrackHidden(int flatTrack, bool hidden);
+    // Renames a track. An empty name restores the V#/A# default at paint time.
+    bool setTrackName(int flatTrack, const std::string& name);
 
     // Master-bus mutators against SequenceSettings.
     bool setMasterGain(double gain);

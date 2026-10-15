@@ -1,15 +1,24 @@
 #include <bl_core/autosave_ring.hpp>
 #include <bl_core/undo_stack.hpp>
+#include <bl_timeline/title.hpp>
 
 #include <app/main_window.hpp>
 #include <app/theme_manager.hpp>
 #include <panels/inspector_panel.hpp>
+#include <panels/preview_panel.hpp>
+#include <panels/timeline_panel.hpp>
+#include <widgets/fullscreen_preview_window.hpp>
 
 #include <QApplication>
+#include <QComboBox>
+#include <QCoreApplication>
 #include <QDir>
 #include <QDockWidget>
 #include <QEvent>
+#include <QFile>
 #include <QLabel>
+#include <QMenu>
+#include <QMenuBar>
 #include <QSettings>
 #include <QTemporaryDir>
 
@@ -48,7 +57,7 @@ const std::vector<QString>& dockTitles() {
     static const std::vector<QString> titles = {
         QStringLiteral("Media Bin"), QStringLiteral("Preview"),
         QStringLiteral("Inspector"), QStringLiteral("Mixer"),
-        QStringLiteral("Timeline")};
+        QStringLiteral("Timeline"), QStringLiteral("Scopes")};
     return titles;
 }
 
@@ -102,6 +111,50 @@ TEST(MainWindow, createsAllDockingPanels) {
     ASSERT_NE(mixerDock, nullptr);
     EXPECT_NE(mixerDock->widget()->findChild<bl::ui::MixerPanel*>(),
               nullptr);
+
+    // The Scopes dock hosts a ScopesPanel fed by the preview frame tap.
+    auto* scopesDock = window.dock(QStringLiteral("Scopes"));
+    ASSERT_NE(scopesDock, nullptr);
+    EXPECT_NE(qobject_cast<bl::ui::ScopesPanel*>(scopesDock->widget()),
+              nullptr);
+}
+
+TEST(MainWindow, defaultLayoutIsPreviewRowAboveTimeline) {
+    ensureApp();
+    QTemporaryDir dir;
+    TempSettings storage(dir);
+    bl::ui::MainWindow window(nullptr, &storage.settings);
+    window.setPromptOnCloseEnabled(false);
+    window.resize(1600, 900);
+    window.show();
+    QApplication::processEvents();
+
+    const auto area = [&window](const QString& title) {
+        return window.dockWidgetArea(window.dock(title));
+    };
+    // Top row: Media Bin | Preview | Scopes.
+    EXPECT_EQ(area(QStringLiteral("Media Bin")), Qt::TopDockWidgetArea);
+    EXPECT_EQ(area(QStringLiteral("Preview")), Qt::TopDockWidgetArea);
+    EXPECT_EQ(area(QStringLiteral("Scopes")), Qt::TopDockWidgetArea);
+    // Bottom row: the timeline spans the full width.
+    EXPECT_EQ(area(QStringLiteral("Timeline")), Qt::BottomDockWidgetArea);
+
+    // Inspector and Mixer still exist (View menu, Ctrl+3/Ctrl+4) but are off
+    // the default workspace.
+    EXPECT_FALSE(window.dock(QStringLiteral("Inspector"))->isVisible());
+    EXPECT_FALSE(window.dock(QStringLiteral("Mixer"))->isVisible());
+    EXPECT_TRUE(window.dock(QStringLiteral("Timeline"))->isVisible());
+
+    // The three top panels sit side by side, left to right, and the timeline
+    // reaches the full window width.
+    auto* mediaBin = window.dock(QStringLiteral("Media Bin"));
+    auto* preview = window.dock(QStringLiteral("Preview"));
+    auto* scopes = window.dock(QStringLiteral("Scopes"));
+    auto* timeline = window.dock(QStringLiteral("Timeline"));
+    EXPECT_LT(mediaBin->geometry().right(), preview->geometry().left());
+    EXPECT_LT(preview->geometry().right(), scopes->geometry().left());
+    EXPECT_EQ(timeline->geometry().x(), 0);
+    EXPECT_EQ(timeline->geometry().width(), window.width());
 }
 
 TEST(MainWindow, titleFollowsProjectAndDirtyState) {
@@ -185,6 +238,133 @@ TEST(MainWindow, layoutPersistsDockVisibility) {
         EXPECT_FALSE(restored.dock(QStringLiteral("Mixer"))->isVisible());
         EXPECT_TRUE(restored.dock(QStringLiteral("Timeline"))->isVisible());
     }
+}
+
+TEST(MainWindow, laneOrderPersistsAcrossWindows) {
+    ensureApp();
+    QTemporaryDir dir;
+    TempSettings storage(dir);
+
+    {
+        bl::ui::MainWindow window(nullptr, &storage.settings);
+        window.setPromptOnCloseEnabled(false);
+        auto* panel = window.findChild<bl::ui::TimelinePanel*>();
+        ASSERT_NE(panel, nullptr);
+        EXPECT_EQ(panel->laneOrder(),
+                  bl::ui::timeline_geometry::LaneOrder::Split);
+
+        panel->setLaneOrder(bl::ui::timeline_geometry::LaneOrder::Mixed);
+        // The choice is written as soon as it changes (survives crashes).
+        EXPECT_EQ(
+            storage.settings.value(QStringLiteral("timeline/laneOrder")).toInt(),
+            static_cast<int>(bl::ui::timeline_geometry::LaneOrder::Mixed));
+    }
+
+    {
+        bl::ui::MainWindow restored(nullptr, &storage.settings);
+        restored.setPromptOnCloseEnabled(false);
+        auto* panel = restored.findChild<bl::ui::TimelinePanel*>();
+        ASSERT_NE(panel, nullptr);
+        EXPECT_EQ(panel->laneOrder(),
+                  bl::ui::timeline_geometry::LaneOrder::Mixed);
+        // The restored order is reflected by the toolbar combo.
+        auto* combo = panel->findChild<QComboBox*>(QStringLiteral("laneOrderCombo"));
+        ASSERT_NE(combo, nullptr);
+        EXPECT_EQ(combo->currentData().toInt(),
+                  static_cast<int>(bl::ui::timeline_geometry::LaneOrder::Mixed));
+
+        // The View menu's Fit action drives the timeline zoom.
+        QAction* fit = findAction(restored, QStringLiteral("Fit Timeline to View"));
+        ASSERT_NE(fit, nullptr);
+        fit->trigger();
+        EXPECT_GE(panel->zoom(), 0.25);
+        EXPECT_LE(panel->zoom(), 64.0);
+    }
+}
+
+TEST(MainWindow, editStatePersistsAcrossWindows) {
+    ensureApp();
+    QTemporaryDir dir;
+    TempSettings storage(dir);
+
+    {
+        bl::ui::MainWindow window(nullptr, &storage.settings);
+        window.setPromptOnCloseEnabled(false);
+        auto* panel = window.findChild<bl::ui::TimelinePanel*>();
+        ASSERT_NE(panel, nullptr);
+        panel->setEditMode(bl::ui::TimelineState::EditMode::Slip);
+        panel->setInsertMode(true);
+        panel->setRippleEnabled(true);
+        panel->setSnapEnabled(false);
+        // Written as soon as it changes (survives crashes).
+        EXPECT_EQ(storage.settings.value(QStringLiteral("timeline/editMode")).toInt(),
+                  static_cast<int>(bl::ui::TimelineState::EditMode::Slip));
+        EXPECT_TRUE(
+            storage.settings.value(QStringLiteral("timeline/insertMode")).toBool());
+    }
+
+    {
+        bl::ui::MainWindow restored(nullptr, &storage.settings);
+        restored.setPromptOnCloseEnabled(false);
+        auto* panel = restored.findChild<bl::ui::TimelinePanel*>();
+        ASSERT_NE(panel, nullptr);
+        EXPECT_EQ(panel->editMode(), bl::ui::TimelineState::EditMode::Slip);
+        EXPECT_TRUE(panel->insertMode());
+        EXPECT_TRUE(panel->rippleEnabled());
+        EXPECT_FALSE(panel->snapEnabled());
+        auto* combo = panel->findChild<QComboBox*>(QStringLiteral("editModeCombo"));
+        ASSERT_NE(combo, nullptr);
+        EXPECT_EQ(combo->currentData().toInt(),
+                  static_cast<int>(bl::ui::TimelineState::EditMode::Slip));
+    }
+}
+
+TEST(MainWindow, zoneActionsDriveTimelineZone) {
+    ensureApp();
+    QTemporaryDir dir;
+    TempSettings storage(dir);
+    bl::ui::MainWindow window(nullptr, &storage.settings);
+    window.setPromptOnCloseEnabled(false);
+    auto* panel = window.findChild<bl::ui::TimelinePanel*>();
+    ASSERT_NE(panel, nullptr);
+    EXPECT_FALSE(panel->hasZone());
+
+    QAction* zoneIn = findAction(window, QStringLiteral("Set Zone In"));
+    QAction* zoneOut = findAction(window, QStringLiteral("Set Zone Out"));
+    QAction* clear = findAction(window, QStringLiteral("Clear Zone"));
+    QAction* lift = findAction(window, QStringLiteral("Lift Zone"));
+    QAction* extract = findAction(window, QStringLiteral("Extract Zone"));
+    ASSERT_NE(zoneIn, nullptr);
+    ASSERT_NE(zoneOut, nullptr);
+    ASSERT_NE(clear, nullptr);
+    ASSERT_NE(lift, nullptr);
+    ASSERT_NE(extract, nullptr);
+
+    const bl::Rational rate{1'000'000, 1};
+    panel->setPlayhead(bl::Time::fromTicks(1'000'000, rate));
+    zoneIn->trigger();
+    EXPECT_TRUE(panel->hasZone());
+
+    panel->setPlayhead(bl::Time::fromTicks(2'000'000, rate));
+    zoneOut->trigger();
+    EXPECT_EQ(panel->zoneIn().ticks, 1'000'000);
+    EXPECT_EQ(panel->zoneOut().ticks, 2'000'000);
+
+    clear->trigger();
+    EXPECT_FALSE(panel->hasZone());
+}
+
+TEST(MainWindow, timelineWaveformResolverIsWired) {
+    ensureApp();
+    QTemporaryDir dir;
+    TempSettings storage(dir);
+    bl::ui::MainWindow window(nullptr, &storage.settings);
+    window.setPromptOnCloseEnabled(false);
+    auto* panel = window.findChild<bl::ui::TimelinePanel*>();
+    ASSERT_NE(panel, nullptr);
+    // Background audio analysis feeds each clip's waveform through this
+    // resolver; a MainWindow that forgot to wire it would draw none.
+    EXPECT_TRUE(static_cast<bool>(panel->waveformResolver()));
 }
 
 TEST(MainWindow, closeWithCleanProjectPersistsLayout) {
@@ -286,7 +466,7 @@ TEST(MainWindow, registryBindsNewAndExistingShortcuts) {
     const std::vector<QKeySequence> toggleShortcuts = {
         QKeySequence(Qt::CTRL | Qt::Key_1), QKeySequence(Qt::CTRL | Qt::Key_2),
         QKeySequence(Qt::CTRL | Qt::Key_3), QKeySequence(Qt::CTRL | Qt::Key_4),
-        QKeySequence(Qt::CTRL | Qt::Key_5)};
+        QKeySequence(Qt::CTRL | Qt::Key_5), QKeySequence(Qt::CTRL | Qt::Key_6)};
     for (size_t i = 0; i < dockTitles().size(); ++i) {
         EXPECT_EQ(window.dock(dockTitles()[i])->toggleViewAction()->shortcut(),
                   toggleShortcuts[i]);
@@ -311,4 +491,115 @@ TEST(MainWindow, persistedShortcutOverrideIsApplied) {
     ASSERT_NE(exportAction, nullptr);
     EXPECT_EQ(exportAction->shortcut(),
               QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_E));
+}
+
+TEST(MainWindow, AddTitleActionIsRegisteredInFileMenu) {
+    ensureApp();
+    QTemporaryDir dir;
+    TempSettings storage(dir);
+    bl::ui::MainWindow window(nullptr, &storage.settings);
+    window.setPromptOnCloseEnabled(false);
+
+    QAction* addTitle =
+        window.findChild<QAction*>(QStringLiteral("actionAddTitle"));
+    ASSERT_NE(addTitle, nullptr);
+    EXPECT_EQ(findAction(window, QStringLiteral("Add Title...")), addTitle);
+
+    bool inFileMenu = false;
+    for (QAction* menuAction : window.menuBar()->actions()) {
+        QMenu* menu = menuAction->menu();
+        if (!menu) continue;
+        for (QAction* item : menu->actions()) {
+            if (item == addTitle) inFileMenu = true;
+        }
+    }
+    EXPECT_TRUE(inFileMenu);
+}
+
+TEST(MainWindow, FullScreenPreviewActionIsRegistered) {
+    ensureApp();
+    QTemporaryDir dir;
+    TempSettings storage(dir);
+    bl::ui::MainWindow window(nullptr, &storage.settings);
+    window.setPromptOnCloseEnabled(false);
+
+    QAction* fullScreen = findAction(window, QStringLiteral("Full Screen Preview"));
+    ASSERT_NE(fullScreen, nullptr);
+    EXPECT_TRUE(fullScreen->isCheckable());
+    EXPECT_FALSE(fullScreen->isChecked());
+    EXPECT_EQ(fullScreen->shortcut(),
+              QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P));
+}
+
+TEST(MainWindow, FullScreenPreviewTogglesDetachAndRestore) {
+    ensureApp();
+    QTemporaryDir dir;
+    TempSettings storage(dir);
+    bl::ui::MainWindow window(nullptr, &storage.settings);
+    window.setPromptOnCloseEnabled(false);
+
+    auto* dock = window.findChild<QDockWidget*>(QStringLiteral("PreviewDock"));
+    ASSERT_NE(dock, nullptr);
+    auto* panel = window.findChild<bl::ui::PreviewPanel*>();
+    ASSERT_NE(panel, nullptr);
+    EXPECT_EQ(dock->widget(), panel);
+
+    QAction* fullScreen = findAction(window, QStringLiteral("Full Screen Preview"));
+    ASSERT_NE(fullScreen, nullptr);
+
+    // Detach: the dock is emptied, the window hosts the very same panel (no
+    // second preview pipeline) and the action reflects the new state.
+    fullScreen->trigger();
+    EXPECT_EQ(dock->widget(), nullptr);
+    EXPECT_TRUE(fullScreen->isChecked());
+    auto* detachedWindow =
+        window.findChild<bl::ui::FullScreenPreviewWindow*>();
+    ASSERT_NE(detachedWindow, nullptr);
+    EXPECT_EQ(window.findChild<bl::ui::PreviewPanel*>(), panel);
+    EXPECT_EQ(detachedWindow->isWindow(), true);
+
+    // Restore: the same panel is back under the dock and the standalone window
+    // is gone.
+    fullScreen->trigger();
+    EXPECT_EQ(dock->widget(), panel);
+    EXPECT_EQ(qobject_cast<bl::ui::PreviewPanel*>(dock->widget()), panel);
+    EXPECT_FALSE(fullScreen->isChecked());
+    // The window is torn down via deleteLater() (the restore may be triggered
+    // from inside its own closeEvent), so drain the deferred delete first.
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    EXPECT_EQ(window.findChild<bl::ui::FullScreenPreviewWindow*>(), nullptr);
+}
+
+TEST(MainWindow, ApplyTitleEditReRendersAndRefusesNonTitles) {
+    ensureApp();
+    QTemporaryDir dir;
+    TempSettings storage(dir);
+    bl::ui::MainWindow window(nullptr, &storage.settings);
+    window.setPromptOnCloseEnabled(false);
+
+    QTemporaryDir mediaDir;
+    ASSERT_TRUE(mediaDir.isValid());
+    const QString png =
+        QDir(mediaDir.path()).filePath(QStringLiteral("title.png"));
+
+    bl::TitleSpec spec;
+    spec.text = "One";
+    ASSERT_TRUE(window.controller()->addTitleToMediaBin(
+        png, QStringLiteral("One"), nlohmann::json(spec)));
+    const std::string id = window.controller()->mediaBin().back().id;
+
+    bl::TitleSpec edited;
+    edited.text = "Two";
+    EXPECT_TRUE(window.applyTitleEdit(id, edited, 320, 180,
+                                      QStringLiteral("Two")));
+    EXPECT_EQ(window.controller()->titleSpecFor(id).get<bl::TitleSpec>().text,
+              "Two");
+    EXPECT_TRUE(QFile::exists(png));
+
+    // A plain media item is not a title: refuse (no modal dialog involved).
+    ASSERT_TRUE(
+        window.controller()->addToMediaBin(QStringLiteral("/media/clip.mp4")));
+    const std::string plainId = window.controller()->mediaBin().back().id;
+    EXPECT_FALSE(window.applyTitleEdit(plainId, edited, 320, 180,
+                                       QStringLiteral("Two")));
 }

@@ -1,3 +1,12 @@
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
+
 #include <bl_core/demuxer.hpp>
 #include <bl_core/plugin_loader.hpp>
 #include <bl_core/project_data.hpp>
@@ -27,10 +36,18 @@ extern "C" {
 #include <libavformat/avformat.h>
 }
 
+#ifndef _WIN32
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+
 #include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -46,11 +63,30 @@ extern "C" {
 
 namespace {
 
+#ifdef _WIN32
+// Winsock needs a process-wide WSAStartup before any socket call.
+struct WinsockScope {
+    WinsockScope() {
+        WSADATA data;
+        ::WSAStartup(MAKEWORD(2, 2), &data);
+    }
+    ~WinsockScope() { ::WSACleanup(); }
+};
+const WinsockScope kWinsockScope;
+
+using SocketLen = int;
+inline int closeSocket(int s) { return ::closesocket(s); }
+#else
+using SocketLen = socklen_t;
+inline int closeSocket(int s) { return ::close(s); }
+#endif
+
 using bl::Duration;
 using bl::Rational;
 using bl::Time;
 using bl::ui::ExportRange;
 using bl::ui::ExportSettings;
+using bl::ui::ExportTarget;
 using bl::ui::sequenceDuration;
 
 const Rational kFps{24, 1};
@@ -569,6 +605,157 @@ TEST(ExportRunner, ExportsWebmWithOpusAudio) {
 }
 
 // ---------------------------------------------------------------------------
+// Stream to IP (RTMP/UDP publish instead of a file)
+// ---------------------------------------------------------------------------
+
+// A video-only H.264 stream target; the caller only supplies the URL.
+ExportSettings streamSettings(const std::string& url) {
+    ExportSettings s;
+    s.range = ExportRange::EntireProject;
+    s.target = ExportTarget::Stream;
+    s.streamUrl = url;
+    s.videoCodec = "h264";
+    s.includeAudio = false;
+    s.videoCq = 23;
+    return s;
+}
+
+TEST(ExportRunner, StreamPlanInfersFlvForRtmp) {
+    ExportFixture fx;
+    auto snapshot = fx.snapshot();
+
+    bl::ui::ExportPlan plan;
+    plan.settings = streamSettings("rtmp://localhost:1935/live/key");
+    auto build =
+        plan.build(snapshot.sequence(), sequenceDuration(snapshot.sequence()));
+    ASSERT_TRUE(build.ok()) << build.message();
+
+    EXPECT_TRUE(plan.isStream());
+    ASSERT_NE(plan.formatName(), nullptr);
+    EXPECT_EQ(std::string(plan.formatName()), "flv");
+    // A stream plan has no file path; build() must not require one.
+    EXPECT_TRUE(plan.settings.outputPath.empty());
+}
+
+TEST(ExportRunner, StreamPlanInfersMpegtsForUdp) {
+    ExportFixture fx;
+    auto snapshot = fx.snapshot();
+
+    bl::ui::ExportPlan plan;
+    plan.settings = streamSettings("udp://127.0.0.1:5000");
+    auto build =
+        plan.build(snapshot.sequence(), sequenceDuration(snapshot.sequence()));
+    ASSERT_TRUE(build.ok()) << build.message();
+
+    EXPECT_TRUE(plan.isStream());
+    ASSERT_NE(plan.formatName(), nullptr);
+    EXPECT_EQ(std::string(plan.formatName()), "mpegts");
+}
+
+TEST(ExportRunner, StreamPlanRejectsNonH264) {
+    ExportFixture fx;
+    auto snapshot = fx.snapshot();
+
+    bl::ui::ExportSettings settings = streamSettings("rtmp://localhost/live");
+    settings.videoCodec = "vp9";
+    bl::ui::ExportPlan plan;
+    plan.settings = settings;
+    auto build =
+        plan.build(snapshot.sequence(), sequenceDuration(snapshot.sequence()));
+    EXPECT_FALSE(build.ok());
+    EXPECT_NE(build.message().find("H.264"), std::string::npos)
+        << "message was: " << build.message();
+}
+
+TEST(ExportRunner, StreamPlanRejectsUnknownScheme) {
+    ExportFixture fx;
+    auto snapshot = fx.snapshot();
+
+    for (const char* url : {"srt://host:9000", "http://example.com/x.mp4"}) {
+        bl::ui::ExportPlan plan;
+        plan.settings = streamSettings(url);
+        auto build = plan.build(snapshot.sequence(),
+                                sequenceDuration(snapshot.sequence()));
+        EXPECT_FALSE(build.ok()) << url << " must not be a stream target";
+        EXPECT_NE(build.message().find("unsupported stream URL"),
+                  std::string::npos)
+            << url << " message was: " << build.message();
+    }
+
+    // An empty URL is its own, clearer error.
+    bl::ui::ExportPlan plan;
+    plan.settings = streamSettings("");
+    auto build =
+        plan.build(snapshot.sequence(), sequenceDuration(snapshot.sequence()));
+    EXPECT_FALSE(build.ok());
+    EXPECT_NE(build.message().find("stream URL is empty"), std::string::npos)
+        << "message was: " << build.message();
+}
+
+// End-to-end UDP publish with no external server: a local receiver socket is
+// bound to an ephemeral loopback port and must see at least one datagram.
+TEST(ExportRunner, StreamsUdpToLocalReceiver) {
+    ExportFixture fx;
+    auto snapshot = fx.snapshot();
+
+    const int sock = ::socket(AF_INET, SOCK_DGRAM, 0);
+    ASSERT_GE(sock, 0) << "failed to create UDP socket";
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    if (::bind(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+        closeSocket(sock);
+        FAIL() << "failed to bind UDP receiver socket";
+    }
+    SocketLen addrLen = sizeof(addr);
+    if (::getsockname(sock, reinterpret_cast<sockaddr*>(&addr), &addrLen) != 0) {
+        closeSocket(sock);
+        FAIL() << "failed to read the assigned UDP port";
+    }
+#ifdef _WIN32
+    // Winsock's SO_RCVTIMEO takes a DWORD in milliseconds, not a timeval.
+    DWORD tv = 3000;
+    ::setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
+                 reinterpret_cast<const char*>(&tv), sizeof(tv));
+#else
+    timeval tv{};
+    tv.tv_sec = 3;
+    ::setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
+
+    const std::string url =
+        "udp://127.0.0.1:" + std::to_string(ntohs(addr.sin_port));
+
+    bl::ui::ExportPlan plan;
+    plan.settings = streamSettings(url);
+    auto build =
+        plan.build(snapshot.sequence(), sequenceDuration(snapshot.sequence()));
+    ASSERT_TRUE(build.ok()) << build.message();
+    ASSERT_EQ(std::string(plan.formatName()), "mpegts");
+
+    bl::MediaDecodeSource::Spec plugins{
+        {std::make_pair(pluginDir(), bl::PluginOrigin::User)}};
+    bl::ui::ExportRunner::Input input{plan, snapshot, fx.mediaBin, plugins,
+                                      nullptr};
+    auto result = bl::ui::ExportRunner::run(input, nullptr);
+    if (!result.ok()) {
+        closeSocket(sock);
+        FAIL() << "udp stream failed: " << result.message();
+    }
+
+    char buf[2048];
+    sockaddr_in from{};
+    SocketLen fromLen = sizeof(from);
+    const auto got = ::recvfrom(sock, buf, sizeof(buf), 0,
+                                reinterpret_cast<sockaddr*>(&from), &fromLen);
+    closeSocket(sock);
+    EXPECT_GT(got, 0)
+        << "no UDP datagram received within the timeout at " << url;
+}
+
+// ---------------------------------------------------------------------------
 // Encoder extradata cache (host side, ABI v3 get_extradata)
 // ---------------------------------------------------------------------------
 
@@ -794,6 +981,55 @@ TEST(ExportEngineExtradata, MatroskaTrackCarriesCodecPrivate) {
     const AVCodecParameters* par = probe->streams[0]->codecpar;
     EXPECT_GT(par->extradata_size, 0)
         << "H.264 track has no CodecPrivate, so players cannot decode it";
+    avformat_close_input(&probe);
+    std::remove(out.c_str());
+}
+
+// The streaming path has no file extension for avformat to guess a muxer from,
+// so the explicit-format overload is what makes FLV work. A ".bin" path would
+// never resolve to the FLV muxer on its own.
+TEST(ExportRunner, ExplicitFlvFormatOverloadMuxesFlv) {
+    EngineHarness fx("h264", nullptr);
+    if (!fx.loadPlugins()) {
+        GTEST_SKIP() << "codec plugins not staged";
+    }
+    if (!fx.init()) {
+        GTEST_SKIP() << "h264 encoder unavailable in this build";
+    }
+
+    const std::string out = tempOutputPath("flvprobe", ".bin");
+    bl::export_::Muxer muxer;
+    muxer.setAudioEnabled(false);
+    fx.engine.configureMuxer(&muxer);
+    fx.engine.setMuxer(&muxer);
+    auto openResult = muxer.open(&fx.preset, out.c_str(), "flv");
+    ASSERT_TRUE(openResult.ok()) << openResult.message();
+
+    std::vector<uint8_t> frame(64 * 48 * 4, 0x30);
+    for (int i = 0; i < 24; ++i) {
+        BlFrameMeta meta{};
+        meta.width = 64;
+        meta.height = 48;
+        meta.linesize = 64 * 4;
+        meta.pts = static_cast<uint64_t>(i);
+        meta.keyframe = (i == 0) ? 1 : 0;
+        const auto r = fx.engine.encodeFrameVideo(frame.data(), &meta);
+        ASSERT_TRUE(r.ok()) << r.message();
+    }
+    const auto finalized = fx.engine.finalize();
+    EXPECT_TRUE(finalized.ok()) << finalized.message();
+    fx.engine.setMuxer(nullptr);
+    muxer.close();
+    fx.engine.cleanup();
+
+    AVFormatContext* probe = nullptr;
+    ASSERT_EQ(avformat_open_input(&probe, out.c_str(), nullptr, nullptr), 0)
+        << "FLV output must be openable: " << out;
+    avformat_find_stream_info(probe, nullptr);
+    ASSERT_GT(probe->nb_streams, 0u);
+    EXPECT_STREQ(probe->iformat->name, "flv")
+        << "the explicit format name must select the FLV muxer";
+    EXPECT_EQ(probe->streams[0]->codecpar->codec_id, AV_CODEC_ID_H264);
     avformat_close_input(&probe);
     std::remove(out.c_str());
 }

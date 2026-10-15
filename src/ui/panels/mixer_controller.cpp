@@ -92,6 +92,34 @@ bool MixerController::setTrackLocked(int flatTrack, bool locked) {
     return true;
 }
 
+bool MixerController::setTrackHidden(int flatTrack, bool hidden) {
+    if (!valid()) return false;
+    Sequence& seq = timeline_->sequence();
+    if (!inBounds(seq, flatTrack)) return false;
+    const bool old = trackAt(seq, flatTrack).hidden();
+    if (old == hidden) return false;
+
+    undoStack_->push(std::make_unique<FunctionCommand>(
+        "Set track hidden",
+        [this, flatTrack, hidden] { trackAt(timeline_->sequence(), flatTrack).setHidden(hidden); },
+        [this, flatTrack, old] { trackAt(timeline_->sequence(), flatTrack).setHidden(old); }));
+    return true;
+}
+
+bool MixerController::setTrackName(int flatTrack, const std::string& name) {
+    if (!valid()) return false;
+    Sequence& seq = timeline_->sequence();
+    if (!inBounds(seq, flatTrack)) return false;
+    const std::string old = trackAt(seq, flatTrack).name();
+    if (old == name) return false;
+
+    undoStack_->push(std::make_unique<FunctionCommand>(
+        "Rename track",
+        [this, flatTrack, name] { trackAt(timeline_->sequence(), flatTrack).setName(name); },
+        [this, flatTrack, old] { trackAt(timeline_->sequence(), flatTrack).setName(old); }));
+    return true;
+}
+
 bool MixerController::setMasterGain(double gain) {
     if (!valid()) return false;
     Sequence& seq = timeline_->sequence();

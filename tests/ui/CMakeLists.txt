@@ -9,8 +9,10 @@ add_executable(bl_ui_tests
     test_timeline_edit_controller.cpp
     test_clip_edit_controller.cpp
     test_timeline_panel.cpp
+    test_template_picker.cpp
     test_transport_controller.cpp
     test_preview_panel.cpp
+    test_scopes_panel.cpp
     test_media_bin_panel.cpp
     test_inspector_panel.cpp
     test_mixer_controller.cpp
@@ -21,9 +23,16 @@ add_executable(bl_ui_tests
     test_mixdown.cpp
     test_export_ui.cpp
     test_export_batch.cpp
+    test_title_editor.cpp
+    test_quality_metrics_dialog.cpp
 )
 
 target_link_libraries(bl_ui_tests PRIVATE bl::ui bl::core bl_timeline bl::render GTest::gtest GTest::gtest_main Qt6::Widgets Qt6::Test)
+
+# test_export_runner.cpp drives a UDP socket end to end; Winsock lives in ws2_32.
+if(WIN32)
+    target_link_libraries(bl_ui_tests PRIVATE ws2_32)
+endif()
 
 target_compile_features(bl_ui_tests PRIVATE cxx_std_17)
 

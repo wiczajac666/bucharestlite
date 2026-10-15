@@ -1,12 +1,17 @@
+#include <bl_audio/audio_meter_analysis.hpp>
 #include <bl_core/time.hpp>
 #include <bl_timeline/clip.hpp>
 #include <bl_timeline/sequence.hpp>
+#include <bl_timeline/title.hpp>
 
 #include <app/project_controller.hpp>
 #include <panels/media_bin_panel.hpp>
 #include <panels/timeline_panel.hpp>
+#include <title/title_renderer.hpp>
 
 #include <QApplication>
+#include <QComboBox>
+#include <QDir>
 #include <QDragEnterEvent>
 #include <QDragLeaveEvent>
 #include <QDragMoveEvent>
@@ -14,13 +19,22 @@
 #include <QGraphicsRectItem>
 #include <QGraphicsScene>
 #include <QGraphicsView>
+#include <QLabel>
+#include <QLineEdit>
 #include <QMimeData>
 #include <QPoint>
+#include <QSlider>
+#include <QTemporaryDir>
+#include <QToolButton>
+#include <QUrl>
 #include <QtTest/QTest>
 
 #include <gtest/gtest.h>
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -608,7 +622,409 @@ TEST(TimelinePanel, DragEnterRejectsForeignMime) {
                           Qt::NoModifier);
     QApplication::sendEvent(target, &enter);
     EXPECT_FALSE(enter.isAccepted());
-}// ---------------------------------------------------------------------------
+}
+
+// ---------------------------------------------------------------------------
+// External media import: files dropped onto the timeline from the file
+// manager. These import into the media bin AND place a clip.
+// ---------------------------------------------------------------------------
+
+void fillUrlMime(QMimeData& mime, const QStringList& paths) {
+    QList<QUrl> urls;
+    urls.reserve(paths.size());
+    for (const QString& path : paths) {
+        urls.push_back(QUrl::fromLocalFile(QString::fromLatin1(
+            BL_TEST_MEDIA_DIR "/") + path));
+    }
+    mime.setUrls(urls);
+}
+
+TEST(TimelinePanel, DropExternalFileImportsAndAddsClip) {
+    Fixture f;
+    QWidget* target = f.panel.view()->viewport();
+    // Nothing is in the bin yet: the drop has to import as well as place.
+    ASSERT_EQ(f.controller.mediaBin().size(), 0u);
+
+    QMimeData mime;
+    fillUrlMime(mime, {QStringLiteral("test_av.mp4")});
+
+    const QPoint pos = lanePoint(f, 0, 10);
+    QDragEnterEvent enter(QPoint(), Qt::CopyAction, &mime, Qt::LeftButton,
+                          Qt::NoModifier);
+    QApplication::sendEvent(target, &enter);
+    EXPECT_TRUE(enter.isAccepted());
+
+    QDragMoveEvent move(pos, Qt::CopyAction, &mime, Qt::LeftButton,
+                        Qt::NoModifier, QEvent::DragMove);
+    QApplication::sendEvent(target, &move);
+    EXPECT_TRUE(move.isAccepted());
+    EXPECT_NE(findDropGhost(f.panel.view()), nullptr);
+
+    QDropEvent drop(QPointF(pos), Qt::CopyAction, &mime, Qt::LeftButton,
+                    Qt::NoModifier, QEvent::Drop);
+    QApplication::sendEvent(target, &drop);
+    QApplication::processEvents();
+
+    // Imported into the bin...
+    ASSERT_EQ(f.controller.mediaBin().size(), 1u);
+    const std::string importedId = f.controller.mediaBin().front().id;
+
+    // ...and placed on the timeline pointing at that import.
+    const auto& track = f.seq().videoTracks[0];
+    ASSERT_EQ(track.clips().size(), 1u);
+    const bl::Clip& clip = track.clips().front();
+    EXPECT_EQ(clip.source.mediaItemId, importedId);
+    EXPECT_EQ(frameOf(clip.timelineStart), 10);
+    EXPECT_EQ(frameOf(clip.timelineDuration), 48);
+
+    // One Ctrl+Z reverts the import and the clip together.
+    f.controller.undoStack().undo();
+    EXPECT_EQ(f.seq().videoTracks[0].clips().size(), 0u);
+    EXPECT_EQ(f.controller.mediaBin().size(), 0u);
+}
+
+TEST(TimelinePanel, DropExternalAudioFileRoutesToAudioLane) {
+    Fixture f;
+    QWidget* target = f.panel.view()->viewport();
+    QMimeData mime;
+    fillUrlMime(mime, {QStringLiteral("test_audio.wav")});
+
+    // Video lane: audio-only source has no video stream → rejected.
+    QDragEnterEvent enter(QPoint(), Qt::CopyAction, &mime, Qt::LeftButton,
+                          Qt::NoModifier);
+    QApplication::sendEvent(target, &enter);
+    EXPECT_TRUE(enter.isAccepted());
+    QDragMoveEvent rejectMove(lanePoint(f, 0, 5), Qt::CopyAction, &mime,
+                              Qt::LeftButton, Qt::NoModifier, QEvent::DragMove);
+    QApplication::sendEvent(target, &rejectMove);
+    EXPECT_FALSE(rejectMove.isAccepted());
+
+    QDragEnterEvent enterAgain(QPoint(), Qt::CopyAction, &mime, Qt::LeftButton,
+                               Qt::NoModifier);
+    QApplication::sendEvent(target, &enterAgain);
+    QDragMoveEvent acceptMove(lanePoint(f, 1, 3), Qt::CopyAction, &mime,
+                              Qt::LeftButton, Qt::NoModifier, QEvent::DragMove);
+    QApplication::sendEvent(target, &acceptMove);
+    EXPECT_TRUE(acceptMove.isAccepted());
+    QDropEvent drop(QPointF(lanePoint(f, 1, 3)), Qt::CopyAction, &mime,
+                    Qt::LeftButton, Qt::NoModifier, QEvent::Drop);
+    QApplication::sendEvent(target, &drop);
+    QApplication::processEvents();
+
+    EXPECT_EQ(f.seq().videoTracks[0].clips().size(), 0u);
+    const auto& audio = f.seq().audioTracks[0];
+    ASSERT_EQ(audio.clips().size(), 1u);
+    EXPECT_EQ(frameOf(audio.clips().front().timelineStart), 3);
+    ASSERT_EQ(f.controller.mediaBin().size(), 1u);
+    EXPECT_EQ(audio.clips().front().source.mediaItemId,
+              f.controller.mediaBin().front().id);
+}
+
+TEST(TimelinePanel, DropMultipleExternalFilesPlacesThemInSequence) {
+    Fixture f;
+    QWidget* target = f.panel.view()->viewport();
+    QMimeData mime;
+    fillUrlMime(mime, {QStringLiteral("test_av.mp4"),
+                       QStringLiteral("test_audio.wav")});
+
+    const QPoint pos = lanePoint(f, 0, 10);
+    QDragEnterEvent enter(QPoint(), Qt::CopyAction, &mime, Qt::LeftButton,
+                          Qt::NoModifier);
+    QApplication::sendEvent(target, &enter);
+    EXPECT_TRUE(enter.isAccepted());
+    QDragMoveEvent move(pos, Qt::CopyAction, &mime, Qt::LeftButton,
+                        Qt::NoModifier, QEvent::DragMove);
+    QApplication::sendEvent(target, &move);
+    EXPECT_TRUE(move.isAccepted());
+
+    QDropEvent drop(QPointF(pos), Qt::CopyAction, &mime, Qt::LeftButton,
+                    Qt::NoModifier, QEvent::Drop);
+    QApplication::sendEvent(target, &drop);
+    QApplication::processEvents();
+
+    // Both files imported, each with its own media-bin id.
+    ASSERT_EQ(f.controller.mediaBin().size(), 2u);
+    // test_av.mp4 (48 frames) lands on the video lane under the cursor, and
+    // test_audio.wav (24 frames) is placed after it, routed to the audio lane
+    // because an audio-only source cannot sit on a video track.
+    ASSERT_EQ(f.seq().videoTracks[0].clips().size(), 1u);
+    ASSERT_EQ(f.seq().audioTracks[0].clips().size(), 1u);
+    EXPECT_EQ(frameOf(f.seq().videoTracks[0].clips().front().timelineStart), 10);
+    EXPECT_EQ(frameOf(f.seq().audioTracks[0].clips().front().timelineStart), 58);
+
+    // A single undo reverts the whole multi-file drop.
+    f.controller.undoStack().undo();
+    EXPECT_EQ(f.seq().videoTracks[0].clips().size(), 0u);
+    EXPECT_EQ(f.seq().audioTracks[0].clips().size(), 0u);
+    EXPECT_EQ(f.controller.mediaBin().size(), 0u);
+}
+
+TEST(TimelinePanel, DropExternalFileReusingKnownMediaAddsNoSecondBinEntry) {
+    Fixture f;
+    QWidget* target = f.panel.view()->viewport();
+    const std::string mediaId = addMediaToBin(f, "test_av.mp4");
+    ASSERT_EQ(f.controller.mediaBin().size(), 1u);
+
+    QMimeData mime;
+    fillUrlMime(mime, {QStringLiteral("test_av.mp4")});
+    QDragEnterEvent enter(QPoint(), Qt::CopyAction, &mime, Qt::LeftButton,
+                          Qt::NoModifier);
+    QApplication::sendEvent(target, &enter);
+    EXPECT_TRUE(enter.isAccepted());
+    QDragMoveEvent move(lanePoint(f, 0, 0), Qt::CopyAction, &mime,
+                        Qt::LeftButton, Qt::NoModifier, QEvent::DragMove);
+    QApplication::sendEvent(target, &move);
+    EXPECT_TRUE(move.isAccepted());
+    QDropEvent drop(QPointF(lanePoint(f, 0, 0)), Qt::CopyAction, &mime,
+                    Qt::LeftButton, Qt::NoModifier, QEvent::Drop);
+    QApplication::sendEvent(target, &drop);
+    QApplication::processEvents();
+
+    // The file was already in the bin, so it is reused rather than duplicated.
+    EXPECT_EQ(f.controller.mediaBin().size(), 1u);
+    ASSERT_EQ(f.seq().videoTracks[0].clips().size(), 1u);
+    EXPECT_EQ(f.seq().videoTracks[0].clips().front().source.mediaItemId,
+              mediaId);
+}
+
+TEST(TimelinePanel, DropExternalFileOutsideALaneIsRejected) {
+    Fixture f;
+    QWidget* target = f.panel.view()->viewport();
+    QMimeData mime;
+    fillUrlMime(mime, {QStringLiteral("test_av.mp4")});
+
+    QDragEnterEvent enter(QPoint(), Qt::CopyAction, &mime, Qt::LeftButton,
+                          Qt::NoModifier);
+    QApplication::sendEvent(target, &enter);
+    EXPECT_TRUE(enter.isAccepted());
+
+    // Far above the first lane: no valid placement, so nothing is imported.
+    const QPoint outside = f.panel.view()->mapFromScene(
+        QPointF(f.panel.xForTime(fr(0)), -500.0));
+    QDragMoveEvent move(outside, Qt::CopyAction, &mime, Qt::LeftButton,
+                        Qt::NoModifier, QEvent::DragMove);
+    QApplication::sendEvent(target, &move);
+    EXPECT_FALSE(move.isAccepted());
+
+    QDropEvent drop(QPointF(outside), Qt::CopyAction, &mime, Qt::LeftButton,
+                    Qt::NoModifier, QEvent::Drop);
+    QApplication::sendEvent(target, &drop);
+    QApplication::processEvents();
+    EXPECT_EQ(f.controller.mediaBin().size(), 0u);
+    EXPECT_EQ(f.seq().videoTracks[0].clips().size(), 0u);
+}
+
+TEST(TimelinePanel, DragLeaveCancelsExternalFileDropWithoutImporting) {
+    Fixture f;
+    QWidget* target = f.panel.view()->viewport();
+    QMimeData mime;
+    fillUrlMime(mime, {QStringLiteral("test_av.mp4")});
+
+    QDragEnterEvent enter(QPoint(), Qt::CopyAction, &mime, Qt::LeftButton,
+                          Qt::NoModifier);
+    QApplication::sendEvent(target, &enter);
+    EXPECT_TRUE(enter.isAccepted());
+    QDragMoveEvent move(lanePoint(f, 0, 10), Qt::CopyAction, &mime,
+                        Qt::LeftButton, Qt::NoModifier, QEvent::DragMove);
+    QApplication::sendEvent(target, &move);
+    EXPECT_NE(findDropGhost(f.panel.view()), nullptr);
+
+    // Abandoning the drag must not leave a stray media-bin entry behind.
+    QDragLeaveEvent leave;
+    QApplication::sendEvent(target, &leave);
+    EXPECT_EQ(findDropGhost(f.panel.view()), nullptr);
+    EXPECT_EQ(f.controller.mediaBin().size(), 0u);
+}
+// ---------------------------------------------------------------------------
+// Add to Timeline without a drag (context menu / double-click entry point).
+// ---------------------------------------------------------------------------
+
+static const bl::Clip* findMediaClip(const bl::Sequence& seq,
+                                     const std::string& mediaId) {
+    for (const auto& t : seq.videoTracks) {
+        for (const auto& c : t.clips()) {
+            if (c.source.mediaItemId == mediaId) return &c;
+        }
+    }
+    for (const auto& t : seq.audioTracks) {
+        for (const auto& c : t.clips()) {
+            if (c.source.mediaItemId == mediaId) return &c;
+        }
+    }
+    return nullptr;
+}
+
+TEST(TimelinePanel, AddMediaToTimelineAppendsAtLaneEndUndoably) {
+    Fixture f;
+    const std::string mediaId = addMediaToBin(f, "test_av.mp4");
+    // Occupy the start of V1 so "append" has somewhere to go.
+    f.addClip(0, makeClip("occupied", 0, 48));
+
+    EXPECT_TRUE(f.panel.addMediaToTimeline(mediaId));
+
+    const bl::Sequence& seq = f.seq();
+    ASSERT_EQ(seq.videoTracks[0].clips().size(), 2u);
+    const bl::Clip* added = findMediaClip(seq, mediaId);
+    ASSERT_NE(added, nullptr);
+    EXPECT_EQ(frameOf(added->timelineStart), 48);  // right after the occupant
+    EXPECT_EQ(f.panel.clipItemCount(), 2);
+
+    // One undoable command reverts the append.
+    f.controller.undoStack().undo();
+    QApplication::processEvents();
+    EXPECT_EQ(f.seq().videoTracks[0].clips().size(), 1u);
+    EXPECT_EQ(f.panel.clipItemCount(), 1);
+}
+
+TEST(TimelinePanel, AddMediaToTimelineEmptyLaneStartsAtZero) {
+    Fixture f;
+    const std::string mediaId = addMediaToBin(f, "test_av.mp4");
+
+    EXPECT_TRUE(f.panel.addMediaToTimeline(mediaId));
+
+    const bl::Clip* added = findMediaClip(f.seq(), mediaId);
+    ASSERT_NE(added, nullptr);
+    EXPECT_EQ(frameOf(added->timelineStart), 0);
+}
+
+TEST(TimelinePanel, AddMediaToTimelineRoutesAudioOnlyToAudioLane) {
+    Fixture f;
+    const std::string mediaId = addMediaToBin(f, "test_audio.wav");
+
+    EXPECT_TRUE(f.panel.addMediaToTimeline(mediaId));
+
+    const bl::Sequence& seq = f.seq();
+    EXPECT_EQ(seq.videoTracks[0].clips().size(), 0u);
+    ASSERT_EQ(seq.audioTracks[0].clips().size(), 1u);
+    EXPECT_EQ(seq.audioTracks[0].clips().front().source.mediaItemId, mediaId);
+}
+
+TEST(TimelinePanel, AddMediaToTimelineUnknownIdReturnsFalse) {
+    Fixture f;
+    EXPECT_FALSE(f.panel.addMediaToTimeline("does-not-exist"));
+    EXPECT_EQ(f.panel.clipItemCount(), 0);
+}
+
+TEST(TimelinePanel, AddMediaToTimelineUnreadableMediaReturnsFalse) {
+    Fixture f;
+    f.controller.addToMediaBin(QStringLiteral("/media/not_a_real_file.mp4"));
+    QApplication::processEvents();
+    ASSERT_EQ(f.controller.mediaBin().size(), 1u);
+
+    EXPECT_FALSE(
+        f.panel.addMediaToTimeline(f.controller.mediaBin().back().id));
+    EXPECT_EQ(f.panel.clipItemCount(), 0);
+}
+
+TEST(TimelinePanel, AddTitleUsesDurationOverrideForStillImage) {
+    Fixture f;
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString png = QDir(dir.path()).filePath(QStringLiteral("title.png"));
+
+    bl::TitleSpec spec;
+    spec.text = "Hello";
+    ASSERT_TRUE(bl::ui::saveTitlePng(spec, 320, 180, png));
+
+    ASSERT_TRUE(f.controller.addTitleToMediaBin(
+        png, QStringLiteral("Hello"), nlohmann::json(spec)));
+    QApplication::processEvents();
+    ASSERT_EQ(f.controller.mediaBin().size(), 1u);
+    const std::string id = f.controller.mediaBin().back().id;
+
+    // A still has no meaningful stream duration; the override sets the length.
+    const bl::Duration threeSeconds = bl::Duration::fromSeconds(3.0, kRate);
+    EXPECT_TRUE(f.panel.addMediaToTimeline(id, threeSeconds));
+
+    const bl::Clip* added = findMediaClip(f.seq(), id);
+    ASSERT_NE(added, nullptr);
+    EXPECT_EQ(frameOf(added->timelineStart), 0);
+    EXPECT_EQ(frameOf(added->timelineDuration), 72);  // 3s at 24 fps
+}
+
+// ---------------------------------------------------------------------------
+// P1 #13: waveform display — the panel resolves each audio clip's envelope
+// through its resolver and hands it to the ClipItem for painting.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::shared_ptr<const bl::AudioMeterEnvelope> makeEnvelope(size_t windows,
+                                                           float peak) {
+    bl::AudioMeterEnvelope env;
+    env.sampleRate = 48000;
+    env.channels = 1;
+    env.windowHz = 60.0;
+    env.peak.assign(windows, std::vector<float>(1, peak));
+    env.rms.assign(windows, std::vector<float>(1, peak * 0.7071f));
+    return std::make_shared<const bl::AudioMeterEnvelope>(std::move(env));
+}
+
+} // namespace
+
+TEST(TimelinePanel, WaveformResolverAttachesEnvelopeToAudioClips) {
+    Fixture f;
+    Clip audio = makeClip("au", 0, 10);
+    audio.hasAudio = true;
+    f.addClip(1, audio);
+
+    const auto env = makeEnvelope(10, 0.5f);
+    f.panel.setWaveformResolver(
+        [env](const std::string& id)
+            -> std::shared_ptr<const bl::AudioMeterEnvelope> {
+            return id == "m" ? env : nullptr;
+        });
+
+    bl::ui::ClipItem* item = f.panel.clipItemFor("au");
+    ASSERT_NE(item, nullptr);
+    ASSERT_TRUE(item->waveform() != nullptr);
+    EXPECT_EQ(item->waveform()->windowCount(), 10u);
+}
+
+TEST(TimelinePanel, WaveformNotAttachedToVideoOnlyClip) {
+    Fixture f;
+    // The video half of an A/V split shares its media id but is inaudible.
+    Clip videoOnly = makeClip("v", 0, 10);
+    videoOnly.hasAudio = false;
+    f.addClip(1, videoOnly);
+
+    const auto env = makeEnvelope(10, 0.5f);
+    f.panel.setWaveformResolver(
+        [env](const std::string&)
+            -> std::shared_ptr<const bl::AudioMeterEnvelope> {
+            return env;  // media has audio; the clip flag must still veto it
+        });
+
+    bl::ui::ClipItem* item = f.panel.clipItemFor("v");
+    ASSERT_NE(item, nullptr);
+    EXPECT_EQ(item->waveform(), nullptr);
+}
+
+TEST(TimelinePanel, RefreshWaveformsPicksUpLateAnalysis) {
+    Fixture f;
+    Clip audio = makeClip("au", 0, 10);
+    audio.hasAudio = true;
+    f.addClip(1, audio);
+
+    const auto env = makeEnvelope(5, 0.4f);
+    bool ready = false;
+    f.panel.setWaveformResolver(
+        [env, &ready](const std::string& id)
+            -> std::shared_ptr<const bl::AudioMeterEnvelope> {
+            return (ready && id == "m") ? env : nullptr;
+        });
+
+    bl::ui::ClipItem* item = f.panel.clipItemFor("au");
+    ASSERT_NE(item, nullptr);
+    EXPECT_EQ(item->waveform(), nullptr);  // analysis has not settled yet
+
+    ready = true;
+    f.panel.refreshWaveforms();
+    ASSERT_TRUE(item->waveform() != nullptr);
+    EXPECT_EQ(item->waveform()->windowCount(), 5u);
+}
+
+// ---------------------------------------------------------------------------
 // P1: Kdenlive-parity lane ordering — every order round-trips between flat
 // indices and lane numbers, and Split is identical to the legacy layout.
 // ---------------------------------------------------------------------------
@@ -686,4 +1102,871 @@ TEST(TimelineLaneOrder, LaneTopFollowsPermutationOrder) {
         EXPECT_EQ(tg::laneHeight(seq, 0, 2), tg::kVideoLaneHeight);
         EXPECT_EQ(tg::laneHeight(seq, 2, 2), tg::kAudioLaneHeight);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: interactive track headers.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+bl::ui::TrackHeaderRow* headerRow(Fixture& fx, int flat) {
+    return fx.panel.header() ? fx.panel.header()->rowFor(flat) : nullptr;
+}
+
+QToolButton* rowButton(bl::ui::TrackHeaderRow* row, const char* name) {
+    return row ? row->findChild<QToolButton*>(QString::fromLatin1(name)) : nullptr;
+}
+
+QLabel* rowLabel(bl::ui::TrackHeaderRow* row) {
+    return row ? row->findChild<QLabel*>(QStringLiteral("trackNameLabel")) : nullptr;
+}
+
+} // namespace
+
+TEST(TimelineTrackHeader, HasOneRowPerLaneAlignedToLanes) {
+    Fixture fx;
+    auto* header = fx.panel.header();
+    ASSERT_NE(header, nullptr);
+    ASSERT_EQ(fx.panel.trackCount(), 2); // default project: V1 + A1
+
+    auto* v = headerRow(fx, 0);
+    auto* a = headerRow(fx, 1);
+    ASSERT_NE(v, nullptr);
+    ASSERT_NE(a, nullptr);
+
+    const int vc = fx.panel.videoCount();
+    EXPECT_EQ(v->y(), static_cast<int>(std::lround(
+                          tg::laneTop(fx.seq(), 0, vc))));
+    EXPECT_EQ(a->y(), static_cast<int>(std::lround(
+                          tg::laneTop(fx.seq(), 1, vc))));
+
+    // Scroll offset shifts every row by the same amount.
+    header->setScrollOffset(10);
+    EXPECT_EQ(v->y(), static_cast<int>(std::lround(
+                          tg::laneTop(fx.seq(), 0, vc))) - 10);
+    header->setScrollOffset(0);
+
+    // Zoom rebuilds the rows and must not drift them off the lanes.
+    fx.panel.setZoom(12.0);
+    EXPECT_EQ(headerRow(fx, 0)->y(), static_cast<int>(std::lround(
+                                        tg::laneTop(fx.seq(), 0, vc))));
+    EXPECT_EQ(headerRow(fx, 1)->y(), static_cast<int>(std::lround(
+                                        tg::laneTop(fx.seq(), 1, vc))));
+}
+
+TEST(TimelineTrackHeader, LockButtonIsUndoable) {
+    Fixture fx;
+    auto* lock = rowButton(headerRow(fx, 0), "trackLockButton");
+    ASSERT_NE(lock, nullptr);
+
+    lock->click();
+    EXPECT_TRUE(fx.seq().videoTracks[0].locked());
+
+    fx.controller.undoStack().undo();
+    EXPECT_FALSE(fx.seq().videoTracks[0].locked());
+}
+
+TEST(TimelineTrackHeader, VideoHideButtonIsUndoable) {
+    Fixture fx;
+    auto* hide = rowButton(headerRow(fx, 0), "trackAvButton");
+    ASSERT_NE(hide, nullptr);
+    EXPECT_EQ(hide->text(), QStringLiteral("H"));
+
+    hide->click();
+    EXPECT_TRUE(fx.seq().videoTracks[0].hidden());
+
+    fx.controller.undoStack().undo();
+    EXPECT_FALSE(fx.seq().videoTracks[0].hidden());
+}
+
+TEST(TimelineTrackHeader, AudioMuteAndSoloAreUndoable) {
+    Fixture fx;
+    ASSERT_NE(headerRow(fx, 1), nullptr);
+
+    rowButton(headerRow(fx, 1), "trackAvButton")->click();
+    EXPECT_TRUE(fx.seq().audioTracks[0].muted());
+
+    rowButton(headerRow(fx, 1), "trackSoloButton")->click();
+    EXPECT_TRUE(fx.seq().audioTracks[0].soloed());
+
+    fx.controller.undoStack().undo();
+    EXPECT_FALSE(fx.seq().audioTracks[0].soloed());
+    fx.controller.undoStack().undo();
+    EXPECT_FALSE(fx.seq().audioTracks[0].muted());
+}
+
+TEST(TimelineTrackHeader, RenameUpdatesModelAndLabelUndoably) {
+    Fixture fx;
+    EXPECT_TRUE(fx.panel.renameTrack(0, QStringLiteral("Cam A")));
+    EXPECT_EQ(fx.seq().videoTracks[0].name(), "Cam A");
+    EXPECT_EQ(rowLabel(headerRow(fx, 0))->text(), QStringLiteral("Cam A"));
+
+    fx.controller.undoStack().undo();
+    EXPECT_EQ(fx.seq().videoTracks[0].name(), "V1");
+    EXPECT_EQ(rowLabel(headerRow(fx, 0))->text(), QStringLiteral("V1"));
+}
+
+TEST(TimelineTrackHeader, AddTrackButtonsAppendAndUndo) {
+    Fixture fx;
+    auto* addVideo = fx.panel.findChild<QToolButton*>(
+        QStringLiteral("addVideoTrackButton"));
+    auto* addAudio = fx.panel.findChild<QToolButton*>(
+        QStringLiteral("addAudioTrackButton"));
+    ASSERT_NE(addVideo, nullptr);
+    ASSERT_NE(addAudio, nullptr);
+
+    addVideo->click();
+    EXPECT_EQ(fx.seq().videoTracks.size(), 2u);
+    EXPECT_EQ(fx.panel.trackCount(), 3);
+
+    addAudio->click();
+    EXPECT_EQ(fx.seq().audioTracks.size(), 2u);
+
+    fx.controller.undoStack().undo();
+    EXPECT_EQ(fx.seq().audioTracks.size(), 1u);
+    fx.controller.undoStack().undo();
+    EXPECT_EQ(fx.seq().videoTracks.size(), 1u);
+}
+
+TEST(TimelineTrackHeader, RemoveRefusesLastVideoTrackButRemovesAudio) {
+    Fixture fx;
+    EXPECT_FALSE(fx.panel.removeTrackAt(0)); // V1 is the only video track
+    EXPECT_EQ(fx.seq().videoTracks.size(), 1u);
+
+    EXPECT_TRUE(fx.panel.removeTrackAt(1)); // audio is fair game
+    EXPECT_EQ(fx.seq().audioTracks.size(), 0u);
+    EXPECT_EQ(fx.panel.trackCount(), 1);
+}
+
+TEST(TimelineTrackHeader, MoveTrackToReordersWithinKind) {
+    Fixture fx;
+    ASSERT_TRUE(fx.panel.addTrack(true)); // V2
+    ASSERT_TRUE(fx.panel.renameTrack(0, QStringLiteral("first")));
+    ASSERT_TRUE(fx.panel.renameTrack(1, QStringLiteral("second")));
+
+    EXPECT_TRUE(fx.panel.moveTrackTo(1, 0));
+    EXPECT_EQ(fx.seq().videoTracks[0].name(), "second");
+    EXPECT_EQ(fx.seq().videoTracks[1].name(), "first");
+
+    // Cross-kind reordering is refused.
+    fx.panel.addTrack(false); // A2
+    const int audioFlat = fx.panel.trackCount() - 1;
+    EXPECT_FALSE(fx.panel.moveTrackTo(0, audioFlat));
+
+    fx.controller.undoStack().undo(); // undo A2 insert
+    EXPECT_EQ(fx.seq().audioTracks.size(), 1u);
+}
+
+TEST(TimelineTrackHeader, ClickingClipSetsActiveTrack) {
+    Fixture fx;
+    fx.addClip(0, makeClip("v", 0, 5));
+    fx.addClip(1, makeClip("a", 0, 5));
+
+    fx.panel.setActiveTrack(0);
+    int signalled = -1;
+    QObject::connect(&fx.panel, &bl::ui::TimelinePanel::activeTrackChanged,
+                     [&signalled](int flat) { signalled = flat; });
+
+    fx.clickOnClip("a", 1);
+    EXPECT_EQ(signalled, 1);
+    EXPECT_EQ(fx.panel.activeTrack(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: selectable lane layout (Normal / Mixed / Mixed reverse), a
+// fit-to-view zoom action and a logarithmic zoom slider.
+// ---------------------------------------------------------------------------
+
+TEST(TimelineLaneOrderPanel, FlatAtYInvertsLaneTopForEveryOrder) {
+    Fixture fx;
+    ASSERT_TRUE(fx.panel.addTrack(true));  // V2
+    ASSERT_TRUE(fx.panel.addTrack(false)); // A2
+    ASSERT_EQ(fx.panel.trackCount(), 4);
+
+    const int vc = fx.panel.videoCount();
+    for (const auto order : {tg::LaneOrder::Split, tg::LaneOrder::Mixed,
+                             tg::LaneOrder::MixedReverse}) {
+        fx.panel.setLaneOrder(order);
+        EXPECT_EQ(fx.panel.laneOrder(), order);
+        for (int lane = 0; lane < 4; ++lane) {
+            const int flat = tg::flatForLane(fx.seq(), lane, order);
+            ASSERT_GE(flat, 0);
+            const qreal top = tg::laneTop(fx.seq(), flat, vc, order);
+            const qreal h = tg::laneHeight(fx.seq(), flat, vc);
+            EXPECT_EQ(fx.panel.flatAtY(top + h / 2.0), flat)
+                << "order=" << static_cast<int>(order) << " lane=" << lane;
+        }
+    }
+
+    // Nothing above the ruler or past the last lane.
+    EXPECT_EQ(fx.panel.flatAtY(1.0), -1);
+    EXPECT_EQ(fx.panel.flatAtY(100000.0), -1);
+}
+
+TEST(TimelineLaneOrderPanel, SwitchingOrderKeepsModelAndRelaysOutLanes) {
+    Fixture fx;
+    ASSERT_TRUE(fx.panel.addTrack(true));  // V2
+    ASSERT_TRUE(fx.panel.addTrack(false)); // A2
+    fx.addClip(0, makeClip("v", 0, 5));    // V1
+    fx.controller.timeline().sequence().audioTracks[0].addClip(
+        makeClip("a", 0, 5)); // A1 -> flat 2
+    fx.panel.rebuildFromModel();
+
+    const size_t videos = fx.seq().videoTracks.size();
+    const size_t audios = fx.seq().audioTracks.size();
+    const int64_t vStart = clipStart(fx, "v");
+    const int64_t aStart = clipStart(fx, "a");
+
+    int emitted = -1;
+    QObject::connect(&fx.panel, &bl::ui::TimelinePanel::laneOrderChanged,
+                     [&emitted](tg::LaneOrder o) {
+                         emitted = static_cast<int>(o);
+                     });
+
+    fx.panel.setLaneOrder(tg::LaneOrder::Mixed);
+    EXPECT_EQ(emitted, static_cast<int>(tg::LaneOrder::Mixed));
+
+    // A view-only flip must not touch the document.
+    EXPECT_EQ(fx.seq().videoTracks.size(), videos);
+    EXPECT_EQ(fx.seq().audioTracks.size(), audios);
+    EXPECT_EQ(clipStart(fx, "v"), vStart);
+    EXPECT_EQ(clipStart(fx, "a"), aStart);
+
+    // The lane geometry now reflects the new order.
+    const qreal splitTop = tg::laneTop(fx.seq(), 1, 2, tg::LaneOrder::Split);
+    const qreal mixedTop = tg::laneTop(fx.seq(), 1, 2, tg::LaneOrder::Mixed);
+    EXPECT_NE(splitTop, mixedTop);
+    EXPECT_EQ(fx.panel.laneRect(1).top(), mixedTop);
+
+    // Re-selecting the active order is a no-op (no signal).
+    emitted = -1;
+    fx.panel.setLaneOrder(tg::LaneOrder::Mixed);
+    EXPECT_EQ(emitted, -1);
+}
+
+TEST(TimelineLaneOrderPanel, ComboDrivesAndReflectsOrder) {
+    Fixture fx;
+    auto* combo = fx.panel.findChild<QComboBox*>(QStringLiteral("laneOrderCombo"));
+    ASSERT_NE(combo, nullptr);
+    ASSERT_EQ(combo->count(), 3);
+    EXPECT_EQ(combo->currentData().toInt(),
+              static_cast<int>(tg::LaneOrder::Split));
+
+    combo->setCurrentIndex(1);
+    EXPECT_EQ(fx.panel.laneOrder(), tg::LaneOrder::Mixed);
+
+    fx.panel.setLaneOrder(tg::LaneOrder::MixedReverse);
+    EXPECT_EQ(combo->currentIndex(), 2);
+    EXPECT_EQ(combo->currentData().toInt(),
+              static_cast<int>(tg::LaneOrder::MixedReverse));
+}
+
+TEST(TimelineZoomControls, FitClampsToRange) {
+    Fixture fx;
+    // Long enough to hit the min zoom on any platform: the toolbar's minimum
+    // width (font-metric dependent) can keep the viewport far wider than the
+    // 320px we ask for, so the content must dwarf even that.
+    fx.addClip(0, makeClip("long", 0, 100000));
+
+    fx.panel.resize(320, 900);
+    QApplication::processEvents();
+    fx.panel.fitZoomToViewport();
+    // Viewport is far narrower than the content, so the fit clamps to min.
+    EXPECT_DOUBLE_EQ(fx.panel.zoom(), 0.25);
+
+    // Tiny content on a wide panel stays inside the upper clamp too.
+    Fixture wide;
+    wide.addClip(0, makeClip("tiny", 0, 1));
+    wide.panel.resize(12000, 900);
+    QApplication::processEvents();
+    wide.panel.fitZoomToViewport();
+    EXPECT_GE(wide.panel.zoom(), 0.25);
+    EXPECT_LE(wide.panel.zoom(), 64.0);
+}
+
+TEST(TimelineZoomControls, SliderTracksAndDrivesZoom) {
+    Fixture fx;
+    auto* slider = fx.panel.findChild<QSlider*>(QStringLiteral("zoomSlider"));
+    ASSERT_NE(slider, nullptr);
+
+    fx.panel.setZoom(8.0);
+    EXPECT_GT(slider->value(), 0);
+    const int before = slider->value();
+
+    slider->setValue(std::min(before + 200, slider->maximum()));
+    EXPECT_GT(fx.panel.zoom(), 8.0);
+
+    // The Fit button routes to fitZoomToViewport (zoom ends clamped).
+    auto* fit = fx.panel.findChild<QToolButton*>(QStringLiteral("fitZoomButton"));
+    ASSERT_NE(fit, nullptr);
+    fit->click();
+    EXPECT_GE(fx.panel.zoom(), 0.25);
+    EXPECT_LE(fx.panel.zoom(), 64.0);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: edit-state toolbar (mode + insert/overwrite + ripple) and the
+// Select/Range/Ripple/Roll/Slip/Spacer editing modes.
+// ---------------------------------------------------------------------------
+
+using bl::ui::TimelineState;
+using EditMode = TimelineState::EditMode;
+
+TEST(TimelineEditState, DefaultsAndToolbarDriveState) {
+    Fixture fx;
+    EXPECT_EQ(fx.panel.editMode(), EditMode::Select);
+    EXPECT_FALSE(fx.panel.insertMode());
+    EXPECT_FALSE(fx.panel.rippleEnabled());
+    EXPECT_TRUE(fx.panel.snapEnabled());
+
+    auto* mode = fx.panel.findChild<QComboBox*>(QStringLiteral("editModeCombo"));
+    ASSERT_NE(mode, nullptr);
+    ASSERT_EQ(mode->count(), 6);
+    EXPECT_EQ(mode->currentData().toInt(),
+              static_cast<int>(EditMode::Select));
+
+    mode->setCurrentIndex(3);  // Roll
+    EXPECT_EQ(fx.panel.editMode(), EditMode::Roll);
+    fx.panel.setEditMode(EditMode::Slip);
+    EXPECT_EQ(mode->currentIndex(), 4);
+    EXPECT_EQ(mode->currentData().toInt(), static_cast<int>(EditMode::Slip));
+
+    auto* insert = fx.panel.findChild<QToolButton*>(QStringLiteral("insertModeButton"));
+    auto* ripple = fx.panel.findChild<QToolButton*>(QStringLiteral("rippleButton"));
+    ASSERT_NE(insert, nullptr);
+    ASSERT_NE(ripple, nullptr);
+    insert->setChecked(true);
+    EXPECT_TRUE(fx.panel.insertMode());
+    ripple->setChecked(true);
+    EXPECT_TRUE(fx.panel.rippleEnabled());
+    fx.panel.setInsertMode(false);
+    EXPECT_FALSE(insert->isChecked());
+    fx.panel.setRippleEnabled(false);
+    EXPECT_FALSE(ripple->isChecked());
+}
+
+TEST(TimelineEditState, SetTimelineStateAppliesEveryField) {
+    Fixture fx;
+    TimelineState s;
+    s.editMode = EditMode::Spacer;
+    s.insertMode = true;
+    s.ripple = true;
+    s.snap = false;
+    s.laneOrder = tg::LaneOrder::Mixed;
+    fx.panel.setTimelineState(s);
+    EXPECT_EQ(fx.panel.editMode(), EditMode::Spacer);
+    EXPECT_TRUE(fx.panel.insertMode());
+    EXPECT_TRUE(fx.panel.rippleEnabled());
+    EXPECT_FALSE(fx.panel.snapEnabled());
+    EXPECT_EQ(fx.panel.laneOrder(), tg::LaneOrder::Mixed);
+}
+
+TEST(TimelineEditState, RangeModeDragSetsZoneAndClickClears) {
+    Fixture fx;
+    fx.panel.setEditMode(EditMode::Range);
+    EXPECT_FALSE(fx.panel.hasZone());
+
+    const qreal y = 10.0;  // inside the ruler band
+    const QPoint press = fx.viewportPos(QPointF(fx.sceneX(5), y));
+    const QPoint mid = fx.viewportPos(QPointF(fx.sceneX(10), y));
+    const QPoint release = fx.viewportPos(QPointF(fx.sceneX(15), y));
+    QTest::mousePress(fx.panel.view()->viewport(), Qt::LeftButton,
+                      Qt::NoModifier, press);
+    QTest::mouseMove(fx.panel.view()->viewport(), mid);
+    QTest::mouseMove(fx.panel.view()->viewport(), release);
+    QTest::mouseRelease(fx.panel.view()->viewport(), Qt::LeftButton,
+                        Qt::NoModifier, release);
+
+    ASSERT_TRUE(fx.panel.hasZone());
+    EXPECT_EQ(frameOf(fx.panel.zoneIn()), 5);
+    EXPECT_EQ(frameOf(fx.panel.zoneOut()), 15);
+
+    // A plain ruler click in Range mode clears the zone.
+    QTest::mouseClick(fx.panel.view()->viewport(), Qt::LeftButton,
+                      Qt::NoModifier, fx.viewportPos(QPointF(fx.sceneX(8), y)));
+    EXPECT_FALSE(fx.panel.hasZone());
+}
+
+TEST(TimelineEditState, RippleModeDragShiftsFollowingClips) {
+    Fixture fx;
+    const Clip a = makeClip("a", 0, 5);
+    Clip b = makeClip("b", 0, 10);
+    b.timelineStart = a.timelineStart + a.timelineDuration;  // 5
+    b.source.sourceIn = fr(0);
+    b.source.sourceOut = fr(10);
+    fx.addClip(0, a);
+    fx.addClip(0, b);
+
+    fx.panel.setEditMode(EditMode::Ripple);
+    const qreal y = fx.panel.laneRect(0).top() + 5.0;
+    const QPoint press = fx.viewportPos(QPointF(fx.sceneX(2), y));
+    const QPoint mid = fx.viewportPos(QPointF(fx.sceneX(4), y));
+    const QPoint release = fx.viewportPos(QPointF(fx.sceneX(7), y));
+    QTest::mousePress(fx.panel.view()->viewport(), Qt::LeftButton,
+                      Qt::NoModifier, press);
+    QTest::mouseMove(fx.panel.view()->viewport(), mid);
+    QTest::mouseMove(fx.panel.view()->viewport(), release);
+    QTest::mouseRelease(fx.panel.view()->viewport(), Qt::LeftButton,
+                        Qt::NoModifier, release);
+
+    EXPECT_EQ(clipStart(fx, "a"), 5);
+    EXPECT_EQ(clipStart(fx, "b"), 10);  // rode along by a's +5 move
+
+    fx.controller.undoStack().undo();
+    EXPECT_EQ(clipStart(fx, "a"), 0);
+    EXPECT_EQ(clipStart(fx, "b"), 5);
+}
+
+TEST(TimelineEditState, SlipModeDragSlidesSourceWindow) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 10));  // source window [0, 10)
+    fx.panel.setEditMode(EditMode::Slip);
+
+    const qreal y = fx.panel.laneRect(0).top() + 5.0;
+    const QPoint press = fx.viewportPos(QPointF(fx.sceneX(2), y));
+    const QPoint mid = fx.viewportPos(QPointF(fx.sceneX(4), y));
+    const QPoint release = fx.viewportPos(QPointF(fx.sceneX(5), y));
+    QTest::mousePress(fx.panel.view()->viewport(), Qt::LeftButton,
+                      Qt::NoModifier, press);
+    QTest::mouseMove(fx.panel.view()->viewport(), mid);
+    QTest::mouseMove(fx.panel.view()->viewport(), release);
+    QTest::mouseRelease(fx.panel.view()->viewport(), Qt::LeftButton,
+                        Qt::NoModifier, release);
+
+    const Clip* c = fx.find("a");
+    ASSERT_NE(c, nullptr);
+    EXPECT_EQ(frameOf(c->timelineStart), 0);      // timeline range untouched
+    EXPECT_EQ(frameOf(c->timelineDuration), 10);
+    EXPECT_EQ(frameOf(c->source.sourceIn), 3);    // slid by +3 frames
+    EXPECT_EQ(frameOf(c->source.sourceOut), 13);
+
+    fx.controller.undoStack().undo();
+    EXPECT_EQ(frameOf(fx.find("a")->source.sourceIn), 0);
+}
+
+TEST(TimelineEditState, RollModeDragMovesSeam) {
+    Fixture fx;
+    const Clip a = makeClip("a", 0, 10);
+    Clip b = makeClip("b", 0, 10);
+    b.timelineStart = a.timelineStart + a.timelineDuration;  // adjacent at 10
+    b.source.sourceIn = fr(0);
+    b.source.sourceOut = fr(10);
+    fx.addClip(0, a);
+    fx.addClip(0, b);
+
+    fx.panel.setEditMode(EditMode::Roll);
+    const qreal y = fx.panel.laneRect(0).top() + 5.0;
+    const QPoint press = fx.viewportPos(QPointF(fx.sceneX(10), y));
+    const QPoint mid = fx.viewportPos(QPointF(fx.sceneX(12), y));
+    const QPoint release = fx.viewportPos(QPointF(fx.sceneX(13), y));
+    QTest::mousePress(fx.panel.view()->viewport(), Qt::LeftButton,
+                      Qt::NoModifier, press);
+    QTest::mouseMove(fx.panel.view()->viewport(), mid);
+    QTest::mouseMove(fx.panel.view()->viewport(), release);
+    QTest::mouseRelease(fx.panel.view()->viewport(), Qt::LeftButton,
+                        Qt::NoModifier, release);
+
+    const Clip* ca = fx.find("a");
+    const Clip* cb = fx.find("b");
+    ASSERT_NE(ca, nullptr);
+    ASSERT_NE(cb, nullptr);
+    EXPECT_EQ(frameOf(ca->timelineStart), 0);
+    EXPECT_EQ(frameOf(ca->timelineStart + ca->timelineDuration), 13);
+    EXPECT_EQ(frameOf(cb->timelineStart), 13);
+    EXPECT_EQ(frameOf(cb->timelineStart + cb->timelineDuration), 20);
+
+    fx.controller.undoStack().undo();
+    EXPECT_EQ(frameOf(fx.find("a")->timelineStart +
+                      fx.find("a")->timelineDuration),
+              10);
+}
+
+TEST(TimelineEditState, SpacerModeInsertsAndRemovesSpace) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 10));
+    fx.addClip(0, makeClip("b", 20, 10));
+    fx.panel.setEditMode(EditMode::Spacer);
+
+    const qreal y = fx.panel.laneRect(0).top() + 5.0;
+    const auto drag = [&](int64_t fromFrame, int64_t toFrame) {
+        const QPoint p = fx.viewportPos(QPointF(fx.sceneX(fromFrame), y));
+        const QPoint r = fx.viewportPos(QPointF(fx.sceneX(toFrame), y));
+        QTest::mousePress(fx.panel.view()->viewport(), Qt::LeftButton,
+                          Qt::NoModifier, p);
+        QTest::mouseMove(fx.panel.view()->viewport(), r);
+        QTest::mouseRelease(fx.panel.view()->viewport(), Qt::LeftButton,
+                            Qt::NoModifier, r);
+    };
+
+    // Press in the gap at frame 15, drag right to 20: b shifts +5.
+    drag(15, 20);
+    EXPECT_EQ(clipStart(fx, "a"), 0);
+    EXPECT_EQ(clipStart(fx, "b"), 25);
+
+    // Drag left from 15 to 12 removes 3 frames: b shifts back to 22.
+    drag(15, 12);
+    EXPECT_EQ(clipStart(fx, "b"), 22);
+}
+
+TEST(TimelineEditState, InsertModeRipplesWhileOverwriteRefuses) {
+    Fixture fx;
+    const Clip a = makeClip("a", 0, 5);
+    Clip b = makeClip("b", 0, 10);
+    b.timelineStart = a.timelineStart + a.timelineDuration;  // 5
+    b.source.sourceIn = fr(0);
+    b.source.sourceOut = fr(10);
+    fx.addClip(0, a);
+    fx.addClip(0, b);
+
+    const qreal y = fx.panel.laneRect(0).top() + 5.0;
+    const auto drag = [&](int64_t fromFrame, int64_t toFrame) {
+        const QPoint p = fx.viewportPos(QPointF(fx.sceneX(fromFrame), y));
+        const QPoint r = fx.viewportPos(QPointF(fx.sceneX(toFrame), y));
+        QTest::mousePress(fx.panel.view()->viewport(), Qt::LeftButton,
+                          Qt::NoModifier, p);
+        QTest::mouseMove(fx.panel.view()->viewport(), r);
+        QTest::mouseRelease(fx.panel.view()->viewport(), Qt::LeftButton,
+                            Qt::NoModifier, r);
+    };
+
+    // Overwrite (default): moving a to frame 3 overlaps b -> refused.
+    drag(2, 5);
+    EXPECT_EQ(clipStart(fx, "a"), 0);
+    EXPECT_EQ(clipStart(fx, "b"), 5);
+
+    // Insert: the same drag ripples b out of the way by a's duration (5).
+    fx.panel.setInsertMode(true);
+    drag(2, 5);
+    EXPECT_EQ(clipStart(fx, "a"), 3);
+    EXPECT_EQ(clipStart(fx, "b"), 10);
+}
+
+TEST(TimelineEditState, RippleToggleMakesDeleteCloseTheGap) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 5));
+    fx.addClip(0, makeClip("b", 10, 5));
+
+    fx.panel.setRippleEnabled(true);
+    fx.clickOnClip("a", 0);
+    QTest::keyClick(fx.panel.view(), Qt::Key_Delete);
+
+    EXPECT_EQ(fx.find("a"), nullptr);
+    EXPECT_EQ(clipStart(fx, "b"), 5);  // gap closed by ripple delete
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5: timeline zone — set/clear, ruler handles, and lift/extract.
+// ---------------------------------------------------------------------------
+
+TEST(TimelineZone, SetZoneInOutClampAndClear) {
+    Fixture fx;
+    EXPECT_FALSE(fx.panel.hasZone());
+
+    fx.panel.setZoneIn(fr(10));
+    EXPECT_TRUE(fx.panel.hasZone());
+    EXPECT_EQ(frameOf(fx.panel.zoneIn()), 10);
+    EXPECT_EQ(frameOf(fx.panel.zoneOut()), 10);  // first edge opens a point
+
+    fx.panel.setZoneOut(fr(5));  // clamps to the in point
+    EXPECT_EQ(frameOf(fx.panel.zoneIn()), 10);
+    EXPECT_EQ(frameOf(fx.panel.zoneOut()), 10);
+
+    fx.panel.setZoneOut(fr(20));
+    EXPECT_EQ(frameOf(fx.panel.zoneOut()), 20);
+
+    fx.panel.setZoneIn(fr(30));  // clamps to the out point
+    EXPECT_EQ(frameOf(fx.panel.zoneIn()), 20);
+    EXPECT_EQ(frameOf(fx.panel.zoneOut()), 20);
+    EXPECT_EQ(frameOf(fx.panel.zoneDuration()), 0);
+
+    fx.panel.clearZone();
+    EXPECT_FALSE(fx.panel.hasZone());
+}
+
+TEST(TimelineZone, ToolbarButtonsSetZoneAtPlayhead) {
+    Fixture fx;
+    auto* in = fx.panel.findChild<QToolButton*>(QStringLiteral("zoneInButton"));
+    auto* out = fx.panel.findChild<QToolButton*>(QStringLiteral("zoneOutButton"));
+    auto* clear = fx.panel.findChild<QToolButton*>(QStringLiteral("clearZoneButton"));
+    ASSERT_NE(in, nullptr);
+    ASSERT_NE(out, nullptr);
+    ASSERT_NE(clear, nullptr);
+
+    fx.panel.setPlayhead(fr(5));
+    in->click();
+    EXPECT_TRUE(fx.panel.hasZone());
+    EXPECT_EQ(frameOf(fx.panel.zoneIn()), 5);
+
+    fx.panel.setPlayhead(fr(15));
+    out->click();
+    EXPECT_EQ(frameOf(fx.panel.zoneIn()), 5);
+    EXPECT_EQ(frameOf(fx.panel.zoneOut()), 15);
+
+    clear->click();
+    EXPECT_FALSE(fx.panel.hasZone());
+}
+
+TEST(TimelineZone, RulerHandlesDragZoneEdges) {
+    Fixture fx;
+    fx.panel.setZone(fr(5), fr(15));
+
+    const qreal y = 10.0;  // inside the ruler band
+    const auto dragTo = [&](qreal fromX, qreal toX) {
+        const QPoint p = fx.viewportPos(QPointF(fromX, y));
+        const QPoint r = fx.viewportPos(QPointF(toX, y));
+        QTest::mousePress(fx.panel.view()->viewport(), Qt::LeftButton,
+                          Qt::NoModifier, p);
+        QTest::mouseMove(fx.panel.view()->viewport(), r);
+        QTest::mouseRelease(fx.panel.view()->viewport(), Qt::LeftButton,
+                            Qt::NoModifier, r);
+    };
+
+    dragTo(fx.sceneX(5), fx.sceneX(8));  // grab the in handle
+    EXPECT_EQ(frameOf(fx.panel.zoneIn()), 8);
+    EXPECT_EQ(frameOf(fx.panel.zoneOut()), 15);
+
+    dragTo(fx.sceneX(15), fx.sceneX(20));  // grab the out handle
+    EXPECT_EQ(frameOf(fx.panel.zoneIn()), 8);
+    EXPECT_EQ(frameOf(fx.panel.zoneOut()), 20);
+
+    // A ruler click away from the handles scrubs; it must not clear the zone.
+    QTest::mouseClick(fx.panel.view()->viewport(), Qt::LeftButton,
+                      Qt::NoModifier, fx.viewportPos(QPointF(fx.sceneX(12), y)));
+    EXPECT_TRUE(fx.panel.hasZone());
+    EXPECT_EQ(frameOf(fx.panel.playhead()), 12);
+}
+
+TEST(TimelineZone, LiftRemovesContentInsideZone) {
+    Fixture fx;
+    const Clip a = makeClip("a", 0, 10);
+    Clip b = makeClip("b", 0, 10);
+    b.timelineStart = a.timelineStart + a.timelineDuration;
+    b.source.sourceIn = fr(10);
+    b.source.sourceOut = fr(20);
+    fx.addClip(0, a);
+    fx.addClip(0, b);
+    fx.addClip(1, makeClip("aud", 0, 20));
+
+    fx.panel.setZone(fr(5), fr(15));
+    ASSERT_TRUE(fx.panel.liftZone());
+
+    const auto& vids = fx.seq().videoTracks[0].clips();
+    ASSERT_EQ(vids.size(), 2u);
+    EXPECT_EQ(frameOf(vids[0].timelineStart), 0);
+    EXPECT_EQ(frameOf(vids[0].timelineDuration), 5);  // a head
+    EXPECT_EQ(frameOf(vids[1].timelineStart), 15);
+    EXPECT_EQ(frameOf(vids[1].timelineDuration), 5);  // b tail
+    EXPECT_EQ(frameOf(vids[1].source.sourceIn), 15);
+
+    const auto& auds = fx.seq().audioTracks[0].clips();
+    ASSERT_EQ(auds.size(), 2u);
+    EXPECT_EQ(frameOf(auds[0].timelineDuration), 5);
+    EXPECT_EQ(frameOf(auds[1].timelineStart), 15);
+    EXPECT_EQ(frameOf(auds[1].timelineDuration), 5);
+
+    fx.controller.undoStack().undo();
+    const auto& restored = fx.seq().videoTracks[0].clips();
+    ASSERT_EQ(restored.size(), 2u);
+    EXPECT_EQ(frameOf(restored[0].timelineDuration), 10);
+    EXPECT_EQ(frameOf(restored[1].timelineStart), 10);
+    EXPECT_EQ(frameOf(fx.seq().audioTracks[0].clips()[0].timelineDuration), 20);
+}
+
+TEST(TimelineZone, ExtractClosesGap) {
+    Fixture fx;
+    const Clip a = makeClip("a", 0, 10);
+    Clip b = makeClip("b", 0, 10);
+    b.timelineStart = a.timelineStart + a.timelineDuration;
+    b.source.sourceIn = fr(10);
+    b.source.sourceOut = fr(20);
+    Clip c = makeClip("c", 0, 10);
+    c.timelineStart = b.timelineStart + b.timelineDuration;
+    c.source.sourceIn = fr(20);
+    c.source.sourceOut = fr(30);
+    fx.addClip(0, a);
+    fx.addClip(0, b);
+    fx.addClip(0, c);
+
+    fx.panel.setZone(fr(5), fr(15));
+    ASSERT_TRUE(fx.panel.extractZone());
+
+    const auto& v = fx.seq().videoTracks[0].clips();
+    ASSERT_EQ(v.size(), 3u);
+    EXPECT_EQ(frameOf(v[0].timelineStart), 0);
+    EXPECT_EQ(frameOf(v[0].timelineDuration), 5);   // a head
+    EXPECT_EQ(frameOf(v[1].timelineStart), 5);      // b tail rippled left
+    EXPECT_EQ(frameOf(v[1].timelineDuration), 5);
+    EXPECT_EQ(frameOf(v[2].timelineStart), 10);     // c shifted left by 10
+    EXPECT_EQ(frameOf(v[2].timelineDuration), 10);
+}
+
+TEST(TimelineZone, LiftSkipsLockedTracks) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 10));
+    fx.addClip(1, makeClip("aud", 0, 20));
+    fx.controller.timeline().sequence().audioTracks[0].setLocked(true);
+
+    fx.panel.setZone(fr(5), fr(15));
+    ASSERT_TRUE(fx.panel.liftZone());
+
+    // Video was cut; the locked audio track is byte-for-byte intact.
+    EXPECT_EQ(frameOf(fx.seq().videoTracks[0].clips()[0].timelineDuration), 5);
+    const auto& auds = fx.seq().audioTracks[0].clips();
+    ASSERT_EQ(auds.size(), 1u);
+    EXPECT_EQ(frameOf(auds[0].timelineStart), 0);
+    EXPECT_EQ(frameOf(auds[0].timelineDuration), 20);
+}
+
+TEST(TimelineZone, LiftAndExtractRefuseEmptyOrMissingZone) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 10));
+
+    // No zone set.
+    EXPECT_FALSE(fx.panel.liftZone());
+    EXPECT_FALSE(fx.panel.extractZone());
+
+    // Zero-length zone.
+    fx.panel.setZone(fr(5), fr(5));
+    EXPECT_FALSE(fx.panel.liftZone());
+    EXPECT_FALSE(fx.panel.extractZone());
+
+    // The model is untouched and nothing was pushed on the undo stack.
+    ASSERT_EQ(fx.seq().videoTracks[0].clips().size(), 1u);
+    EXPECT_EQ(frameOf(fx.seq().videoTracks[0].clips()[0].timelineDuration), 10);
+    EXPECT_FALSE(fx.controller.undoStack().canUndo());
+}
+
+// --- Clipboard + markers (Phase 7) -----------------------------------------
+
+TEST(TimelinePanel, copyPasteSelectionDuplicatesClips) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 5));
+    fx.clickOnClip("a", 0);
+    ASSERT_EQ(fx.panel.copySelection(), 1);
+
+    fx.panel.setPlayhead(fr(100));
+    EXPECT_EQ(fx.panel.pasteAtPlayhead(), 1);
+    EXPECT_EQ(fx.panel.clipItemCount(), 2);
+    // The pasted copy is selected; the source is not.
+    EXPECT_EQ(fx.panel.selection().size(), 1u);
+    EXPECT_FALSE(fx.panel.selection().contains("a"));
+}
+
+TEST(TimelinePanel, cutRemovesSelectionAndPastesBack) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 5));
+    fx.addClip(0, makeClip("b", 20, 5));
+    fx.clickOnClip("a", 0);
+
+    ASSERT_EQ(fx.panel.cutSelection(), 1);
+    EXPECT_EQ(fx.panel.clipItemCount(), 1);
+    EXPECT_TRUE(fx.panel.selection().isEmpty());
+
+    // The cut clip is still on the clipboard; pasting restores a copy.
+    EXPECT_EQ(fx.panel.pasteAt(fr(60)), 1);
+    EXPECT_EQ(fx.panel.clipItemCount(), 2);
+}
+
+TEST(TimelinePanel, pasteWithEmptyClipboardIsRefused) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 5));
+    EXPECT_EQ(fx.panel.pasteAt(fr(30)), 0);
+    EXPECT_EQ(fx.panel.clipItemCount(), 1);
+}
+
+TEST(TimelinePanel, addRenameRemoveMarkerUndoably) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 5));
+
+    ASSERT_TRUE(fx.panel.addMarkerAt(fr(10), QStringLiteral("intro")));
+    EXPECT_EQ(fx.panel.markerItemCount(), 1);
+    ASSERT_EQ(fx.seq().markers.size(), 1u);
+    EXPECT_EQ(fx.seq().markers.front().label, "intro");
+
+    ASSERT_TRUE(fx.panel.renameMarkerAt(fr(10), QStringLiteral("hook")));
+    EXPECT_EQ(fx.seq().markers.front().label, "hook");
+
+    ASSERT_TRUE(fx.panel.removeMarkerAt(fr(10)));
+    EXPECT_EQ(fx.panel.markerItemCount(), 0);
+    EXPECT_TRUE(fx.seq().markers.empty());
+}
+
+TEST(TimelinePanel, markerNearFindsClosestWithinRadius) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 5));
+    ASSERT_TRUE(fx.panel.addMarkerAt(fr(10)));
+
+    bl::Time out;
+    EXPECT_TRUE(fx.panel.markerNear(fr(11), 2, out));
+    EXPECT_EQ(frameOf(out), 10);
+    EXPECT_FALSE(fx.panel.markerNear(fr(20), 2, out));
+}
+
+TEST(TimelinePanel, clipboardShortcutsCopyCutPaste) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 5));
+    fx.clickOnClip("a", 0);
+
+    fx.panel.view()->setFocus();
+    QTest::keyClick(fx.panel.view(), Qt::Key_C, Qt::ControlModifier);
+    fx.panel.setPlayhead(fr(50));
+    QTest::keyClick(fx.panel.view(), Qt::Key_V, Qt::ControlModifier);
+    EXPECT_EQ(fx.panel.clipItemCount(), 2);
+
+    // Ctrl+X removes the (now pasted) selection, keeping it on the clipboard.
+    QTest::keyClick(fx.panel.view(), Qt::Key_X, Qt::ControlModifier);
+    EXPECT_EQ(fx.panel.clipItemCount(), 1);
+}
+
+TEST(TimelinePanel, markerKeyAddsAtPlayhead) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 5));
+    fx.panel.setPlayhead(fr(12));
+    fx.panel.view()->setFocus();
+    QTest::keyClick(fx.panel.view(), Qt::Key_M, Qt::NoModifier);
+    ASSERT_EQ(fx.seq().markers.size(), 1u);
+    EXPECT_EQ(frameOf(fx.seq().markers.front().position), 12);
+}
+
+TEST(TimelinePanel, importSubtitleCuesAddsSubtitleItems) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 5));
+
+    std::vector<bl::SubtitleCue> cues;
+    bl::SubtitleCue c1;
+    c1.start = fr(0);
+    c1.end = fr(10);
+    c1.text = "hello";
+    bl::SubtitleCue c2;
+    c2.start = fr(20);
+    c2.end = fr(30);
+    c2.text = "world";
+    cues.push_back(c1);
+    cues.push_back(c2);
+
+    ASSERT_EQ(fx.panel.importSubtitleCues(cues), 2);
+    // Original clip + two subtitle clips.
+    EXPECT_EQ(fx.panel.clipItemCount(), 3);
+    EXPECT_EQ(fx.seq().videoTracks.size(), 2u);
+}
+
+TEST(TimelinePanel, selectedClipRangeSpansSelection) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 5));
+    fx.addClip(0, makeClip("b", 20, 7));
+
+    bl::Time in{};
+    bl::Time out{};
+    EXPECT_FALSE(fx.panel.selectedClipRange(in, out));
+
+    fx.clickOnClip("a", 0);
+    ASSERT_TRUE(fx.panel.selectedClipRange(in, out));
+    EXPECT_EQ(frameOf(in), 0);
+    EXPECT_EQ(frameOf(out), 5);
+
+    fx.clickOnClip("b", 0, Qt::ControlModifier);
+    ASSERT_TRUE(fx.panel.selectedClipRange(in, out));
+    EXPECT_EQ(frameOf(in), 0);
+    EXPECT_EQ(frameOf(out), 27);
 }

@@ -54,9 +54,9 @@ ProjectData sampleProject() {
     data.settings.author = "L Hustla";
     data.settings.createdIso8601 = "2026-08-25T12:00:00Z";
 
-    data.mediaBin.push_back({"item-1", "media/interview.mp4", "Interview"});
+    data.mediaBin.push_back({"item-1", "media/interview.mp4", "Interview", ""});
     data.mediaBin.push_back({"item-2", "/absolutely/elsewhere/broll.mp4",
-                             "B-Roll"});
+                             "B-Roll", ""});
 
     data.extensions["sequences"] = nlohmann::json::array(
         {{{"id", "seq-1"}, {"fps", {{"num", 24000}, {"den", 1001}}}}});
@@ -136,6 +136,72 @@ TEST(ProjectRepositoryTest, SavedDocumentIsReadableJson) {
     EXPECT_TRUE(doc.contains("extensions"));
 }
 
+TEST(ProjectRepositoryTest, FoldersAndFolderIdsRoundTrip) {
+    TempDir dir;
+    ProjectRepository repo;
+    const std::string file = dir.child("folders.blproj");
+
+    ProjectData data = sampleProject();
+    data.folders.push_back({"f1", "Footage", ""});
+    data.folders.push_back({"f2", "Interviews", "f1"});
+    data.mediaBin[0].folderId = "f2";
+    // mediaBin[1] stays at the root ("").
+
+    ASSERT_TRUE(repo.save(data, file).ok());
+
+    std::ifstream in(file);
+    const nlohmann::json doc = nlohmann::json::parse(in);
+    ASSERT_TRUE(doc.contains("folders"));
+    ASSERT_TRUE(doc["folders"].is_array());
+    ASSERT_EQ(doc["folders"].size(), 2u);
+    EXPECT_EQ(doc["folders"][0]["id"], "f1");
+    EXPECT_EQ(doc["folders"][1]["parentId"], "f1");
+    EXPECT_EQ(doc["mediaBin"][0]["folderId"], "f2");
+    EXPECT_EQ(doc["mediaBin"][1]["folderId"], "");
+
+    auto loaded = repo.load(file);
+    ASSERT_TRUE(loaded.ok()) << loaded.message();
+    const ProjectData& restored = (*loaded).project;
+    ASSERT_EQ(restored.folders.size(), 2u);
+    EXPECT_EQ(restored.folders[0].id, "f1");
+    EXPECT_EQ(restored.folders[0].name, "Footage");
+    EXPECT_EQ(restored.folders[0].parentId, "");
+    EXPECT_EQ(restored.folders[1].parentId, "f1");
+    EXPECT_EQ(restored.mediaBin[0].folderId, "f2");
+    EXPECT_EQ(restored.mediaBin[1].folderId, "");
+}
+
+TEST(ProjectRepositoryTest, LegacyDocumentWithoutFoldersLoadsAtRoot) {
+    TempDir dir;
+    const std::string file = dir.child("legacy_no_folders.blproj");
+    {
+        std::ofstream out(file);
+        out << R"({"schemaVersion":1,"settings":{"name":"Old","author":"A",)"
+               R"("created":""},"mediaBin":[{"id":"m1","name":"clip",)"
+               R"("path":"clip.mp4"}],"extensions":{}})";
+    }
+
+    ProjectRepository repo;
+    auto loaded = repo.load(file);
+    ASSERT_TRUE(loaded.ok()) << loaded.message();
+    EXPECT_TRUE((*loaded).project.folders.empty());
+    ASSERT_EQ((*loaded).project.mediaBin.size(), 1u);
+    EXPECT_EQ((*loaded).project.mediaBin[0].folderId, "");
+}
+
+TEST(ProjectRepositoryTest, DocumentAlwaysWritesFoldersAndFolderId) {
+    TempDir dir;
+    ProjectRepository repo;
+    const std::string file = dir.child("keys.blproj");
+
+    const nlohmann::json doc = repo.toJson(sampleProject(), file);
+    ASSERT_TRUE(doc.contains("folders"));
+    EXPECT_TRUE(doc["folders"].is_array());
+    EXPECT_TRUE(doc["folders"].empty());
+    ASSERT_TRUE(doc["mediaBin"][0].contains("folderId"));
+    EXPECT_EQ(doc["mediaBin"][0]["folderId"], "");
+}
+
 TEST(ProjectRepositoryTest, AtomicSaveLeavesNoTempFiles) {
     TempDir dir;
     ProjectRepository repo;
@@ -159,7 +225,7 @@ TEST(ProjectRepositoryTest, MediaInsideProjectStoredRelative) {
     { std::ofstream(mediaFile) << "fake"; }
 
     ProjectData data;
-    data.mediaBin.push_back({"m1", mediaFile, "Clip"});
+    data.mediaBin.push_back({"m1", mediaFile, "Clip", ""});
 
     ProjectRepository repo;
     const std::string file = dir.child("proj.blproj");
@@ -184,7 +250,7 @@ TEST(ProjectRepositoryTest, RelativePathsResolveAfterDirectoryMove) {
     { std::ofstream(asset) << "x"; }
 
     ProjectData data;
-    data.mediaBin.push_back({"a", asset, "A"});
+    data.mediaBin.push_back({"a", asset, "A", ""});
 
     ProjectRepository repo;
     const std::string projectFile = source.child("p.blproj");

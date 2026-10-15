@@ -48,7 +48,7 @@ bl::PreviewEngine::Config makeConfig(uint32_t w = 160, uint32_t h = 120) {
 
 std::vector<MediaBinItem> mediaBinWithTheora() {
     return {MediaBinItem{"theora", bltest::mediaPath("test_video_theora.ogv"),
-                         "theora.ogv"}};
+                         "theora.ogv", ""}};
 }
 
 TimelineSnapshot snapshotWithTheoraClip() {

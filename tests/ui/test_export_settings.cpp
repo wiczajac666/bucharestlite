@@ -60,6 +60,17 @@ TEST(ExportSettings, FrameRangeInOut) {
     EXPECT_EQ(range.frameCount, 100);
 }
 
+TEST(ExportSettings, FrameRangeClipBehavesLikeInOut) {
+    ExportSettings s;
+    s.range = ExportRange::Clip;
+    s.inPoint = Time::fromFrame(24, {24000, 1001});
+    s.outPoint = Time::fromFrame(48, {24000, 1001});
+    const auto range =
+        frameRange(s, makeSequence(), Duration::fromSeconds(10.0, {9000, 1}));
+    EXPECT_EQ(range.firstFrame, 24);
+    EXPECT_EQ(range.frameCount, 24);
+}
+
 TEST(ExportSettings, FrameRangeInOutClampedToDuration) {
     ExportSettings s;
     s.range = ExportRange::InOut;
@@ -110,6 +121,65 @@ TEST(ExportSettings, SupportedContainerAndCodec) {
     EXPECT_TRUE(isSupportedCodec("h264"));
     EXPECT_TRUE(isSupportedCodec("opus"));
     EXPECT_FALSE(isSupportedCodec("hevc"));
+}
+
+TEST(ExportSettings, StreamFormatForUrl) {
+    EXPECT_EQ(streamFormatForUrl("rtmp://localhost:1935/live/key"), "flv");
+    EXPECT_EQ(streamFormatForUrl("rtmps://ingest.example.com/app"), "flv");
+    EXPECT_EQ(streamFormatForUrl("udp://127.0.0.1:5000"), "mpegts");
+    // Scheme matching is case-insensitive.
+    EXPECT_EQ(streamFormatForUrl("RTMP://HOST/app"), "flv");
+    EXPECT_EQ(streamFormatForUrl("UDP://HOST:5000"), "mpegts");
+    // Unsupported or malformed URLs.
+    EXPECT_EQ(streamFormatForUrl("http://example.com/x.mp4"), "");
+    EXPECT_EQ(streamFormatForUrl("https://example.com"), "");
+    EXPECT_EQ(streamFormatForUrl("srt://host:9000"), "");
+    EXPECT_EQ(streamFormatForUrl("no-scheme-here"), "");
+    EXPECT_EQ(streamFormatForUrl("://host"), "");
+    EXPECT_EQ(streamFormatForUrl(""), "");
+}
+
+TEST(ExportSettings, IsStreamUrl) {
+    EXPECT_TRUE(isStreamUrl("rtmp://host/app"));
+    EXPECT_TRUE(isStreamUrl("rtmps://host/app"));
+    EXPECT_TRUE(isStreamUrl("udp://host:5000"));
+    EXPECT_FALSE(isStreamUrl("http://host/x.mp4"));
+    EXPECT_FALSE(isStreamUrl("srt://host:9000"));
+    EXPECT_FALSE(isStreamUrl(""));
+}
+
+TEST(ExportSettings, PresetCatalogIsNonEmptyAndValid) {
+    const auto& presets = exportPresets();
+    ASSERT_FALSE(presets.empty());
+    for (const ExportPreset& p : presets) {
+        EXPECT_FALSE(p.id.empty());
+        EXPECT_FALSE(p.name.empty());
+        // Every preset must be encodable with the codecs/containers we ship.
+        EXPECT_TRUE(isSupportedContainer(p.settings.container))
+            << p.id << " container " << p.settings.container;
+        EXPECT_TRUE(isSupportedCodec(p.settings.videoCodec))
+            << p.id << " video codec " << p.settings.videoCodec;
+        if (p.settings.includeAudio) {
+            EXPECT_TRUE(isSupportedCodec(p.settings.audioCodec))
+                << p.id << " audio codec " << p.settings.audioCodec;
+        }
+    }
+}
+
+TEST(ExportSettings, FindPresetById) {
+    ASSERT_NE(findExportPreset("youtube-1080p"), nullptr);
+    EXPECT_EQ(findExportPreset("youtube-1080p")->settings.videoCodec, "h264");
+    EXPECT_EQ(findExportPreset("webm-vp9")->settings.container, "webm");
+    EXPECT_EQ(findExportPreset("webm-vp9")->settings.audioCodec, "opus");
+    EXPECT_EQ(findExportPreset("nope"), nullptr);
+}
+
+TEST(ExportSettings, Youtube4kPresetIsCustomUhd) {
+    const ExportPreset* p = findExportPreset("youtube-4k");
+    ASSERT_NE(p, nullptr);
+    EXPECT_EQ(p->settings.scale, ResolutionScale::Custom);
+    EXPECT_EQ(outputWidth(p->settings, makeSequence()), 3840u);
+    EXPECT_EQ(outputHeight(p->settings, makeSequence()), 2160u);
 }
 
 } // namespace

@@ -27,6 +27,9 @@ json mediaItemToJson(const MediaBinItem& item,
     json j;
     j["id"] = item.id;
     j["name"] = item.name;
+    // Always written ("" for the project root) so the key is stable for
+    // downstream consumers; legacy documents without it load as root.
+    j["folderId"] = item.folderId;
 
     std::error_code ec;
     const fs::path absolute = fs::weakly_canonical(item.path, ec);
@@ -74,6 +77,20 @@ json buildDocument(const ProjectData& data,
         bin.push_back(mediaItemToJson(item, projectDir));
     }
     doc["mediaBin"] = std::move(bin);
+
+    // Bin folders (collections) live on the project side of the document. An
+    // empty array is written for projects without folders so the key is
+    // always present.
+    json folders = json::array();
+    for (const auto& folder : data.folders) {
+        json entry;
+        entry["id"] = folder.id;
+        entry["name"] = folder.name;
+        entry["parentId"] = folder.parentId;
+        folders.push_back(std::move(entry));
+    }
+    doc["folders"] = std::move(folders);
+
     doc["extensions"] = data.extensions.is_null()
                             ? json::object()
                             : data.extensions;
@@ -94,6 +111,7 @@ ProjectData parseDocument(const json& doc, const fs::path& projectDir,
             MediaBinItem item;
             item.id = entry.value("id", std::string());
             item.name = entry.value("name", std::string());
+            item.folderId = entry.value("folderId", std::string());
             const std::string stored = entry.value("path", std::string());
             const std::string resolved =
                 resolveMediaPath(stored, projectDir);
@@ -107,6 +125,16 @@ ProjectData parseDocument(const json& doc, const fs::path& projectDir,
                 BL_LOG_WARN("project",
                             "media missing: " + resolved);
             }
+        }
+    }
+
+    if (doc.contains("folders") && doc["folders"].is_array()) {
+        for (const auto& entry : doc["folders"]) {
+            MediaBinFolder folder;
+            folder.id = entry.value("id", std::string());
+            folder.name = entry.value("name", std::string());
+            folder.parentId = entry.value("parentId", std::string());
+            data.folders.push_back(std::move(folder));
         }
     }
 

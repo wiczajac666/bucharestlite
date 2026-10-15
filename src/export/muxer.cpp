@@ -124,14 +124,20 @@ void Muxer::setSubtitlesEnabled(bool enabled) {
 }
 
 Result<void> Muxer::open(const BlFormatPreset* preset, const char* output_path) {
+    return open(preset, output_path, nullptr);
+}
+
+Result<void> Muxer::open(const BlFormatPreset* preset, const char* output_path,
+                         const char* format_name) {
     if (!preset || !output_path) {
         return Result<void>(Err::InvalidArgument, "null preset or path");
     }
 
-    // Allocate output context — format auto-detected from extension
+    // Allocate output context — explicit muxer name when given, otherwise
+    // format auto-detected from the extension / URL.
     AVFormatContext* fmt_ctx = nullptr;
     int ret = avformat_alloc_output_context2(
-        &fmt_ctx, nullptr, nullptr, output_path);
+        &fmt_ctx, nullptr, format_name, output_path);
     if (!fmt_ctx) {
         return Result<void>(Err::Internal, "failed to allocate output context");
     }

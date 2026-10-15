@@ -476,6 +476,37 @@ public:
         return true;
     }
 
+    // Track-level effect chain. Templates seed it (e.g. an identity colour
+    // correction on the first track); the render pipeline applies clip effects
+    // today, so this is carried and serialised alongside the track's mixer
+    // state. The API mirrors the per-clip chain above.
+    const std::vector<EffectInstance>& effects() const noexcept {
+        return effects_;
+    }
+
+    bool addEffect(EffectInstance effect) {
+        effects_.push_back(std::move(effect));
+        return true;
+    }
+
+    bool removeEffect(size_t index) {
+        if (index >= effects_.size()) return false;
+        effects_.erase(effects_.begin() + static_cast<ptrdiff_t>(index));
+        return true;
+    }
+
+    bool setEffectEnabled(size_t index, bool enabled) {
+        if (index >= effects_.size()) return false;
+        effects_[index].enabled = enabled;
+        return true;
+    }
+
+    bool setEffectParams(size_t index, nlohmann::json params) {
+        if (index >= effects_.size() || !params.is_object()) return false;
+        effects_[index].params = std::move(params);
+        return true;
+    }
+
     bool addTransition(const ClipId& id, TransitionSpec spec) {
         auto idx = findClipById(id);
         if (!idx || *idx + 1 >= clips_.size()) return false;
@@ -588,6 +619,7 @@ private:
     double pan_{0.0};
     int32_t height_{60};
     std::vector<ClipType> clips_;
+    std::vector<EffectInstance> effects_;
 
     void pruneInvalidTransitions() {
         for (size_t i = 0; i + 1 < clips_.size(); ++i) {

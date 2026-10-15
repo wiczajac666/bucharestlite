@@ -103,8 +103,10 @@ if(WIN32)
         FILES_MATCHING PATTERN "*.dll"
     )
 else()
+    # Arch-dependent files: lib/<triplet>, never share/. See the
+    # BL_SYSTEM_PLUGIN_DIR comment in the top-level CMakeLists.txt.
     install(DIRECTORY ${BL_PLUGIN_OUTPUT_DIR}/video ${BL_PLUGIN_OUTPUT_DIR}/audio
-        DESTINATION share/bucharest-lite/plugins
+        DESTINATION "${BL_SYSTEM_PLUGIN_DIR}"
         FILES_MATCHING PATTERN "*.so"
     )
 endif()

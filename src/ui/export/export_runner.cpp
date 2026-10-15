@@ -172,7 +172,7 @@ Result<void> ExportRunner::run(Input input, Progress onProgress) {
         subtitleEvents(input.snapshot, exportStart, exportEnd);
     muxer.setSubtitlesEnabled(!events.empty());
     Result<void> openResult =
-        muxer.open(&preset, plan.settings.outputPath.c_str());
+        muxer.open(&preset, plan.outputPath(), plan.formatName());
     if (!openResult.ok()) {
         encoder.cleanup();
         return Result<void>::err(openResult.code(),
@@ -182,8 +182,8 @@ Result<void> ExportRunner::run(Input input, Progress onProgress) {
     encoder.setMuxer(&muxer);
 
     export_::BlExportJob job{};
-    job.name = plan.settings.outputPath.c_str();
-    job.output_path = plan.settings.outputPath.c_str();
+    job.name = plan.outputPath();
+    job.output_path = plan.outputPath();
     job.preset = &preset;
     job.frames_total = static_cast<size_t>(plan.range.frameCount);
     encoder.setJob(&job);
@@ -257,8 +257,11 @@ Result<void> ExportRunner::run(Input input, Progress onProgress) {
         muxer.close();
         encoder.cleanup();
         // Remove the partial file so the user isn't left with a truncated
-        // container pretending to be a finished export.
-        std::remove(plan.settings.outputPath.c_str());
+        // container pretending to be a finished export. A stream URL is not a
+        // file, so there is nothing to remove.
+        if (!plan.isStream()) {
+            std::remove(plan.settings.outputPath.c_str());
+        }
         return Result<void>::err(Err::Cancelled, "export cancelled");
     }
 
@@ -330,7 +333,9 @@ Result<void> ExportRunner::run(Input input, Progress onProgress) {
             muxer.close();
             encoder.cleanup();
             if (mixResult.code() == Err::Cancelled) {
-                std::remove(plan.settings.outputPath.c_str());
+                if (!plan.isStream()) {
+                    std::remove(plan.settings.outputPath.c_str());
+                }
             }
             return Result<void>::err(mixResult.code(), mixResult.message());
         }

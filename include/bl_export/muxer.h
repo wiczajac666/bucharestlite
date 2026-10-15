@@ -15,6 +15,11 @@ public:
     ~Muxer();
 
     Result<void> open(const BlFormatPreset* preset, const char* output_path);
+    // Opens an output with an explicit libavformat muxer name (e.g. "flv",
+    // "mpegts") instead of guessing from the path extension. Pass nullptr for
+    // the auto-detect behaviour.
+    Result<void> open(const BlFormatPreset* preset, const char* output_path,
+                      const char* format_name);
     void close();
 
     // Override the codec ids advertised in the stream headers (defaults:

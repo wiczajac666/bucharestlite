@@ -5,7 +5,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace {
 
@@ -877,4 +879,286 @@ TEST(TimelineEditControllerSnap, ConsidersMarkerPositions) {
     EXPECT_TIME_EQ(f.editor.snapToNearest(seq, frames(31), 4), 30);
     // Three frames away with maxDistance=2: falls back to the frame grid.
     EXPECT_TIME_EQ(f.editor.snapToNearest(seq, frames(33), 2), 33);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: insert / ripple move and spacer primitives.
+// ---------------------------------------------------------------------------
+
+TEST(TimelineEditControllerModes, InsertMoveRipplesFollowingClips) {
+    Fixture f;
+    const Clip a = makeClip("a", 0, 10);
+    const Clip b = makeClipAt("b", a.timelineStart + a.timelineDuration, 10);
+    const Clip c = makeClipAt("c", b.timelineStart + b.timelineDuration, 10);
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, a));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, b));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, c));
+
+    // Insert "a" at frame 5: "a" moves, and nothing can sit under it, so the
+    // clips at/after 5 are pushed right by a's duration (10).
+    TimelineEditController::MoveEntry e;
+    e.id = "a";
+    e.fromTrack = kVideo0;
+    e.toTrack = kVideo0;
+    e.oldStart = frames(0);
+    e.newStart = frames(5);
+    ASSERT_TRUE(f.editor.insertMove({e}));
+
+    // The original "a" leaves a, and a fresh placement opens a hole.
+    EXPECT_TIME_EQ(f.clip(kVideo0, "a")->timelineStart, 5);
+    // "a" is now 5..15; the old b (10..20) becomes 20..30, c 30..40.
+    const auto& clips = f.timeline.sequence().videoTracks[0].clips();
+    ASSERT_EQ(clips.size(), 3u);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->timelineStart, 20);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "c")->timelineStart, 30);
+
+    f.undoStack.undo();
+    const auto& undone = f.timeline.sequence().videoTracks[0].clips();
+    ASSERT_EQ(undone.size(), 3u);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "a")->timelineStart, 0);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->timelineStart, 10);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "c")->timelineStart, 20);
+}
+
+TEST(TimelineEditControllerModes, RippleMoveShiftsClipsAfter) {
+    Fixture f;
+    const Clip a = makeClip("a", 0, 10);
+    const Clip b = makeClipAt("b", a.timelineStart + a.timelineDuration, 10);
+    const Clip c = makeClipAt("c", b.timelineStart + b.timelineDuration, 10);
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, a));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, b));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, c));
+
+    // Move "a" later by 5 frames: b and c ride along by 5 (no gap opens).
+    ASSERT_TRUE(f.editor.rippleMove(kVideo0, "a", frames(5)));
+    EXPECT_TIME_EQ(f.clip(kVideo0, "a")->timelineStart, 5);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->timelineStart, 15);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "c")->timelineStart, 25);
+
+    // Moving "a" earlier closes the same gap and pulls the others left too.
+    ASSERT_TRUE(f.editor.rippleMove(kVideo0, "a", frames(0)));
+    EXPECT_TIME_EQ(f.clip(kVideo0, "a")->timelineStart, 0);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->timelineStart, 10);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "c")->timelineStart, 20);
+
+    // Ripple move refuses to drag a clip over its left neighbour.
+    const Clip d =
+        makeClipAt("d", c.timelineStart + c.timelineDuration, 10);
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, d));
+    EXPECT_FALSE(f.editor.rippleMove(kVideo0, "d", frames(5)));
+    EXPECT_EQ(f.editor.lastError(), "That spot is occupied");
+
+    f.undoStack.undo(); // undo "d"
+    EXPECT_EQ(f.timeline.sequence().videoTracks[0].clips().size(), 3u);
+}
+
+TEST(TimelineEditControllerModes, InsertMoveRipplesWhileOverwriteGroupMoveRefuses) {
+    Fixture f;
+    const Clip a = makeClip("a", 0, 10);
+    const Clip b = makeClipAt("b", a.timelineStart + a.timelineDuration, 10);
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, a));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, b));
+
+    // Overwrite/group move into b's slot refuses (that spot is occupied).
+    EXPECT_FALSE(f.editor.moveClip(kVideo0, kVideo0, "a", frames(5)));
+    EXPECT_EQ(f.editor.lastError(), "That spot is occupied");
+
+    // Insert move instead ripples b out of the way.
+    TimelineEditController::MoveEntry e;
+    e.id = "a";
+    e.fromTrack = kVideo0;
+    e.toTrack = kVideo0;
+    e.oldStart = frames(0);
+    e.newStart = frames(5);
+    ASSERT_TRUE(f.editor.insertMove({e}));
+    EXPECT_TIME_EQ(f.clip(kVideo0, "a")->timelineStart, 5);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->timelineStart, 20);
+}
+
+TEST(TimelineEditControllerModes, AddAndRemoveSpacerShiftTheTrack) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("b", 20, 10)));
+
+    // Open 5 frames of space at frame 10: b moves from 20 to 25.
+    ASSERT_TRUE(f.editor.addSpacer(kVideo0, frames(10), Duration::fromFrames(5, kFps)));
+    EXPECT_TIME_EQ(f.clip(kVideo0, "a")->timelineStart, 0);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->timelineStart, 25);
+
+    // Remove 5 frames at the same point: b comes back to 20.
+    ASSERT_TRUE(f.editor.removeSpacer(kVideo0, frames(10), Duration::fromFrames(5, kFps)));
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->timelineStart, 20);
+
+    // Removing more space than exists before b would overlap a -> refuse.
+    EXPECT_FALSE(f.editor.removeSpacer(kVideo0, frames(10), Duration::fromFrames(15, kFps)));
+    EXPECT_EQ(f.editor.lastError(), "Not enough space to remove");
+
+    // Inserting space inside a clip is refused.
+    EXPECT_FALSE(f.editor.addSpacer(kVideo0, frames(5), Duration::fromFrames(5, kFps)));
+    EXPECT_EQ(f.editor.lastError(), "Cannot insert space inside a clip");
+}
+
+TEST(TimelineEditControllerModes, ModeMovesRefuseLockedTracks) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("b", 20, 10)));
+    f.timeline.sequence().videoTracks[0].setLocked(true);
+
+    EXPECT_FALSE(f.editor.rippleMove(kVideo0, "a", frames(5)));
+    EXPECT_EQ(f.editor.lastError(), "Track is locked");
+    EXPECT_FALSE(f.editor.addSpacer(kVideo0, frames(10), Duration::fromFrames(5, kFps)));
+    EXPECT_EQ(f.editor.lastError(), "Track is locked");
+    EXPECT_FALSE(f.editor.removeSpacer(kVideo0, frames(10), Duration::fromFrames(5, kFps)));
+    EXPECT_EQ(f.editor.lastError(), "Track is locked");
+
+    TimelineEditController::MoveEntry e;
+    e.id = "a";
+    e.fromTrack = kVideo0;
+    e.toTrack = kVideo0;
+    e.oldStart = frames(0);
+    e.newStart = frames(5);
+    EXPECT_FALSE(f.editor.insertMove({e}));
+    EXPECT_EQ(f.editor.lastError(), "Track is locked");
+}
+// --- Clipboard (Phase 7) ---------------------------------------------------
+
+namespace {
+// Sorted start frames of every clip on a flat track.
+std::vector<int64_t> startsOn(const Timeline& t, int flat) {
+    std::vector<int64_t> out;
+    const auto& track = flat < 1 ? t.sequence().videoTracks[flat]
+                                 : t.sequence().audioTracks[flat - 1];
+    for (const auto& c : track.clips()) out.push_back(frameOf(c.timelineStart));
+    std::sort(out.begin(), out.end());
+    return out;
+}
+} // namespace
+
+TEST(TimelineEditController, pasteClipsInsertsAndIsUndoable) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));
+    f.editor.setClipboard({{kVideo0, *f.clip(kVideo0, "a")}});
+    EXPECT_TRUE(f.editor.hasClipboard());
+    EXPECT_EQ(f.editor.clipboardCount(), 1);
+
+    ASSERT_EQ(f.editor.pasteClips(frames(30), kVideo0), 1);
+    EXPECT_EQ(startsOn(f.timeline, kVideo0), (std::vector<int64_t>{0, 30}));
+    EXPECT_TRUE(f.undoStack.canUndo());
+
+    f.undoStack.undo();
+    EXPECT_EQ(startsOn(f.timeline, kVideo0), (std::vector<int64_t>{0}));
+    f.undoStack.redo();
+    EXPECT_EQ(startsOn(f.timeline, kVideo0), (std::vector<int64_t>{0, 30}));
+}
+
+TEST(TimelineEditController, pastePreservesRelativeOffsets) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("b", 20, 10)));
+    f.editor.setClipboard({{kVideo0, *f.clip(kVideo0, "a")},
+                           {kVideo0, *f.clip(kVideo0, "b")}});
+
+    ASSERT_EQ(f.editor.pasteClips(frames(100), kVideo0), 2);
+    // The 0/20 arrangement is reproduced at 100/120.
+    EXPECT_EQ(startsOn(f.timeline, kVideo0),
+              (std::vector<int64_t>{0, 20, 100, 120}));
+}
+
+TEST(TimelineEditController, pasteUsesAnotherLaneWhenSourceOccupied) {
+    Fixture f; // V1 + A1
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));
+    f.editor.setClipboard({{kVideo0, *f.clip(kVideo0, "a")}});
+
+    // V1 is occupied at 0, so the (A/V-capable) copy lands on the audio lane.
+    ASSERT_EQ(f.editor.pasteClips(frames(0), kVideo0), 1);
+    EXPECT_EQ(startsOn(f.timeline, kVideo0), (std::vector<int64_t>{0}));
+    EXPECT_EQ(startsOn(f.timeline, kAudio0), (std::vector<int64_t>{0}));
+}
+
+TEST(TimelineEditController, pasteEmptyClipboardIsRefused) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));
+    f.editor.clearClipboard();
+    EXPECT_FALSE(f.editor.hasClipboard());
+
+    EXPECT_EQ(f.editor.pasteClips(frames(30), kVideo0), 0);
+    EXPECT_EQ(f.editor.lastError(), "Clipboard is empty");
+    EXPECT_FALSE(f.undoStack.canUndo());
+}
+
+TEST(TimelineEditController, cutClipsCopiesAndRemovesInOneStep) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("b", 20, 10)));
+
+    // Mimic the panel's cut: fill the clipboard, then remove the selection.
+    f.editor.setClipboard({{kVideo0, *f.clip(kVideo0, "a")}});
+    ASSERT_TRUE(f.editor.removeClips({{kVideo0, "a"}}, false));
+    EXPECT_EQ(startsOn(f.timeline, kVideo0), (std::vector<int64_t>{20}));
+
+    // Paste restores a copy (with a fresh id) at the requested time.
+    ASSERT_EQ(f.editor.pasteClips(frames(60), kVideo0), 1);
+    EXPECT_EQ(startsOn(f.timeline, kVideo0), (std::vector<int64_t>{20, 60}));
+}
+
+// --- Subtitle import (Phase 7) ---------------------------------------------
+
+namespace {
+bl::SubtitleCue makeCue(int64_t startFrame, int64_t endFrame,
+                        const std::string& text) {
+    bl::SubtitleCue c;
+    c.start = frames(startFrame);
+    c.end = frames(endFrame);
+    c.text = text;
+    return c;
+}
+} // namespace
+
+TEST(TimelineEditController, importSubtitleCuesCreatesDedicatedTrack) {
+    Fixture f; // V1 + A1
+    const std::vector<bl::SubtitleCue> cues = {
+        makeCue(0, 12, "first"), makeCue(24, 36, "second")};
+
+    ASSERT_EQ(f.editor.importSubtitleCues(cues), 2);
+    // A new "Subtitles" video track is appended and carries the clips.
+    ASSERT_EQ(f.timeline.sequence().videoTracks.size(), 2u);
+    EXPECT_EQ(f.timeline.sequence().videoTracks[1].name(), "Subtitles");
+    const auto& clips = f.timeline.sequence().videoTracks[1].clips();
+    ASSERT_EQ(clips.size(), 2u);
+    EXPECT_EQ(clips[0].subtitleText.value_or(""), "first");
+    EXPECT_FALSE(clips[0].hasAudio);
+    EXPECT_EQ(frameOf(clips[1].timelineStart), 24);
+
+    // Single undo step removes the whole import (and the track).
+    f.undoStack.undo();
+    EXPECT_EQ(f.timeline.sequence().videoTracks.size(), 1u);
+    f.undoStack.redo();
+    EXPECT_EQ(f.timeline.sequence().videoTracks.size(), 2u);
+}
+
+TEST(TimelineEditController, importSubtitleCuesSkipsOverlaps) {
+    Fixture f;
+    // Put a normal clip on V1 that will collide with the second cue.
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 20)));
+    const std::vector<bl::SubtitleCue> cues = {
+        makeCue(0, 12, "collides"), makeCue(20, 30, "fits")};
+
+    // Target V1 explicitly; the first cue overlaps clip "a" and is skipped.
+    ASSERT_EQ(f.editor.importSubtitleCues(cues, kVideo0), 1);
+    const auto& clips = f.timeline.sequence().videoTracks[0].clips();
+    ASSERT_EQ(clips.size(), 2u);
+    // Find the subtitle clip.
+    const bl::Clip* sub = nullptr;
+    for (const auto& c : clips) {
+        if (c.subtitleText) sub = &c;
+    }
+    ASSERT_NE(sub, nullptr);
+    EXPECT_EQ(*sub->subtitleText, "fits");
+}
+
+TEST(TimelineEditController, importSubtitleCuesEmptyIsRefused) {
+    Fixture f;
+    EXPECT_EQ(f.editor.importSubtitleCues({}), 0);
+    EXPECT_EQ(f.editor.lastError(), "No subtitles found");
+    EXPECT_FALSE(f.undoStack.canUndo());
 }

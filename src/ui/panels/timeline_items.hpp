@@ -1,5 +1,6 @@
 #pragma once
 
+#include <bl_audio/audio_meter_analysis.hpp>
 #include <bl_core/time.hpp>
 #include <bl_timeline/clip.hpp>
 #include <bl_timeline/sequence.hpp>
@@ -7,6 +8,7 @@
 #include <QGraphicsLineItem>
 #include <QGraphicsRectItem>
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -63,11 +65,28 @@ public:
 };
 
 // ---------------------------------------------------------------------------
+// Zone: the timeline in/out range band (spans ruler + lanes). Drawn behind the
+// clips so it reads as a selection band; the in/out edges get grab handles.
+// ---------------------------------------------------------------------------
+class ZoneItem : public QGraphicsRectItem {
+public:
+    ZoneItem();
+
+    void setRange(qreal x, qreal width, qreal top, qreal height);
+
+protected:
+    void paint(QPainter* painter, const QStyleOptionGraphicsItem* option,
+               QWidget* widget) override;
+};
+
+// ---------------------------------------------------------------------------
 // Marker: a flagged frame (small triangle + thin guide).
 // ---------------------------------------------------------------------------
 class MarkerItem : public QGraphicsRectItem {
 public:
     MarkerItem(const bl::Marker& marker, qreal x, qreal topY, qreal height);
+
+    const bl::Marker& marker() const { return marker_; }
 
 protected:
     void paint(QPainter* painter, const QStyleOptionGraphicsItem* option,
@@ -118,6 +137,17 @@ public:
     void clearPreview();
     bool hasPreview() const { return preview_.has_value(); }
 
+    // Audio waveform (P1 #13). The analyzed envelope for this clip's source is
+    // resolved by the panel and handed in; a null/empty envelope (video-only
+    // clip, or audio not analyzed yet) draws nothing. Painting reduces the
+    // envelope to one bar per pixel column over the clip's source range.
+    void setWaveform(std::shared_ptr<const bl::AudioMeterEnvelope> envelope) {
+        waveform_ = std::move(envelope);
+    }
+    const std::shared_ptr<const bl::AudioMeterEnvelope>& waveform() const {
+        return waveform_;
+    }
+
 protected:
     void paint(QPainter* painter, const QStyleOptionGraphicsItem* option,
                QWidget* widget) override;
@@ -129,6 +159,7 @@ private:
     bl::Rational fps_;
     QRectF laneRect_;
     std::optional<QRectF> preview_;
+    std::shared_ptr<const bl::AudioMeterEnvelope> waveform_;
 };
 
 namespace timeline_geometry {
@@ -136,6 +167,11 @@ namespace timeline_geometry {
 constexpr qreal kRulerHeight = 26.0;
 constexpr qreal kVideoLaneHeight = 44.0;
 constexpr qreal kAudioLaneHeight = 36.0;
+// Right-hand margin (px) added to contentWidth so the last clip never sits
+// flush against the viewport edge; also the minimum timeline footprint. Public
+// so the panel can solve for a fit-to-viewport zoom (contentWidth is linear in
+// pxPerFrame: width = endFrame * pxPerFrame + kContentMargin).
+constexpr qreal kContentMargin = 56.0;
 
 // Kdenlive's three track-layout modes, expressed over flat indices (video
 // tracks first, then audio). Split — the app default — is today's layout

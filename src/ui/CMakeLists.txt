@@ -10,6 +10,7 @@ add_library(bl_ui STATIC
     panels/timeline_edit_controller.cpp
     panels/clip_edit_controller.cpp
     panels/preview_panel.cpp
+    panels/scopes_panel.cpp
     transport/transport_controller.cpp
     panels/media_bin_panel.cpp
     panels/inspector_panel.cpp
@@ -18,6 +19,7 @@ add_library(bl_ui STATIC
     panels/master_fader_panel.cpp
     panels/param_slider.cpp
     widgets/level_meter.cpp
+    widgets/fullscreen_preview_window.cpp
     export/export_settings.cpp
     export/export_plan.cpp
     export/export_runner.cpp
@@ -26,6 +28,10 @@ add_library(bl_ui STATIC
     dialogs/export_dialog.cpp
     dialogs/export_progress_dialog.cpp
     dialogs/batch_export_dialog.cpp
+    dialogs/title_editor_dialog.cpp
+    dialogs/quality_metrics_dialog.cpp
+    dialogs/template_picker_dialog.cpp
+    title/title_renderer.cpp
     shortcuts/action_registry.cpp
     shortcuts/shortcuts_dialog.cpp
 )

@@ -62,25 +62,208 @@ static void alphaBlend(std::vector<uint8_t>& dst, uint32_t dstW, uint32_t dstH,
     }
 }
 
-static void alphaBlendTransition(std::vector<uint8_t>& dst, uint32_t dstW,
-                                  uint32_t dstH, uint32_t dstLinesize,
-                                  const std::vector<uint8_t>& srcA, uint32_t aW,
-                                  uint32_t aH, uint32_t aLinesize,
-                                  const std::vector<uint8_t>& srcB, uint32_t bW,
-                                  uint32_t bH, uint32_t bLinesize, double t) {
-    const uint32_t copyW = std::min({dstW, aW, bW});
-    const uint32_t copyH = std::min({dstH, aH, bH});
-    const double invT = 1.0 - t;
+// --- Transition parameter helpers ---
+//
+// TransitionSpec::params is free-form JSON, so read it defensively: a missing,
+// mistyped or non-string/number value falls back to the documented default
+// rather than throwing. This keeps every transition deterministic and total.
 
-    for (uint32_t y = 0; y < copyH; ++y) {
-        uint8_t* dstRow = pixelAt(dst, dstLinesize, 0, y);
-        const uint8_t* aRow = pixelAt(srcA, aLinesize, 0, y);
-        const uint8_t* bRow = pixelAt(srcB, bLinesize, 0, y);
-        for (uint32_t x = 0; x < copyW; ++x) {
+static std::string paramString(const nlohmann::json& params, const char* key,
+                               const std::string& fallback) {
+    if (!params.is_object()) return fallback;
+    auto it = params.find(key);
+    if (it == params.end() || !it->is_string()) return fallback;
+    return it->get<std::string>();
+}
+
+static int paramInt(const nlohmann::json& params, const char* key,
+                    int fallback) {
+    if (!params.is_object()) return fallback;
+    auto it = params.find(key);
+    if (it == params.end()) return fallback;
+    if (it->is_number_integer()) return it->get<int>();
+    if (it->is_number_unsigned())
+        return static_cast<int>(it->get<uint32_t>());
+    if (it->is_number_float()) return static_cast<int>(it->get<double>());
+    return fallback;
+}
+
+static bool paramBool(const nlohmann::json& params, const char* key) {
+    if (!params.is_object()) return false;
+    auto it = params.find(key);
+    return it != params.end() && it->is_boolean() && it->get<bool>();
+}
+
+// Blend two full-size BGRA32 frames (`A` outgoing, `B` incoming) into `dst`
+// according to `spec`, with `p` in [0,1] the transition progress. The output is
+// opaque (alpha 255) and, like the rest of the compositor, truncates the
+// floating-point blend to uint8. Total by construction.
+static void blendTransition(std::vector<uint8_t>& dst, uint32_t W, uint32_t H,
+                            const std::vector<uint8_t>& A,
+                            const std::vector<uint8_t>& B, double p,
+                            const TransitionSpec& spec) {
+    const double prog = std::clamp(p, 0.0, 1.0);
+    const uint32_t linesize = W * 4;
+
+    // Fade through black: the model has no distinct "Fade" kind, so a fade is
+    // a crossfade flagged via params. It dims the outgoing frame to black over
+    // the first half, then lifts the incoming frame from black over the second.
+    const bool throughBlack =
+        paramBool(spec.params, "throughBlack") ||
+        paramString(spec.params, "fade", std::string()) == "through_black";
+    if (throughBlack) {
+        const std::vector<uint8_t>* src = &A;
+        double scale = 1.0 - 2.0 * prog;
+        if (prog >= 0.5) {
+            src = &B;
+            scale = 2.0 * prog - 1.0;
+        }
+        scale = std::clamp(scale, 0.0, 1.0);
+        for (uint32_t y = 0; y < H; ++y) {
+            uint8_t* dstRow = pixelAt(dst, linesize, 0, y);
+            const uint8_t* srcRow = pixelAt(*src, linesize, 0, y);
+            for (uint32_t x = 0; x < W; ++x) {
+                uint32_t i = x * 4;
+                dstRow[i + 0] = static_cast<uint8_t>(srcRow[i + 0] * scale);
+                dstRow[i + 1] = static_cast<uint8_t>(srcRow[i + 1] * scale);
+                dstRow[i + 2] = static_cast<uint8_t>(srcRow[i + 2] * scale);
+                dstRow[i + 3] = 255;
+            }
+        }
+        return;
+    }
+
+    if (spec.kind == TransitionKind::Wipe) {
+        // The incoming frame is revealed from the named edge. `direction` is
+        // "left" (default), "right", "up" or "down"; `softness` is the width in
+        // pixels of a linear ramp straddling the moving edge (0 = hard edge).
+        const std::string direction =
+            paramString(spec.params, "direction", "left");
+        int softness = paramInt(spec.params, "softness", 0);
+        const uint32_t maxSoft = std::min(W, H);
+        if (softness < 0) softness = 0;
+        if (static_cast<uint32_t>(softness) > maxSoft)
+            softness = static_cast<int>(maxSoft);
+
+        const bool vertical = (direction == "up" || direction == "down");
+        const bool highSide = (direction == "right" || direction == "down");
+        const double extent =
+            vertical ? static_cast<double>(H) : static_cast<double>(W);
+        const double edge = highSide ? extent - prog * extent : prog * extent;
+        const double half = static_cast<double>(softness) / 2.0;
+
+        for (uint32_t y = 0; y < H; ++y) {
+            uint8_t* dstRow = pixelAt(dst, linesize, 0, y);
+            const uint8_t* aRow = pixelAt(A, linesize, 0, y);
+            const uint8_t* bRow = pixelAt(B, linesize, 0, y);
+            for (uint32_t x = 0; x < W; ++x) {
+                const double pos =
+                    vertical ? static_cast<double>(y) : static_cast<double>(x);
+                double cov;  // amount of B in [0,1]
+                if (softness == 0) {
+                    cov = highSide ? (pos >= edge ? 1.0 : 0.0)
+                                   : (pos < edge ? 1.0 : 0.0);
+                } else {
+                    double ramp = (pos - (edge - half)) /
+                                  static_cast<double>(softness);
+                    ramp = std::clamp(ramp, 0.0, 1.0);
+                    cov = highSide ? ramp : 1.0 - ramp;
+                }
+                uint32_t i = x * 4;
+                const double inv = 1.0 - cov;
+                dstRow[i + 0] =
+                    static_cast<uint8_t>(aRow[i + 0] * inv + bRow[i + 0] * cov);
+                dstRow[i + 1] =
+                    static_cast<uint8_t>(aRow[i + 1] * inv + bRow[i + 1] * cov);
+                dstRow[i + 2] =
+                    static_cast<uint8_t>(aRow[i + 2] * inv + bRow[i + 2] * cov);
+                dstRow[i + 3] = 255;
+            }
+        }
+        return;
+    }
+
+    if (spec.kind == TransitionKind::Slide) {
+        // The incoming frame slides in from the named edge while the outgoing
+        // frame slides out by the same amount. Pixels that draw from outside
+        // their source frame are black.
+        const std::string direction =
+            paramString(spec.params, "direction", "left");
+        const bool vertical = (direction == "up" || direction == "down");
+        const bool highSide = (direction == "right" || direction == "down");
+        const double extent =
+            vertical ? static_cast<double>(H) : static_cast<double>(W);
+        const double inShift = (1.0 - prog) * extent;  // B's offset into frame
+        const double outShift = prog * extent;         // A's offset into frame
+
+        for (uint32_t y = 0; y < H; ++y) {
+            uint8_t* dstRow = pixelAt(dst, linesize, 0, y);
+            for (uint32_t x = 0; x < W; ++x) {
+                const double pos =
+                    vertical ? static_cast<double>(y) : static_cast<double>(x);
+                bool useB;
+                double sample;
+                if (!highSide) {
+                    // "left"/"up": the leading low side shows B.
+                    if (pos < prog * extent) {
+                        useB = true;
+                        sample = pos + inShift;
+                    } else {
+                        useB = false;
+                        sample = pos - outShift;
+                    }
+                } else {
+                    // "right"/"down": the leading high side shows B.
+                    if (pos >= extent - prog * extent) {
+                        useB = true;
+                        sample = pos - inShift;
+                    } else {
+                        useB = false;
+                        sample = pos + outShift;
+                    }
+                }
+                const int64_t s = static_cast<int64_t>(sample);
+                const int64_t limit =
+                    vertical ? static_cast<int64_t>(H)
+                             : static_cast<int64_t>(W);
+                uint32_t i = x * 4;
+                if (s < 0 || s >= limit) {
+                    dstRow[i + 0] = 0;
+                    dstRow[i + 1] = 0;
+                    dstRow[i + 2] = 0;
+                    dstRow[i + 3] = 255;
+                    continue;
+                }
+                const std::vector<uint8_t>& src = useB ? B : A;
+                const uint32_t srcX = vertical ? x : static_cast<uint32_t>(s);
+                const uint32_t srcY = vertical ? static_cast<uint32_t>(s) : y;
+                const uint8_t* srcP = pixelAt(src, linesize, srcX, srcY);
+                dstRow[i + 0] = srcP[0];
+                dstRow[i + 1] = srcP[1];
+                dstRow[i + 2] = srcP[2];
+                dstRow[i + 3] = 255;
+            }
+        }
+        return;
+    }
+
+    // Crossfade and Dissolve (and any unrecognised kind): a linear per-channel
+    // blend. Dissolve is the standard alpha crossfade — deterministic, with no
+    // dithering — so it shares this path with Crossfade.
+    const double inv = 1.0 - prog;
+    for (uint32_t y = 0; y < H; ++y) {
+        uint8_t* dstRow = pixelAt(dst, linesize, 0, y);
+        const uint8_t* aRow = pixelAt(A, linesize, 0, y);
+        const uint8_t* bRow = pixelAt(B, linesize, 0, y);
+        for (uint32_t x = 0; x < W; ++x) {
             uint32_t i = x * 4;
-            dstRow[i + 0] = static_cast<uint8_t>(aRow[i + 0] * invT + bRow[i + 0] * t);
-            dstRow[i + 1] = static_cast<uint8_t>(aRow[i + 1] * invT + bRow[i + 1] * t);
-            dstRow[i + 2] = static_cast<uint8_t>(aRow[i + 2] * invT + bRow[i + 2] * t);
+            dstRow[i + 0] =
+                static_cast<uint8_t>(aRow[i + 0] * inv + bRow[i + 0] * prog);
+            dstRow[i + 1] =
+                static_cast<uint8_t>(aRow[i + 1] * inv + bRow[i + 1] * prog);
+            dstRow[i + 2] =
+                static_cast<uint8_t>(aRow[i + 2] * inv + bRow[i + 2] * prog);
+            dstRow[i + 3] = 255;
         }
     }
 }
@@ -144,6 +327,15 @@ struct Compositor::Impl {
             }
             if (anySolo && !track.soloed()) continue;
 
+            // A transition is a first-class operation evaluated before the
+            // per-clip pass. When it owns the whole track at this instant we
+            // composite it and move on; otherwise the normal per-clip loop
+            // renders the track exactly as it did before.
+            if (renderTransitionForTrack(track, t, provider, outW, outH,
+                                         outLinesize, result.data)) {
+                continue;
+            }
+
             for (const auto& clip : track.clips()) {
                 // Disabled clips keep their timeline slot but render nothing;
                 // audio-only halves never carry picture.
@@ -173,47 +365,6 @@ struct Compositor::Impl {
                 applyEffectChain(pixelData, frame.width, frame.height,
                                  frame.width * 4, clip.effects);
 
-                if (clip.transitionOut && ti < seq.videoTracks.size()) {
-                    const auto& trans = *clip.transitionOut;
-                    Time transStart =
-                        clip.timelineStart + clip.effectiveDuration() -
-                        trans.duration;
-                    if (t >= transStart && t < clip.timelineStart + clip.effectiveDuration()) {
-                        double progress = 0.0;
-                        if (trans.duration > Duration{}) {
-                            progress = static_cast<double>(
-                                (t - transStart).ticks) /
-                                static_cast<double>(trans.duration.ticks);
-                            progress = std::clamp(progress, 0.0, 1.0);
-                        }
-
-                        auto nextClip = findNextClip(seq, clip, ti);
-                        if (nextClip) {
-                            Time nextSource =
-                                nextClip->sourceTimeAt(t - nextClip->timelineStart);
-                            auto nextFrame = provider.getFrame(
-                                nextClip->source.mediaItemId, nextSource,
-                                outW, outH);
-                            if (nextFrame.ok() && !nextFrame->empty()) {
-                                std::vector<uint8_t> nextPixels(
-                                    nextFrame->data,
-                                    nextFrame->data + nextFrame->dataSize);
-                                applyEffectChain(nextPixels, nextFrame->width,
-                                                 nextFrame->height,
-                                                 nextFrame->width * 4,
-                                                 nextClip->effects);
-                                alphaBlendTransition(
-                                    result.data, outW, outH, outLinesize,
-                                    pixelData, frame.width, frame.height,
-                                    frame.width * 4, nextPixels,
-                                    nextFrame->width, nextFrame->height,
-                                    nextFrame->width * 4, progress);
-                                continue;
-                            }
-                        }
-                    }
-                }
-
                 alphaBlend(result.data, outW, outH, outLinesize, pixelData,
                            frame.width, frame.height, frame.width * 4, opacity);
             }
@@ -222,21 +373,116 @@ struct Compositor::Impl {
         return Result<CompositorResult>::ok(std::move(result));
     }
 
-    static std::optional<Clip> findNextClip(const Sequence& seq,
-                                             const Clip& current, size_t trackIdx) {
-        if (trackIdx >= seq.videoTracks.size()) return std::nullopt;
-        const auto& clips = seq.videoTracks[trackIdx].clips();
+    // Renders the outgoing-side transition of the first adjacent clip pair
+    // whose transition span contains `t`, compositing the blended result onto
+    // `out`. Returns true when a transition was rendered (the caller must then
+    // skip the normal per-clip pass for this track at this instant) and false
+    // to fall back to it.
+    static bool renderTransitionForTrack(const VideoTrack& track, Time t,
+                                         IDecodeProvider& provider,
+                                         uint32_t outW, uint32_t outH,
+                                         uint32_t outLinesize,
+                                         std::vector<uint8_t>& out) {
+        const auto& clips = track.clips();
         for (size_t i = 0; i + 1 < clips.size(); ++i) {
-            if (clips[i].id == current.id) {
-                // Skip clips that render nothing: a transition must not blend
-                // toward a disabled or audio-only clip.
-                for (size_t j = i + 1; j < clips.size(); ++j) {
-                    if (clips[j].enabled && clips[j].hasVideo) return clips[j];
-                }
-                return std::nullopt;
+            const Clip& a = clips[i];
+            const Clip& b = clips[i + 1];
+            if (!a.transitionOut) continue;
+
+            // Gate the outgoing side exactly like the normal clip loop.
+            if (!a.enabled || !a.hasVideo) continue;
+            // An incoming clip that renders nothing cannot be a transition
+            // target: fall back so the outgoing clip renders normally.
+            if (!b.enabled || !b.hasVideo) continue;
+
+            const TransitionSpec& spec = *a.transitionOut;
+            const Duration dur = spec.duration;
+            if (dur <= Duration{}) continue;
+
+            const Time aEnd = a.timelineStart + a.effectiveDuration();
+
+            // The timeline span the transition occupies depends on alignment:
+            // Left sits entirely on the outgoing tail, Right entirely on the
+            // incoming head, Center straddles the cut by half a duration each
+            // way. Half-duration is integer ticks (exact for even counts).
+            const int64_t half = dur.ticks / 2;
+            Time spanStart;
+            Time spanEnd;
+            switch (spec.alignment) {
+                case TransitionAlignment::Left:
+                    spanStart = aEnd - dur;
+                    spanEnd = aEnd;
+                    break;
+                case TransitionAlignment::Right:
+                    spanStart = aEnd;
+                    spanEnd = aEnd + dur;
+                    break;
+                case TransitionAlignment::Center:
+                default:
+                    spanStart = aEnd - Duration::fromTicks(half, dur.rate);
+                    spanEnd = aEnd + Duration::fromTicks(half, dur.rate);
+                    break;
             }
+            if (!(spanStart <= t && t < spanEnd)) continue;
+
+            double progress = static_cast<double>((t - spanStart).ticks) /
+                              static_cast<double>(dur.ticks);
+            progress = std::clamp(progress, 0.0, 1.0);
+
+            // Clamp each side's timeline-relative offset into its own span so a
+            // Center/Right transition can hold the outgoing clip's last frame
+            // (and a Center/Left transition the incoming clip's first frame).
+            Duration aOffset = t - a.timelineStart;
+            if (aOffset < Duration{})
+                aOffset = Duration::fromTicks(0, aOffset.rate);
+            if (aOffset > a.effectiveDuration()) aOffset = a.effectiveDuration();
+
+            Duration bOffset = t - b.timelineStart;
+            if (bOffset < Duration{})
+                bOffset = Duration::fromTicks(0, bOffset.rate);
+            if (bOffset > b.effectiveDuration()) bOffset = b.effectiveDuration();
+
+            auto aFrameResult =
+                provider.getFrame(a.source.mediaItemId, a.sourceTimeAt(aOffset),
+                                  outW, outH);
+            if (!aFrameResult.ok() || aFrameResult->empty()) {
+                BL_LOG_WARN("render",
+                            "failed to get transition frame for clip '" +
+                                a.name + "': " + aFrameResult.message());
+                return false;
+            }
+            auto bFrameResult =
+                provider.getFrame(b.source.mediaItemId, b.sourceTimeAt(bOffset),
+                                  outW, outH);
+            if (!bFrameResult.ok() || bFrameResult->empty()) {
+                BL_LOG_WARN("render",
+                            "failed to get transition frame for clip '" +
+                                b.name + "': " + bFrameResult.message());
+                return false;
+            }
+
+            Frame aFrame = std::move(aFrameResult.value());
+            Frame bFrame = std::move(bFrameResult.value());
+
+            std::vector<uint8_t> aPixels(aFrame.data,
+                                         aFrame.data + aFrame.dataSize);
+            std::vector<uint8_t> bPixels(bFrame.data,
+                                         bFrame.data + bFrame.dataSize);
+            applyEffectChain(aPixels, aFrame.width, aFrame.height,
+                             aFrame.width * 4, a.effects);
+            applyEffectChain(bPixels, bFrame.width, bFrame.height,
+                             bFrame.width * 4, b.effects);
+
+            std::vector<uint8_t> blended(
+                static_cast<size_t>(outW) * outH * 4, 0);
+            blendTransition(blended, outW, outH, aPixels, bPixels, progress,
+                            spec);
+
+            alphaBlend(out, outW, outH, outLinesize, blended, outW, outH,
+                       outW * 4, 1.0);
+            return true;
         }
-        return std::nullopt;
+        return false;
     }
 };
 

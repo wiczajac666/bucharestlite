@@ -4,6 +4,9 @@
 
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <string>
 #include <vector>
 
 namespace {
@@ -29,8 +32,10 @@ TEST_F(EffectsTest, RegistryLookup) {
     EXPECT_NE(reg.find("hue_saturation"), nullptr);
     EXPECT_NE(reg.find("levels_curves"), nullptr);
     EXPECT_NE(reg.find("crop"), nullptr);
+    EXPECT_NE(reg.find("color_wheels"), nullptr);
+    EXPECT_NE(reg.find("lut.cube"), nullptr);
     EXPECT_EQ(reg.find("nonexistent"), nullptr);
-    EXPECT_EQ(reg.count(), 9u);
+    EXPECT_EQ(reg.count(), 11u);
 }
 
 TEST_F(EffectsTest, BoxBlurAveragesPixels) {
@@ -101,16 +106,18 @@ TEST_F(EffectsTest, Transform2DIdentityIsNoop) {
 TEST_F(EffectsTest, CatalogListsRegisteredEffects) {
     auto& reg = EffectRegistry::instance();
     const auto names = reg.catalog();
-    ASSERT_EQ(names.size(), 9u);
+    ASSERT_EQ(names.size(), 11u);
     EXPECT_EQ(names[0], "blur.box");
     EXPECT_EQ(names[1], "brightness_contrast_gamma");
     EXPECT_EQ(names[2], "chroma_key");
-    EXPECT_EQ(names[3], "crop");
-    EXPECT_EQ(names[4], "greyscale");
-    EXPECT_EQ(names[5], "hue_saturation");
-    EXPECT_EQ(names[6], "levels_curves");
-    EXPECT_EQ(names[7], "sharpen");
-    EXPECT_EQ(names[8], "transform_2d");
+    EXPECT_EQ(names[3], "color_wheels");
+    EXPECT_EQ(names[4], "crop");
+    EXPECT_EQ(names[5], "greyscale");
+    EXPECT_EQ(names[6], "hue_saturation");
+    EXPECT_EQ(names[7], "levels_curves");
+    EXPECT_EQ(names[8], "lut.cube");
+    EXPECT_EQ(names[9], "sharpen");
+    EXPECT_EQ(names[10], "transform_2d");
 }
 
 TEST_F(EffectsTest, DisplayNamesAreHumanReadable) {
@@ -304,6 +311,91 @@ TEST_F(EffectsTest, CropDefaultsAreIdentity) {
     IEffect* crop = EffectRegistry::instance().find("crop");
     ASSERT_NE(crop, nullptr);
     crop->apply(data, width, height, linesize, nlohmann::json::object());
+    EXPECT_EQ(data, original);
+}
+
+TEST_F(EffectsTest, ColorWheelsAppliesLiftGammaGain) {
+    std::vector<uint8_t> data = {100, 100, 100, 255};  // B, G, R, A
+    uint32_t width = 1, height = 1, linesize = 4;
+    IEffect* cw = EffectRegistry::instance().find("color_wheels");
+    ASSERT_NE(cw, nullptr);
+
+    // gain doubles the red channel only.
+    cw->apply(data, width, height, linesize, {{"gainR", 2.0}});
+    EXPECT_NEAR(data[2], 200, 1);  // R: 100 * 2
+    EXPECT_EQ(data[1], 100u);      // G unchanged
+    EXPECT_EQ(data[0], 100u);      // B unchanged
+
+    // lift raises the blue channel's black point.
+    std::vector<uint8_t> lifted = {0, 0, 0, 255};
+    cw->apply(lifted, width, height, linesize, {{"liftB", 0.5}});
+    EXPECT_NEAR(lifted[0], 127, 1);  // B: 0 -> 0.5 -> 127.5
+}
+
+TEST_F(EffectsTest, ColorWheelsDefaultsAreIdentity) {
+    std::vector<uint8_t> data = {10, 20, 30, 255, 40, 50, 60, 200};
+    const auto original = data;
+    uint32_t width = 2, height = 1, linesize = 8;
+    IEffect* cw = EffectRegistry::instance().find("color_wheels");
+    ASSERT_NE(cw, nullptr);
+    cw->apply(data, width, height, linesize, nlohmann::json::object());
+    EXPECT_EQ(data, original);
+}
+
+TEST_F(EffectsTest, ColorWheelsGammaDarkensMidtones) {
+    std::vector<uint8_t> data = {128, 128, 128, 255};
+    uint32_t width = 1, height = 1, linesize = 4;
+    IEffect* cw = EffectRegistry::instance().find("color_wheels");
+    ASSERT_NE(cw, nullptr);
+    // gamma 0.5 => 1/gamma = 2 => midtones darken substantially.
+    cw->apply(data, width, height, linesize, {{"gammaR", 0.5}});
+    EXPECT_NEAR(data[2], 64, 2);  // (128/255)^2 * 255 ≈ 64
+    EXPECT_EQ(data[1], 128u);
+    EXPECT_EQ(data[0], 128u);
+}
+
+TEST_F(EffectsTest, CubeLutEffectAppliesFileLut) {
+    const auto dir = std::filesystem::temp_directory_path() / "bl_lut_effect";
+    std::filesystem::create_directories(dir);
+    const auto path = dir / "invert.cube";
+    {
+        std::ofstream out(path);
+        out << "LUT_1D_SIZE 2\n1 1 1\n0 0 0\n";  // inverts every channel
+    }
+
+    std::vector<uint8_t> data = {0, 128, 255, 255};  // B, G, R, A
+    uint32_t width = 1, height = 1, linesize = 4;
+    IEffect* lut = EffectRegistry::instance().find("lut.cube");
+    ASSERT_NE(lut, nullptr);
+    lut->apply(data, width, height, linesize, {{"path", path.string()}});
+
+    EXPECT_EQ(data[0], 255u);              // B: 0 -> 255
+    EXPECT_NEAR(data[1], 127, 1);          // G: 128 -> ~127
+    EXPECT_EQ(data[2], 0u);                // R: 255 -> 0
+    EXPECT_EQ(data[3], 255u);              // alpha untouched
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+TEST_F(EffectsTest, CubeLutEffectMissingFileIsNoop) {
+    std::vector<uint8_t> data = {10, 20, 30, 255};
+    uint32_t width = 1, height = 1, linesize = 4;
+    const auto original = data;
+    IEffect* lut = EffectRegistry::instance().find("lut.cube");
+    ASSERT_NE(lut, nullptr);
+    lut->apply(data, width, height, linesize,
+               {{"path", "/nonexistent/lut.cube"}});
+    EXPECT_EQ(data, original);
+}
+
+TEST_F(EffectsTest, CubeLutEffectEmptyPathIsNoop) {
+    std::vector<uint8_t> data = {10, 20, 30, 255};
+    uint32_t width = 1, height = 1, linesize = 4;
+    const auto original = data;
+    IEffect* lut = EffectRegistry::instance().find("lut.cube");
+    ASSERT_NE(lut, nullptr);
+    lut->apply(data, width, height, linesize, nlohmann::json::object());
     EXPECT_EQ(data, original);
 }
 

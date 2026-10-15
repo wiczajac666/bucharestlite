@@ -87,6 +87,26 @@ TEST(MixerController, LockedIsUndoable) {
     EXPECT_FALSE(f.timeline.sequence().audioTracks[0].locked());
 }
 
+TEST(MixerController, HiddenIsUndoable) {
+    Fixture f;
+    ASSERT_TRUE(f.mixer.setTrackHidden(kVideo0, true));
+    EXPECT_TRUE(f.timeline.sequence().videoTracks[0].hidden());
+
+    EXPECT_FALSE(f.mixer.setTrackHidden(kVideo0, true)); // no-op
+    f.undoStack.undo();
+    EXPECT_FALSE(f.timeline.sequence().videoTracks[0].hidden());
+}
+
+TEST(MixerController, NameIsUndoable) {
+    Fixture f;
+    ASSERT_TRUE(f.mixer.setTrackName(kAudio0, "Dialogue"));
+    EXPECT_EQ(f.timeline.sequence().audioTracks[0].name(), "Dialogue");
+
+    EXPECT_FALSE(f.mixer.setTrackName(kAudio0, "Dialogue")); // no-op
+    f.undoStack.undo();
+    EXPECT_EQ(f.timeline.sequence().audioTracks[0].name(), "A1");
+}
+
 TEST(MixerController, RejectsOutOfBoundsTrack) {
     Fixture f;
     EXPECT_FALSE(f.mixer.setTrackGain(99, 0.5));

@@ -11,6 +11,7 @@
 #include "panels/media_bin_panel.hpp"
 #include "panels/mixer_panel.hpp"
 #include "panels/preview_panel.hpp"
+#include "panels/scopes_panel.hpp"
 #include "panels/timeline_panel.hpp"
 #include "shortcuts/action_registry.hpp"
 
@@ -26,7 +27,13 @@
 class QSettings;
 class QThread;
 
+namespace bl {
+struct ProjectTemplate;
+} // namespace bl
+
 namespace bl::ui {
+
+class FullScreenPreviewWindow;
 
 // Dockable application shell (arch §8.6 "MainWindow"): hosts the panel docks,
 // the action bar and the theme/layout persistence. Layout state lives in a
@@ -52,6 +59,16 @@ public:
     void setRecoveryDecider(std::function<bool()> decider);
     AutosaveManager* autosaveManager() const { return autosaveManager_; }
 
+    // Applies an edited title design to a media-bin title: re-renders its still
+    // at `canvasWidth` x `canvasHeight`, updates the stored spec and optionally
+    // renames the bin entry (one undo step). Returns false (and changes
+    // nothing) when the id is not a title or the still cannot be written. This
+    // is the tail of editTitleClip, split out so it is callable without the
+    // modal dialog.
+    bool applyTitleEdit(const std::string& mediaId, const bl::TitleSpec& spec,
+                        int canvasWidth, int canvasHeight,
+                        const QString& displayName);
+
     // After a project is opened or created, checks the autosave ring of the
     // now-active project and, when a newer snapshot exists, asks (via the
     // injected decider or a message box) whether to restore it.
@@ -73,6 +90,11 @@ private:
     bool doSave();
     bool doSaveAs();
     void showShortcutsDialog();
+    void compareQuality();
+    // Detaches the single PreviewPanel into a frameless full-screen window on a
+    // chosen monitor, and restores it into its Preview dock on the next toggle
+    // (View → Full Screen Preview, Ctrl+Shift+P).
+    void toggleFullScreenPreview();
     void setupMeterEngine();
     void syncMeterAnalysis();
 
@@ -84,6 +106,25 @@ private:
     void startBatchExport();
     void ensureExportWorker();
     bool exportBusy() const;
+
+    // Opens the title editor and, on accept, rasterises the title to a PNG in
+    // the user data dir, imports it to the media bin (with its spec, so it can
+    // be re-opened) and appends it to the timeline at the editor's duration.
+    void addTitleClip();
+
+    // File → New from Template…: picks a built-in or user template, prompts for
+    // a project name, creates the project via the controller and renders the
+    // template's seed titles to stills, appending them to the timeline.
+    void newFromTemplate();
+
+    // Renders each of `tmpl`'s seed titles to a still and appends it to the
+    // timeline (best-effort: a title that cannot be rendered is skipped).
+    void addTemplateTitles(const bl::ProjectTemplate& tmpl);
+
+    // Re-opens an existing title's stored design in the Title Editor and, on
+    // accept, re-renders its still in place (one undo step). No-op for an id
+    // that is not a title.
+    void editTitleClip(const std::string& mediaId);
 
     void maybeRestoreLayout();
     void saveLayout();
@@ -102,6 +143,7 @@ private:
     QDockWidget* inspector{nullptr};
     QDockWidget* mixer{nullptr};
     QDockWidget* timeline{nullptr};
+    QDockWidget* scopes{nullptr};
 
     PreviewPanel* previewPanel_{nullptr};
     InspectorPanel* inspectorPanel_{nullptr};
@@ -109,6 +151,7 @@ private:
     MediaBinPanel* mediaBinPanel_{nullptr};
     MixerPanel* mixerPanel_{nullptr};
     MasterFaderPanel* masterFaderPanel_{nullptr};
+    ScopesPanel* scopesPanel_{nullptr};
 
     QAction* undoAction_{nullptr};
     QAction* redoAction_{nullptr};
@@ -116,7 +159,24 @@ private:
     QAction* lightThemeAction_{nullptr};
     QAction* exportAction_{nullptr};
     QAction* batchExportAction_{nullptr};
+    QAction* importSubtitlesAction_{nullptr};
+    QAction* titleEditorAction_{nullptr};
+    QAction* newFromTemplateAction_{nullptr};
     QAction* playPauseAction_{nullptr};
+    QAction* fitTimelineAction_{nullptr};
+    QAction* zoneInAction_{nullptr};
+    QAction* zoneOutAction_{nullptr};
+    QAction* clearZoneAction_{nullptr};
+    QAction* liftZoneAction_{nullptr};
+    QAction* extractZoneAction_{nullptr};
+    QAction* cutAction_{nullptr};
+    QAction* copyAction_{nullptr};
+    QAction* pasteAction_{nullptr};
+    QAction* addMarkerAction_{nullptr};
+    QAction* compareQualityAction_{nullptr};
+    QAction* fullScreenPreviewAction_{nullptr};
+
+    FullScreenPreviewWindow* fullScreenPreviewWindow_{nullptr};
 
     QThread* exportThread_{nullptr};
     ExportWorker* exportWorker_{nullptr};

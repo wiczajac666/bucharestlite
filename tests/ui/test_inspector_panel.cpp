@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QCheckBox>
+#include <QFile>
 #include <QGroupBox>
 #include <QLineEdit>
 #include <QListWidget>
@@ -7,6 +8,7 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QTableWidget>
+#include <QTemporaryDir>
 #include <QTest>
 
 #include <app/project_controller.hpp>
@@ -296,6 +298,41 @@ TEST(InspectorPanel, EffectAddMenuListsCatalog) {
     EXPECT_EQ(f.video()->effects.size(), 1u);
     EXPECT_EQ(f.video()->effects[0].effectId,
               "brightness_contrast_gamma");
+}
+
+TEST(InspectorPanel, AddCubeLutEffectStoresPathParam) {
+    Fixture f;
+    f.selectVideo();
+    ASSERT_NE(f.effectList, nullptr);
+
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString lutPath = dir.path() + QStringLiteral("/identity.cube");
+    QFile file(lutPath);
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    file.write("LUT_1D_SIZE 2\n0 0 0\n1 1 1\n");
+    file.close();
+
+    f.panel.addCubeLutEffect(lutPath);
+    ASSERT_EQ(f.video()->effects.size(), 1u);
+    EXPECT_EQ(f.video()->effects[0].effectId, "lut.cube");
+    EXPECT_EQ(f.video()->effects[0].params.value("path", std::string()),
+              lutPath.toStdString());
+    EXPECT_EQ(f.effectList->count(), 1);
+    // Effects without slider specs expose the raw params JSON, which carries
+    // the LUT path so it can be re-pointed by hand.
+    EXPECT_TRUE(f.effectParams->text().contains(lutPath));
+
+    // An empty path adds nothing.
+    f.panel.addCubeLutEffect(QString());
+    EXPECT_EQ(f.video()->effects.size(), 1u);
+}
+
+TEST(InspectorPanel, AddCubeLutEffectRequiresSelection) {
+    Fixture f;
+    f.panel.showSelection(QSet<bl::ClipId>{});  // nothing selected
+    f.panel.addCubeLutEffect(QStringLiteral("/tmp/x.cube"));
+    EXPECT_TRUE(f.effectList->count() == 0 || f.effectList == nullptr);
 }
 
 TEST(InspectorPanel, AddColorEffectSeedsDefaultParamsAndSliders) {

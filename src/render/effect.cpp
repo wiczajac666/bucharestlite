@@ -1,9 +1,14 @@
 #include <bl_render/effect.hpp>
 
+#include <bl_render/cube_lut.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 
 namespace bl {
 
@@ -572,6 +577,132 @@ public:
     }
 };
 
+// --- Color Wheels (lift / gamma / gain) ---
+
+class ColorWheelsEffect : public IEffect {
+public:
+    std::string_view name() const override { return "color_wheels"; }
+    std::string_view displayName() const override { return "Color Wheels"; }
+    std::vector<ParamSpec> paramSpecs() const override {
+        return {
+            {"liftR", "Lift R", -1.0, 1.0, 0.0},
+            {"liftG", "Lift G", -1.0, 1.0, 0.0},
+            {"liftB", "Lift B", -1.0, 1.0, 0.0},
+            {"gammaR", "Gamma R", 0.1, 5.0, 1.0},
+            {"gammaG", "Gamma G", 0.1, 5.0, 1.0},
+            {"gammaB", "Gamma B", 0.1, 5.0, 1.0},
+            {"gainR", "Gain R", 0.0, 3.0, 1.0},
+            {"gainG", "Gain G", 0.0, 3.0, 1.0},
+            {"gainB", "Gain B", 0.0, 3.0, 1.0},
+        };
+    }
+    void apply(std::vector<uint8_t>& data, uint32_t width, uint32_t height,
+               uint32_t linesize, const nlohmann::json& params) override {
+        const bool has = params.is_object();
+        auto value = [&](const char* key, double def, double lo, double hi) {
+            return std::clamp(has ? params.value(key, def) : def, lo, hi);
+        };
+        // BGR storage order in the buffer.
+        const double lift[3] = {value("liftB", 0.0, -1.0, 1.0),
+                                value("liftG", 0.0, -1.0, 1.0),
+                                value("liftR", 0.0, -1.0, 1.0)};
+        const double gamma[3] = {value("gammaB", 1.0, 0.1, 5.0),
+                                 value("gammaG", 1.0, 0.1, 5.0),
+                                 value("gammaR", 1.0, 0.1, 5.0)};
+        const double gain[3] = {value("gainB", 1.0, 0.0, 3.0),
+                                value("gainG", 1.0, 0.0, 3.0),
+                                value("gainR", 1.0, 0.0, 3.0)};
+
+        const bool identity = lift[0] == 0.0 && lift[1] == 0.0 &&
+                              lift[2] == 0.0 && gamma[0] == 1.0 &&
+                              gamma[1] == 1.0 && gamma[2] == 1.0 &&
+                              gain[0] == 1.0 && gain[1] == 1.0 &&
+                              gain[2] == 1.0;
+        if (identity) return;
+
+        double invGamma[3];
+        for (int c = 0; c < 3; ++c) invGamma[c] = 1.0 / gamma[c];
+
+        for (uint32_t y = 0; y < height; ++y) {
+            uint8_t* row = data.data() + y * linesize;
+            for (uint32_t x = 0; x < width; ++x) {
+                uint8_t* px = row + x * 4;
+                for (int c = 0; c < 3; ++c) {
+                    double v = px[c] / 255.0;
+                    v = v * gain[c] + lift[c];
+                    v = std::clamp(v, 0.0, 1.0);
+                    v = std::pow(v, invGamma[c]);
+                    px[c] = static_cast<uint8_t>(
+                        std::clamp(v * 255.0, 0.0, 255.0));
+                }
+            }
+        }
+    }
+};
+
+// --- LUT (.cube) ---
+
+namespace {
+
+// Parsed LUTs are cached by path so decoding + parsing happens once per file
+// even though every frame re-applies the effect. shared_ptr keeps entries
+// stable across concurrent inserts.
+std::mutex& lutCacheMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+std::unordered_map<std::string, std::shared_ptr<const CubeLut>>& lutCache() {
+    static std::unordered_map<std::string, std::shared_ptr<const CubeLut>> cache;
+    return cache;
+}
+
+std::shared_ptr<const CubeLut> cachedCubeLut(const std::string& path) {
+    if (path.empty()) return nullptr;
+    std::lock_guard<std::mutex> lock(lutCacheMutex());
+    auto& cache = lutCache();
+    auto it = cache.find(path);
+    if (it == cache.end()) {
+        std::shared_ptr<const CubeLut> parsed;
+        Result<CubeLut> loaded = loadCubeLutFile(path);
+        if (loaded.ok()) {
+            parsed = std::make_shared<const CubeLut>(std::move(*loaded));
+        }
+        it = cache.emplace(path, std::move(parsed)).first;
+    }
+    return it->second;
+}
+
+} // namespace
+
+class CubeLutEffect : public IEffect {
+public:
+    std::string_view name() const override { return "lut.cube"; }
+    std::string_view displayName() const override { return "LUT (.cube)"; }
+    // The LUT is chosen from a file (Inspector → Add → LUT (.cube)); there are
+    // no numeric sliders, so the raw params editor carries the path.
+    void apply(std::vector<uint8_t>& data, uint32_t width, uint32_t height,
+               uint32_t linesize, const nlohmann::json& params) override {
+        if (!params.is_object()) return;
+        const std::string path = params.value("path", std::string());
+        const std::shared_ptr<const CubeLut> lut = cachedCubeLut(path);
+        if (!lut) return;
+
+        const float inv255 = 1.0f / 255.0f;
+        for (uint32_t y = 0; y < height; ++y) {
+            uint8_t* row = data.data() + y * linesize;
+            for (uint32_t x = 0; x < width; ++x) {
+                uint8_t* px = row + x * 4;
+                const std::array<float, 3> out = sampleCubeLut(
+                    *lut, px[2] * inv255, px[1] * inv255, px[0] * inv255);
+                px[0] = static_cast<uint8_t>(std::clamp(out[2], 0.0f, 1.0f) * 255.0f + 0.5f);
+                px[1] = static_cast<uint8_t>(std::clamp(out[1], 0.0f, 1.0f) * 255.0f + 0.5f);
+                px[2] = static_cast<uint8_t>(std::clamp(out[0], 0.0f, 1.0f) * 255.0f + 0.5f);
+            }
+        }
+    }
+};
+
 // --- Register builtins ---
 
 namespace {
@@ -586,6 +717,8 @@ void registerBuiltinEffectsTo(EffectRegistry& reg) {
     reg.registerEffect(std::make_unique<HueSaturationEffect>());
     reg.registerEffect(std::make_unique<LevelsCurvesEffect>());
     reg.registerEffect(std::make_unique<CropEffect>());
+    reg.registerEffect(std::make_unique<ColorWheelsEffect>());
+    reg.registerEffect(std::make_unique<CubeLutEffect>());
 }
 
 } // namespace
