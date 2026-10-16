@@ -79,7 +79,7 @@ gtk-update-icon-cache %{_datadir}/icons/hicolor &> /dev/null || :
   vectorscope in a new Scopes dock), in-place title re-editing, timeline audio
   waveform display, and the title editor / subtitle-import / image-sequence
   import workflows.
-* Tue Oct 10 2026 Wictoria Zajac <wiczajac666@github.com> - 1.8.14-1
+* Sat Oct 10 2026 Wictoria Zajac <wiczajac666@github.com> - 1.8.14-1
 - Release 1.8.14: media bin context menu with "Add to Timeline", double-click
   to add a clip without dragging, and precise status-bar reasons for every
   refused drag or drop; double-click no longer removes the row.
