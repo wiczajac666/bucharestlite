@@ -18,6 +18,7 @@
 #include <bl_timeline/title.hpp>
 
 #include <nlohmann/json.hpp>
+#include <filesystem>
 
 #include <QAction>
 #include <QApplication>
@@ -272,6 +273,7 @@ void MainWindow::buildDocks() {
 
     setupMeterEngine();
     setupThumbnailEngine();
+    setupProxyGenerator();
 }
 
 void MainWindow::setupMeterEngine() {
@@ -355,6 +357,103 @@ void MainWindow::setupThumbnailEngine() {
     };
 
     syncThumbnailJobs();
+}
+
+void MainWindow::setupProxyGenerator() {
+    proxyJobManager_ = std::make_unique<bl::JobManager>(2); // 2 worker threads for proxies
+
+    bl::ProxyConfig config;
+    config.enabled = true;
+    config.autoProxyMinWidth = 3840; // 4K and above
+    config.resolutionFactor = 0.5f;  // half resolution
+    config.crf = 18;
+    config.codec = "h264";
+    config.maxConcurrentJobs = 2;
+
+    if (controller_) {
+        config.proxyDir = std::filesystem::path(controller_->filePath().toStdString()).parent_path().string();
+    }
+
+    proxyGenerator_ = std::make_unique<bl::ProxyGenerator>(*proxyJobManager_, config);
+
+    // Set up progress callback
+    proxyGenerator_->setProgressCallback([this](const bl::ProxyJobResult& result) {
+        QMetaObject::invokeMethod(this, [this, result] {
+            if (!controller_) return;
+
+            auto& bin = controller_->project().mediaBin;
+            auto it = std::find_if(bin.begin(), bin.end(),
+                                   [&result](const auto& item) {
+                                       return item.id == result.mediaItemId;
+                                   });
+            if (it != bin.end()) {
+                if (result.success) {
+                    it->proxyPath = result.proxyPath;
+                    it->proxyWidth = result.proxyWidth;
+                    it->proxyHeight = result.proxyHeight;
+                    it->proxyStatus = "ready";
+                } else {
+                    it->proxyStatus = "failed";
+                    // Store error for UI display
+                }
+                emit controller_->projectChanged();
+            }
+        }, Qt::QueuedConnection);
+    });
+
+    // Queue proxies for existing media that meet criteria
+    if (controller_) {
+        syncProxyJobs();
+    }
+}
+
+void MainWindow::syncProxyJobs() {
+    if (!proxyGenerator_ || !controller_) return;
+
+    // Store config locally since we can't access it from proxyGenerator_
+    bl::ProxyConfig config;
+    config.enabled = true;
+    config.autoProxyMinWidth = 3840;
+    config.resolutionFactor = 0.5f;
+    config.crf = 18;
+    config.codec = "h264";
+    config.maxConcurrentJobs = 2;
+    if (controller_) {
+        config.proxyDir = std::filesystem::path(controller_->filePath().toStdString()).parent_path().string();
+    }
+
+    const auto& bin = controller_->mediaBin();
+    for (const auto& item : bin) {
+        if (bl::ProxyGenerator::shouldAutoProxy(item, config)) {
+            bl::ProxyJobInput input;
+            input.mediaItemId = item.id;
+            input.sourcePath = item.path;
+            input.sourceWidth = item.sourceWidth > 0 ? item.sourceWidth : 3840;
+            input.sourceHeight = item.sourceHeight > 0 ? item.sourceHeight : 2160;
+            input.proxyWidth = static_cast<uint32_t>(input.sourceWidth * config.resolutionFactor);
+            input.proxyHeight = static_cast<uint32_t>(input.sourceHeight * config.resolutionFactor);
+            input.proxyPath = std::filesystem::path(
+                config.proxyDir.empty()
+                    ? std::filesystem::path(controller_->filePath().toStdString()).parent_path().string() + "/proxy/"
+                    : config.proxyDir
+            ).append(item.id + "_proxy.mp4").string();
+            input.crf = config.crf;
+            input.codec = config.codec;
+
+            // Queue proxy generation
+            proxyGenerator_->queueProxy(input);
+
+            // Update status
+            auto& mutableBin = controller_->project().mediaBin;
+            for (auto& b : mutableBin) {
+                if (b.id == item.id) {
+                    b.proxyStatus = "generating";
+                    break;
+                }
+            }
+        }
+    }
+    emit controller_->projectChanged();
 }
 
 void MainWindow::syncThumbnailJobs() {

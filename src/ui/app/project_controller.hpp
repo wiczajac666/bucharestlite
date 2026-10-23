@@ -33,9 +33,11 @@ public:
     QString filePath() const;
 
     const ProjectData& project() const { return project_; }
+    ProjectData& project() { return project_; }
     const Timeline& timeline() const { return timeline_; }
     Timeline& timeline() { return timeline_; }
     const std::vector<MediaBinItem>& mediaBin() const { return project_.mediaBin; }
+    std::vector<MediaBinItem>& mediaBin() { return project_.mediaBin; }
     const std::vector<MediaBinFolder>& folders() const { return project_.folders; }
 
     bool canUndo() const { return undoStack_.canUndo(); }

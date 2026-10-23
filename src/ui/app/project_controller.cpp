@@ -3,6 +3,7 @@
 #include "title/title_renderer.hpp"
 
 #include <bl_core/image_sequence.hpp>
+#include <bl_core/media_source.hpp>
 
 #include <QDateTime>
 
@@ -235,8 +236,24 @@ bool ProjectController::addToMediaBin(const QString& path) {
         return false;
     }
 
-    const MediaBinItem item{std::to_string(++idSeed_), binPath, binName,
-                            std::string()};
+    // Probe media to get source dimensions for proxy generation
+    uint32_t sourceWidth = 0;
+    uint32_t sourceHeight = 0;
+    auto probeResult = bl::MediaSource::probe(bl::MediaLocator{binPath});
+    if (probeResult && !probeResult->videoStreams.empty()) {
+        sourceWidth = probeResult->videoStreams[0].width;
+        sourceHeight = probeResult->videoStreams[0].height;
+    }
+
+    MediaBinItem item;
+    item.id = std::to_string(++idSeed_);
+    item.path = binPath;
+    item.name = binName;
+    item.folderId = std::string();
+    item.sourceWidth = sourceWidth;
+    item.sourceHeight = sourceHeight;
+    item.proxyStatus = "none";
+
     undoStack_.push(std::make_unique<FunctionCommand>(
         QStringLiteral("Add media to bin").toStdString(),
         [this, item] {
@@ -267,8 +284,13 @@ bool ProjectController::addTitleToMediaBin(const QString& pngPath,
         return false;
     }
 
-    const MediaBinItem item{std::to_string(++idSeed_), binPath, binName,
-                            std::string()};
+    MediaBinItem item;
+    item.id = std::to_string(++idSeed_);
+    item.path = binPath;
+    item.name = binName;
+    item.folderId = std::string();
+    item.proxyStatus = "none";
+
     undoStack_.push(std::make_unique<FunctionCommand>(
         QStringLiteral("Add title to media bin").toStdString(),
         [this, item, spec] {

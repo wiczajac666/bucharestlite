@@ -36,6 +36,7 @@ struct MediaDecodeSource::Impl {
     CodecRegistry registry;
     std::vector<std::unique_ptr<PluginHandle>> handles;
     std::unordered_map<std::string, std::string> paths;
+    std::unordered_map<std::string, ProxyInfo> proxyInfos;
     FrameCache& cache;
 
     struct SourceState {
@@ -57,6 +58,15 @@ struct MediaDecodeSource::Impl {
         for (const auto& item : mediaBin) {
             if (!item.path.empty()) {
                 paths.emplace(item.id, item.path);
+            }
+            // Load proxy info from media bin item
+            if (!item.proxyPath.empty() && item.proxyWidth > 0 && item.proxyHeight > 0) {
+                ProxyInfo info;
+                info.path = item.proxyPath;
+                info.width = item.proxyWidth;
+                info.height = item.proxyHeight;
+                info.ready = (item.proxyStatus == "ready");
+                proxyInfos.emplace(item.id, info);
             }
         }
 
@@ -102,7 +112,7 @@ struct MediaDecodeSource::Impl {
         out.hostApi = &kPreviewAllocHost;
         if (frame.dataSize > 0) {
             out.data = static_cast<uint8_t*>(kPreviewAllocHost.alloc(frame.dataSize,
-                                                                      kPreviewAllocHost.userdata));
+                                                                       kPreviewAllocHost.userdata));
             if (out.data) {
                 std::memcpy(out.data, frame.data, frame.dataSize);
             }
@@ -139,7 +149,17 @@ Result<Frame> MediaDecodeSource::getFrame(const std::string& mediaItemId, Time s
         return Result<Frame>::err(Err::InvalidArgument,
                                   "media item '" + mediaItemId + "' not in media bin");
     }
-    const std::string& path = pathIt->second;
+
+    // Determine which path to use (proxy or original)
+    std::string decodePath = pathIt->second;
+    if (useProxies_) {
+        auto proxyIt = impl_->proxyInfos.find(mediaItemId);
+        if (proxyIt != impl_->proxyInfos.end() && proxyIt->second.ready) {
+            decodePath = proxyIt->second.path;
+        }
+    }
+
+    const std::string& path = decodePath;
 
     auto& state = impl_->sources[mediaItemId];
 
@@ -288,6 +308,10 @@ Result<Frame> MediaDecodeSource::getFrame(const std::string& mediaItemId, Time s
     }
     return Result<Frame>::err(Err::DecodeFailed,
                               "no video frame decoded for '" + path + "'");
+}
+
+void MediaDecodeSource::setProxyInfo(const std::string& mediaItemId, const ProxyInfo& info) {
+    impl_->proxyInfos[mediaItemId] = info;
 }
 
 } // namespace bl

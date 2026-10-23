@@ -17,6 +17,7 @@
 #include "shortcuts/action_registry.hpp"
 
 #include <bl_audio/audio_meter_engine.hpp>
+#include <bl_core/proxy.hpp>
 #include <bl_render/media_bin_thumbnail_engine.hpp>
 
 #include <QMainWindow>
@@ -102,6 +103,9 @@ private:
     void setupThumbnailEngine();
     void syncThumbnailJobs();
     void applyThumbnail(const std::string& mediaItemId);
+
+    void setupProxyGenerator();
+    void syncProxyJobs();
 
     void startExport();
     void startBatchExport();
@@ -189,6 +193,8 @@ private:
 
     std::unique_ptr<bl::AudioMeterEngine> meterEngine_;
     std::unique_ptr<bl::MediaBinThumbnailEngine> thumbnailEngine_;
+    std::unique_ptr<bl::ProxyGenerator> proxyGenerator_;
+    std::unique_ptr<bl::JobManager> proxyJobManager_;
 };
 
 } // namespace bl::ui
