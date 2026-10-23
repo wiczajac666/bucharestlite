@@ -18,6 +18,7 @@ add_library(bl_ui STATIC
     panels/mixer_panel.cpp
     panels/master_fader_panel.cpp
     panels/param_slider.cpp
+    panels/undo_history_panel.cpp
     widgets/level_meter.cpp
     widgets/fullscreen_preview_window.cpp
     export/export_settings.cpp

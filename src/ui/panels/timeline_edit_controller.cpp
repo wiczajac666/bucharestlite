@@ -1477,6 +1477,61 @@ bool TimelineEditController::moveTrack(bool video, size_t from, size_t to) {
     return true;
 }
 
+bool TimelineEditController::setTrackHeight(int flatTrack, int height) {
+    lastError_.clear();
+    if (!ensureEditable(flatTrack)) return false;
+    if (height < 18 || height > 200) {
+        lastError_ = "Invalid height";
+        return false;
+    }
+    const Sequence& seq = timeline_->sequence();
+    if (flatTrack < 0 || flatTrack >= trackCount(seq)) {
+        lastError_ = "No such track";
+        return false;
+    }
+
+    // Store the current height so we can restore it when expanding.
+    int currentHeight = 0;
+    if (isVideoTrack(seq, flatTrack)) {
+        currentHeight = seq.videoTracks[static_cast<size_t>(flatTrack)].height();
+    } else {
+        const int ai = kindIndex(seq, flatTrack);
+        currentHeight = seq.audioTracks[static_cast<size_t>(ai)].height();
+    }
+    if (currentHeight > 18 && height <= 18) {
+        // Collapsing: remember the previous height.
+        collapsedHeightMap_[flatTrack] = currentHeight;
+    }
+
+    return runSequenceEdit("Set track height", [&](Sequence& s) {
+        TrackT& tr = mutableTrackAt(s, flatTrack);
+        tr.setHeight(height);
+        return true;
+    });
+}
+
+bool TimelineEditController::setTrackCollapsed(int flatTrack, bool collapsed) {
+    lastError_.clear();
+    const Sequence& seq = timeline_->sequence();
+    if (flatTrack < 0 || flatTrack >= trackCount(seq)) {
+        lastError_ = "No such track";
+        return false;
+    }
+    int height = 0;
+    if (isVideoTrack(seq, flatTrack)) {
+        height = seq.videoTracks[static_cast<size_t>(flatTrack)].height();
+    } else {
+        const int ai = kindIndex(seq, flatTrack);
+        height = seq.audioTracks[static_cast<size_t>(ai)].height();
+    }
+    int targetHeight = collapsed ? 18 : (collapsedHeightMap_.count(flatTrack) ? collapsedHeightMap_[flatTrack] : (isVideoTrack(seq, flatTrack) ? 44 : 36));
+    if (height == targetHeight) {
+        lastError_ = "No change";
+        return false;
+    }
+    return setTrackHeight(flatTrack, targetHeight);
+}
+
 bool TimelineEditController::liftZone(Time start, Duration dur) {
     return zoneEdit(start, dur, /*extract=*/false);
 }

@@ -2,6 +2,7 @@
 
 #include <bl_audio/audio_meter_analysis.hpp>
 #include <bl_core/time.hpp>
+#include <bl_render/thumbnail.hpp>
 #include <bl_timeline/clip.hpp>
 #include <bl_timeline/sequence.hpp>
 
@@ -148,6 +149,16 @@ public:
         return waveform_;
     }
 
+    // Video thumbnail (P1 #13). The first-frame thumbnail for this clip's
+    // source is resolved by the panel and handed in; a null/empty thumbnail
+    // (audio-only clip, or video not decoded yet) draws nothing.
+    void setThumbnail(std::shared_ptr<const bl::MediaThumbnail> thumbnail) {
+        thumbnail_ = std::move(thumbnail);
+    }
+    const std::shared_ptr<const bl::MediaThumbnail>& thumbnail() const {
+        return thumbnail_;
+    }
+
 protected:
     void paint(QPainter* painter, const QStyleOptionGraphicsItem* option,
                QWidget* widget) override;
@@ -160,13 +171,16 @@ private:
     QRectF laneRect_;
     std::optional<QRectF> preview_;
     std::shared_ptr<const bl::AudioMeterEnvelope> waveform_;
+    std::shared_ptr<const bl::MediaThumbnail> thumbnail_;
 };
 
 namespace timeline_geometry {
 
 constexpr qreal kRulerHeight = 26.0;
-constexpr qreal kVideoLaneHeight = 44.0;
-constexpr qreal kAudioLaneHeight = 36.0;
+constexpr qreal kDefaultVideoLaneHeight = 44.0;
+constexpr qreal kDefaultAudioLaneHeight = 36.0;
+constexpr qreal kMinLaneHeight = 18.0;
+constexpr qreal kMaxLaneHeight = 200.0;
 // Right-hand margin (px) added to contentWidth so the last clip never sits
 // flush against the viewport edge; also the minimum timeline footprint. Public
 // so the panel can solve for a fit-to-viewport zoom (contentWidth is linear in
@@ -189,9 +203,14 @@ int laneForFlat(const bl::Sequence& seq, int flat,
 int flatForLane(const bl::Sequence& seq, int lane,
                 LaneOrder order = LaneOrder::Split);
 
+// Returns the height of a lane based on the track's stored height, falling
+// back to kind-specific defaults. Height is clamped to [kMinLaneHeight, kMaxLaneHeight].
+qreal laneHeight(const bl::Sequence& seq, int flat, int videoCount);
+
+// Returns the top Y position of a lane in scene coordinates (including ruler).
 qreal laneTop(const bl::Sequence& seq, int flat, int videoCount,
               LaneOrder order = LaneOrder::Split);
-qreal laneHeight(const bl::Sequence& seq, int flat, int videoCount);
+
 qreal contentWidth(const bl::Sequence& seq, qreal pxPerFrame);
 qreal contentHeight(const bl::Sequence& seq);
 

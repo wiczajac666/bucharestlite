@@ -9,6 +9,8 @@ already-shipped P1/TL-9 model + controller foundations).
 default; add a user-selectable `Mixed` / `MixedReverse` toggle.
 **Related docs:** `FEATURES.md`, `docs/architecture/ARCHITECTURE.md` (§5.2, §8.2, §8.6,
 §19 #12), `PROJECT_STATUS.md`, `CHANGELOG.md`, `docs/user-guide.md`.
+**Post-release audit:** §10 lists what still differs from Kdenlive as of the
+1.9.14 release (verified against the Kdenlive 26.08 manual).
 
 ---
 
@@ -375,3 +377,82 @@ void TimelineEditController::pasteClips(Time at);
 7. Phase 8 (shortcuts/docs/tests) — finalize.
 
 Each phase lands independently with its own tests and doc updates.
+
+---
+
+## 10. Post-release gap audit vs Kdenlive (1.9.14)
+
+A post-release comparison of the **Kdenlive 26.08 manual** (timeline + editing
+chapters) against Bucharest Lite **1.9.14**, verified against the code, the test
+suites and the shipped docs. Phases 2–8 landed the *interaction surface*; the
+items below are what is still **absent or only partial** relative to stock
+Kdenlive. None of them are regressions — they are the remaining parity backlog.
+
+### 10.1 Parity confirmed (✅)
+
+| Area | Shipped |
+|---|---|
+| Multi-track (unlimited V + A), video on top / audio on bottom | ✅ |
+| Track layout order — split / mixed / mixed-reverse | ✅ `laneOrderCombo` |
+| Edit **modes** — Normal / Overwrite / Insert | ✅ |
+| Edit **tools** — Select / Ripple / Roll / Slip / Spacer (+ Range) | ✅ |
+| Gap-aware trim, split, ripple delete, rolling, slip | ✅ |
+| Group / ungroup clips (across tracks) | ✅ |
+| A/V auto-split + linking, split linked clips | ✅ |
+| Timeline zone — in / out / clear / **extract** / **lift** | ✅ |
+| Markers (add / rename / delete / snap-to) | ✅ |
+| Waveform ("audio thumbnails") on audio clips | ✅ |
+| Zoom slider + fit-to-project + wheel + horizontal scrollbar | ✅ |
+| Snapping, clipboard (X/C/V), undo/redo | ✅ |
+| Track lock / hide / mute / solo, rename, reorder | ✅ |
+| Transitions, keyframeable effects, speed + reverse | ✅ |
+
+### 10.2 Hard gaps (❌ — Kdenlive has, v1.9.14 does not)
+
+| Kdenlive timeline feature | Notes |
+|---|---|
+| **Timeline Preview Render** (pre-render zones, Start/Stop, automatic preview, manage cached data) | Entirely absent |
+| **Loop playback / loop zone** (Ctrl+Shift+Space) | Absent |
+| **Multicam tool** + multitrack view | Absent (documented non-goal) |
+| **Nested sequences** (nested timeline) | Absent (model only) |
+| **Per-track height resize + collapse** (individually / all) | Absent (`Track::height` exists in the model but no UI) |
+| **Vertical zoombar** | Absent (horizontal only) |
+| **Fixed centered playhead** option | Absent |
+| **Track compositing enable/disable** checkbox | Absent (always composites) |
+| **Disable all timeline effects** toggle | Absent (per-clip toggle only) |
+| **Video thumbnails on timeline clips** | Absent (audio waveforms only) |
+| **Effect names drawn on clips** | Absent |
+| **Slide** trim | Absent (roll / slip / ripple present) |
+| **Ripple Trim to Playhead** (`(` / `)`) | Absent |
+| **Expand Clip** | Absent |
+| **Insert / Overwrite Clip Zone in Timeline** | Absent (no source monitor) |
+| **Remove Space / Remove All Spaces After Cursor** | Absent (spacer + ripple delete cover part of it) |
+| **Numeric Duration dialog** + "apply to all selected" multi-clip resize | Absent |
+| **Active / target track** targeting | Absent |
+
+### 10.3 Partial / caveats (⚠️)
+
+| Feature | Status |
+|---|---|
+| **3-point editing** | The model supports it (`makeThreePointClip(SourceRef{mediaId, sourceIn, sourceOut})` → insert / overwrite / append, with tests), but there is **no source monitor and no bin in/out UI**, so the user-facing Kdenlive 3-point workflow is not exposed. The README claim is softened to match (§10.4). |
+| **Razor** | Exists as a *split action* (split at playhead / split clip), not as a cursor **tool**; no `Razor` entry in the edit-mode picker. |
+| **Subtitles** | Import + soft MOV_TEXT/subrip/WebVTT stream + an "S" badge on the clip; **no subtitle editor UI and no burn-in** (the compositor never draws subtitle text). |
+| **Mix Clips** (same-track transition toolbar) | Transitions exist in the model, preview and export, but there is no "Mix Clips" button to add a same-track transition. |
+| **Markers** | Timeline markers ✅, but no **clip-level markers** and no **marker comment text** display toggle. |
+| **Speed** | Via the Inspector only — no **Ctrl+drag on a clip** to change speed, and **no pitch compensation**. |
+| **Position indicator** | No timecode-vs-frames unit toggle. |
+| **Docs** | The user guide documents none of razor / spacer / slip / roll / edit modes / markers / 3-point. |
+
+### 10.3.1 Prioritized shortlist
+
+1. **Timeline Preview Render** — the largest missing *feature* (pre-render for smooth playback).
+2. **Loop playback + loop zone** — small, high-value, user-visible.
+3. **Per-track height + collapse** and **timeline video thumbnails** — the most visible "this doesn't feel like Kdenlive" gaps.
+4. **Razor tool mode** + **slide trim** + **ripple-trim-to-playhead** — round out the edit-tool set.
+5. **Source monitor + bin in/out** — make the 3-point claim genuinely true.
+6. **Remove Space** + **Duration dialog** — small workflow wins.
+
+### 10.4 Doc reconciliation
+
+- `README.md` (Features → Core Editing): the **3-point editing ✅** entry is
+  annotated as model-level with the source-monitor UI pending, matching §10.3.

@@ -3,6 +3,7 @@
 #include <bl_audio/audio_meter_analysis.hpp>
 #include <bl_core/media_source.hpp>
 #include <bl_core/time.hpp>
+#include <bl_render/thumbnail.hpp>
 #include <bl_timeline/sequence.hpp>
 
 #include "panels/mixer_controller.hpp"
@@ -51,7 +52,8 @@ class TimelineView;
 // ---------------------------------------------------------------------------
 // TrackHeaderRow: one interactive lane header. Shows the track name plus
 // kind-appropriate toggles (lock; hide for video / mute+solo for audio), opens
-// the track context menu, supports inline rename and drag-reorder.
+// the track context menu, supports inline rename and drag-reorder, and
+// provides a height resize handle + collapse toggle.
 // ---------------------------------------------------------------------------
 class TrackHeaderRow : public QWidget {
     Q_OBJECT
@@ -72,12 +74,15 @@ protected:
     void mouseDoubleClickEvent(QMouseEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
+    void enterEvent(QEnterEvent* event) override;
+    void leaveEvent(QEvent* event) override;
 
 private:
     void beginRename();
     void commitRename();
     void cancelRename();
     void openMenu(const QPoint& globalPos);
+    void updateHeightHandleCursor(const QPoint& pos);
 
     TimelinePanel* host_{nullptr};
     int flat_{0};
@@ -86,14 +91,18 @@ private:
     bool renameActive_{false};
     bool dragArmed_{false};
     bool dragActive_{false};
+    bool heightResizeActive_{false};
+    int heightResizeStartY_{0};
+    int heightResizeStartHeight_{0};
     QPoint pressGlobal_;
 
     QLabel* nameLabel_{nullptr};
     QLineEdit* nameEdit_{nullptr};
     QToolButton* lockBtn_{nullptr};
-    QToolButton* avBtn_{nullptr};   // Hide (video) / Mute (audio)
-    QToolButton* soloBtn_{nullptr}; // audio only
+    QToolButton* avBtn_{nullptr};     // Hide (video) / Mute (audio)
+    QToolButton* soloBtn_{nullptr};   // audio only
     QToolButton* menuBtn_{nullptr};
+    QToolButton* collapseBtn_{nullptr}; // Collapse/expand toggle
 };
 
 // ---------------------------------------------------------------------------
@@ -246,7 +255,8 @@ private:
         Roll,
         Spacer,
         ZoneIn,
-        ZoneOut
+        ZoneOut,
+        Razor
     };
     Mode mode_{Mode::None};
     QPointF pressScenePos_;
@@ -293,13 +303,13 @@ private:
 // ---------------------------------------------------------------------------
 // TimelineState: the Kdenlive-style edit state owned by TimelinePanel. The edit
 // mode determines what a lane drag does (select/move, set the zone, ripple,
-// roll a seam, slip the source window, insert/remove space); insert/overwrite
-// chooses whether a move ripples following clips or replaces/pushes at the
+// roll a seam, slip the source window, insert/remove space, razor split);
+// insert/overwrite chooses whether a move ripples following clips or replaces/pushes at the
 // drop point; the ripple flag makes plain delete and trim ripple too.
 // Persisted by MainWindow via QSettings.
 // ---------------------------------------------------------------------------
 struct TimelineState {
-    enum class EditMode { Select, Range, Ripple, Roll, Slip, Spacer };
+    enum class EditMode { Select, Range, Ripple, Roll, Slip, Spacer, Razor };
     EditMode editMode{EditMode::Select};
     bool insertMode{false};  // false = overwrite (default)
     bool ripple{false};
@@ -340,6 +350,22 @@ public:
         return waveformResolver_;
     }
     void refreshWaveforms();
+
+    // Video thumbnail display. `resolver` hands each video clip its first-frame
+    // thumbnail (MainWindow wires the shared MediaBinThumbnailEngine's cache
+    // lookup here); a null resolver simply draws no thumbnails. Background
+    // decoding settles asynchronously, so call refreshThumbnails() when new
+    // thumbnails arrive to repaint without a full rebuild.
+    using ThumbnailResolver =
+        std::function<std::shared_ptr<const bl::MediaThumbnail>(const std::string& mediaItemId)>;
+    void setThumbnailResolver(ThumbnailResolver resolver) {
+        thumbnailResolver_ = std::move(resolver);
+        refreshThumbnails();
+    }
+    const ThumbnailResolver& thumbnailResolver() const {
+        return thumbnailResolver_;
+    }
+    void refreshThumbnails();
 
     // Geometry / time mapping (scene coordinates, origin at ruler top-left).
     qreal xForTime(const bl::Time& t) const;
@@ -495,6 +521,9 @@ public:
     bool setTrackMuted(int flat, bool muted);
     bool setTrackHidden(int flat, bool hidden);
     bool setTrackSoloed(int flat, bool soloed);
+    bool setTrackHeight(int flat, int height);
+    bool setTrackCollapsed(int flat, bool collapsed);
+    void resetActiveTrackHeight();
     bool renameTrack(int flat, const QString& name);
 
     // Adds an empty video/audio track at the end of its kind.
@@ -575,6 +604,7 @@ private:
     QSet<bl::ClipId> selection_;
     std::map<bl::ClipId, ClipItem*> clipItems_;
     bl::SourceMeterResolver waveformResolver_;
+    ThumbnailResolver thumbnailResolver_;
 };
 
 } // namespace bl::ui

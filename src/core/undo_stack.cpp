@@ -229,4 +229,52 @@ void UndoStack::setStateCallback(std::function<void()> callback) {
     stateCallback_ = std::move(callback);
 }
 
+std::vector<UndoStack::HistoryEntry> UndoStack::getHistory() const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    std::vector<HistoryEntry> history;
+    history.reserve(done_.size());
+
+    for (size_t i = 0; i < done_.size(); ++i) {
+        const auto& cmd = done_[i];
+        HistoryEntry entry;
+        entry.index = i;
+        entry.name = cmd->name();
+        entry.bytes = cmd->bytes();
+        entry.isCurrent = (i == index_ - 1); // index_ points to next command to redo
+        entry.isMacro = false;
+        entry.macroChildren.clear();
+
+        // Check if it's a composite/macro command
+        if (auto* composite = dynamic_cast<CompositeCommand*>(cmd.get())) {
+            entry.isMacro = true;
+            for (const auto& child : composite->children) {
+                entry.macroChildren.push_back(child->name());
+            }
+        }
+        history.push_back(std::move(entry));
+    }
+    return history;
+}
+
+bool UndoStack::jumpToIndex(size_t targetIndex) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    if (macroActive_) return false;
+    if (targetIndex > done_.size()) return false;
+
+    // Undo/redo to reach the target index
+    while (index_ > targetIndex) {
+        if (index_ == 0) break;
+        done_[index_ - 1]->undo();
+        --index_;
+    }
+    while (index_ < targetIndex) {
+        if (index_ >= done_.size()) break;
+        done_[index_]->redo();
+        ++index_;
+    }
+
+    if (stateCallback_) stateCallback_();
+    return true;
+}
+
 } // namespace bl

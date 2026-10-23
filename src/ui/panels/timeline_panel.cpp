@@ -111,6 +111,7 @@ TrackHeaderRow::TrackHeaderRow(TimelinePanel* host, int flat, QWidget* parent)
     : QWidget(parent), host_(host), flat_(flat) {
     setObjectName(QStringLiteral("trackHeaderRow"));
     setProperty("flatTrack", flat);
+    setMouseTracking(true);
 
     const auto makeToggle = [this](const QString& text, const QString& name,
                                    const QString& tip) {
@@ -145,6 +146,10 @@ TrackHeaderRow::TrackHeaderRow(TimelinePanel* host, int flat, QWidget* parent)
                           QStringLiteral("trackMenuButton"), tr("Track menu"));
     menuBtn_->setCheckable(false);
 
+    collapseBtn_ = makeToggle(QStringLiteral("C"), QStringLiteral("trackCollapseButton"),
+                              tr("Collapse/expand track"));
+    collapseBtn_->setFixedSize(20, 20);
+
     auto* lay = new QHBoxLayout(this);
     lay->setContentsMargins(6, 0, 4, 0);
     lay->setSpacing(2);
@@ -153,6 +158,7 @@ TrackHeaderRow::TrackHeaderRow(TimelinePanel* host, int flat, QWidget* parent)
     lay->addWidget(lockBtn_);
     lay->addWidget(avBtn_);
     lay->addWidget(soloBtn_);
+    lay->addWidget(collapseBtn_);
     lay->addWidget(menuBtn_);
 
     connect(lockBtn_, &QToolButton::toggled, this, [this](bool on) {
@@ -165,6 +171,9 @@ TrackHeaderRow::TrackHeaderRow(TimelinePanel* host, int flat, QWidget* parent)
     });
     connect(soloBtn_, &QToolButton::toggled, this, [this](bool on) {
         if (!host_->setTrackSoloed(flat_, on)) refresh();
+    });
+    connect(collapseBtn_, &QToolButton::toggled, this, [this](bool on) {
+        if (!host_->setTrackCollapsed(flat_, on)) refresh();
     });
     connect(menuBtn_, &QToolButton::clicked, this, [this] {
         openMenu(menuBtn_->mapToGlobal(QPoint(0, menuBtn_->height())));
@@ -182,6 +191,7 @@ void TrackHeaderRow::refresh() {
     bool locked = false;
     bool toggled = false;  // hidden (video) / muted (audio)
     bool soloed = false;
+    bool collapsed = false;
     QString fallback;
     if (video_) {
         const auto& t = seq.videoTracks[static_cast<size_t>(flat_)];
@@ -189,6 +199,7 @@ void TrackHeaderRow::refresh() {
         locked = t.locked();
         toggled = t.hidden();
         soloed = t.soloed();
+        collapsed = t.height() <= 20;
         fallback = QStringLiteral("V%1").arg(flat_ + 1);
     } else {
         const int ai = flat_ - static_cast<int>(seq.videoTracks.size());
@@ -197,6 +208,7 @@ void TrackHeaderRow::refresh() {
         locked = t.locked();
         toggled = t.muted();
         soloed = t.soloed();
+        collapsed = t.height() <= 20;
         fallback = QStringLiteral("A%1").arg(ai + 1);
     }
 
@@ -208,10 +220,13 @@ void TrackHeaderRow::refresh() {
         avBtn_->setChecked(toggled);
         const QSignalBlocker b3(soloBtn_);
         soloBtn_->setChecked(soloed);
+        const QSignalBlocker b4(collapseBtn_);
+        collapseBtn_->setChecked(collapsed);
     }
     soloBtn_->setVisible(!video_);
     avBtn_->setText(video_ ? QStringLiteral("H") : QStringLiteral("M"));
     avBtn_->setToolTip(video_ ? tr("Hide track") : tr("Mute track"));
+    collapseBtn_->setToolTip(collapsed ? tr("Expand track") : tr("Collapse track"));
     active_ = host_->activeTrack() == flat_;
     update();
 }
@@ -227,20 +242,88 @@ void TrackHeaderRow::paintEvent(QPaintEvent*) {
         p.setPen(QColor(0x4d, 0xa3, 0xf0));
         p.drawLine(0, 0, 0, height() - 1);
     }
+
+    // Draw height resize handle at the bottom edge.
+    constexpr int kResizeHandleHeight = 4;
+    const QRect handleRect(0, height() - kResizeHandleHeight, width(), kResizeHandleHeight);
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0x55, 0x5a, 0x60));
+    p.drawRect(handleRect);
+    // Two small dots to indicate draggability.
+    p.setBrush(QColor(0x88, 0x8d, 0x93));
+    const int dotSize = 3;
+    const int dotSpacing = 8;
+    const int startX = (width() - (dotSize * 3 + dotSpacing * 2)) / 2;
+    const int dotY = height() - kResizeHandleHeight + (kResizeHandleHeight - dotSize) / 2;
+    for (int i = 0; i < 3; ++i) {
+        p.drawEllipse(startX + i * (dotSize + dotSpacing), dotY, dotSize, dotSize);
+    }
+}
+
+void TrackHeaderRow::enterEvent(QEnterEvent* event) {
+    updateHeightHandleCursor(event->position().toPoint());
+    QWidget::enterEvent(event);
+}
+
+void TrackHeaderRow::leaveEvent(QEvent* event) {
+    if (!heightResizeActive_) {
+        unsetCursor();
+    }
+    QWidget::leaveEvent(event);
+}
+
+void TrackHeaderRow::updateHeightHandleCursor(const QPoint& pos) {
+    constexpr int kResizeHandleHeight = 4;
+    if (pos.y() >= height() - kResizeHandleHeight && !heightResizeActive_) {
+        setCursor(Qt::SizeVerCursor);
+    } else if (!heightResizeActive_) {
+        unsetCursor();
+    }
 }
 
 void TrackHeaderRow::mousePressEvent(QMouseEvent* event) {
-    if (event->button() == Qt::LeftButton && host_) {
-        host_->setActiveTrack(flat_);
-        pressGlobal_ = event->globalPosition().toPoint();
-        dragArmed_ = !renameActive_;
-        dragActive_ = false;
+    constexpr int kResizeHandleHeight = 4;
+    if (event->button() == Qt::LeftButton) {
+        if (pos().y() >= height() - kResizeHandleHeight) {
+            // Start height resize.
+            heightResizeActive_ = true;
+            heightResizeStartY_ = event->globalPosition().toPoint().y();
+            const bl::Sequence& seq = host_->sequence();
+            if (video_) {
+                heightResizeStartHeight_ = seq.videoTracks[static_cast<size_t>(flat_)].height();
+            } else {
+                const int ai = flat_ - static_cast<int>(seq.videoTracks.size());
+                heightResizeStartHeight_ = seq.audioTracks[static_cast<size_t>(ai)].height();
+            }
+            setCursor(Qt::SizeVerCursor);
+            event->accept();
+            return;
+        }
+        if (host_) {
+            host_->setActiveTrack(flat_);
+            pressGlobal_ = event->globalPosition().toPoint();
+            dragArmed_ = !renameActive_;
+            dragActive_ = false;
+        }
     }
     QWidget::mousePressEvent(event);
 }
 
 void TrackHeaderRow::mouseMoveEvent(QMouseEvent* event) {
+    if (heightResizeActive_ && (event->buttons() & Qt::LeftButton)) {
+        const int deltaY = heightResizeStartY_ - event->globalPosition().toPoint().y();
+        int newHeight = heightResizeStartHeight_ + deltaY;
+        // Clamp to valid range.
+        newHeight = std::clamp(newHeight, 18, 200);
+        if (host_) {
+            host_->setTrackHeight(flat_, newHeight);
+        }
+        event->accept();
+        return;
+    }
+
     if (!dragArmed_ || !(event->buttons() & Qt::LeftButton)) {
+        updateHeightHandleCursor(event->pos());
         QWidget::mouseMoveEvent(event);
         return;
     }
@@ -254,6 +337,13 @@ void TrackHeaderRow::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void TrackHeaderRow::mouseReleaseEvent(QMouseEvent* event) {
+    if (heightResizeActive_ && event->button() == Qt::LeftButton) {
+        heightResizeActive_ = false;
+        unsetCursor();
+        updateHeightHandleCursor(event->pos());
+        event->accept();
+        return;
+    }
     if (dragActive_ && event->button() == Qt::LeftButton && host_) {
         setCursor(Qt::ArrowCursor);
         const int target = host_->flatAtGlobalY(event->globalPosition().toPoint().y());
@@ -264,6 +354,7 @@ void TrackHeaderRow::mouseReleaseEvent(QMouseEvent* event) {
     }
     dragArmed_ = false;
     dragActive_ = false;
+    updateHeightHandleCursor(event->pos());
     QWidget::mouseReleaseEvent(event);
 }
 
@@ -672,6 +763,16 @@ void TimelineView::mousePressEvent(QMouseEvent* event) {
             // Range only acts on the ruler.
             mode_ = Mode::None;
             break;
+        case TimelineState::EditMode::Razor: {
+            // Razor splits the clip at the click position.
+            const bl::Time at = host_->timeAtX(pressScenePos_.x());
+            const bl::Clip& clip = item->clip();
+            if (at > clip.timelineStart && at < clip.timelineStart + clip.timelineDuration) {
+                host_->editor().splitClip(pressLane_, pressClip_, at);
+            }
+            mode_ = Mode::None;
+            break;
+        }
         }
         return;
     }
@@ -1080,6 +1181,9 @@ void TimelineView::updateHoverCursor(const QPointF& scenePos) {
         if (scenePos.y() <= timeline_geometry::kRulerHeight) {
             shape = Qt::SizeHorCursor;
         }
+        break;
+    case TimelineState::EditMode::Razor:
+        if (item) shape = Qt::CrossCursor;
         break;
     default:
         if (item && item->edgeAt(scenePos) != ClipItem::Edge::None) {
@@ -1931,6 +2035,7 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
         {TimelineState::EditMode::Roll, QT_TR_NOOP("Roll")},
         {TimelineState::EditMode::Slip, QT_TR_NOOP("Slip")},
         {TimelineState::EditMode::Spacer, QT_TR_NOOP("Spacer")},
+        {TimelineState::EditMode::Razor, QT_TR_NOOP("Razor")},
     };
     for (const auto& entry : kModes) {
         editModeCombo_->addItem(tr(entry.label),
@@ -2717,6 +2822,10 @@ void TimelinePanel::rebuildFromModel() {
                     clipItem->setWaveform(
                         waveformResolver_(clip.source.mediaItemId));
                 }
+                if (thumbnailResolver_ && clip.hasVideo) {
+                    clipItem->setThumbnail(
+                        thumbnailResolver_(clip.source.mediaItemId));
+                }
                 clipItem->setData(kClipItemIdRole, QString::fromStdString(clip.id));
                 clipItem->setData(kClipItemTrackRole, flat);
                 clipItem->setSelected(selection_.contains(clip.id));
@@ -2768,6 +2877,20 @@ void TimelinePanel::refreshWaveforms() {
         item->setWaveform(item->clip().hasAudio
                               ? waveformResolver_(item->clip().source.mediaItemId)
                               : nullptr);
+        item->update();
+    }
+}
+
+void TimelinePanel::refreshThumbnails() {
+    if (!thumbnailResolver_) return;
+    for (auto& [id, item] : clipItems_) {
+        (void)id;
+        if (!item) continue;
+        // Mirror rebuildFromModel: only video-bearing clips carry a thumbnail
+        // (the audio half of an A/V split shares its media id but has no video).
+        item->setThumbnail(item->clip().hasVideo
+                               ? thumbnailResolver_(item->clip().source.mediaItemId)
+                               : nullptr);
         item->update();
     }
 }
@@ -2854,6 +2977,23 @@ bool TimelinePanel::setTrackSoloed(int flat, bool soloed) {
 bool TimelinePanel::renameTrack(int flat, const QString& name) {
     if (!mixer_.valid()) return false;
     return mixer_.setTrackName(flat, name.toStdString());
+}
+
+bool TimelinePanel::setTrackHeight(int flat, int height) {
+    if (!editor_.valid()) return false;
+    return editor_.setTrackHeight(flat, height);
+}
+
+bool TimelinePanel::setTrackCollapsed(int flat, bool collapsed) {
+    if (!editor_.valid()) return false;
+    return editor_.setTrackCollapsed(flat, collapsed);
+}
+
+void TimelinePanel::resetActiveTrackHeight() {
+    const int flat = activeTrack_;
+    if (flat < 0 || flat >= trackCount()) return;
+    const int defaultHeight = editor_.isVideoTrack(sequence(), flat) ? 44 : 36;
+    setTrackHeight(flat, defaultHeight);
 }
 
 bool TimelinePanel::addTrack(bool video) {

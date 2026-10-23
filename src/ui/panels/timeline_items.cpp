@@ -289,6 +289,36 @@ void ClipItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget
         }
     }
 
+    // Video thumbnail: draw the first-frame thumbnail inside the clip body,
+    // before the label so the clip name stays readable on top.
+    if (thumbnail_ && thumbnail_->hasPixels() && clip_.hasVideo) {
+        const QImage thumbImage(reinterpret_cast<const uchar*>(thumbnail_->pixels.data()),
+                                static_cast<int>(thumbnail_->width),
+                                static_cast<int>(thumbnail_->height),
+                                static_cast<int>(thumbnail_->linesize),
+                                QImage::Format_RGBA8888);
+        if (!thumbImage.isNull()) {
+            // Scale thumbnail to fit clip height while preserving aspect ratio,
+            // clipped to clip width.
+            const qreal thumbAspect = static_cast<qreal>(thumbnail_->width) / static_cast<qreal>(thumbnail_->height);
+            qreal drawH = r.height() - 4.0;
+            qreal drawW = drawH * thumbAspect;
+            const qreal maxW = r.width() - 4.0;
+            if (drawW > maxW) {
+                drawW = maxW;
+                drawH = drawW / thumbAspect;
+            }
+            if (drawW >= 4.0 && drawH >= 4.0) {
+                const qreal x = r.left() + 2.0;
+                const qreal y = r.top() + (r.height() - drawH) * 0.5;
+                painter->save();
+                painter->setClipRect(r.adjusted(2, 2, -2, -2));
+                painter->drawImage(QRectF(x, y, drawW, drawH), thumbImage);
+                painter->restore();
+            }
+        }
+    }
+
     QFont f = painter->font();
     f.setPixelSize(10);
     painter->setFont(f);
@@ -380,20 +410,34 @@ int flatForLane(const bl::Sequence& seq, int lane, LaneOrder order) {
     return perm[lane];
 }
 
+qreal laneHeight(const bl::Sequence& seq, int flat, int videoCount) {
+    // Get the track's stored height, falling back to kind-specific defaults.
+    qreal h = 0.0;
+    if (flat < videoCount) {
+        if (static_cast<size_t>(flat) < seq.videoTracks.size()) {
+            h = static_cast<qreal>(seq.videoTracks[static_cast<size_t>(flat)].height());
+        }
+        if (h <= 0.0) h = kDefaultVideoLaneHeight;
+    } else {
+        const int ai = flat - videoCount;
+        if (static_cast<size_t>(ai) < seq.audioTracks.size()) {
+            h = static_cast<qreal>(seq.audioTracks[static_cast<size_t>(ai)].height());
+        }
+        if (h <= 0.0) h = kDefaultAudioLaneHeight;
+    }
+    // Clamp to valid range.
+    return std::clamp(h, kMinLaneHeight, kMaxLaneHeight);
+}
+
 qreal laneTop(const bl::Sequence& seq, int flat, int videoCount, LaneOrder order) {
     const auto perm = lanePermutation(
         videoCount, static_cast<int>(seq.audioTracks.size()), order);
     qreal y = kRulerHeight;
     for (size_t lane = 0; lane < perm.size(); ++lane) {
         if (perm[lane] == flat) return y;
-        y += perm[lane] < videoCount ? kVideoLaneHeight : kAudioLaneHeight;
+        y += laneHeight(seq, perm[lane], videoCount);
     }
     return y;
-}
-
-qreal laneHeight(const bl::Sequence& seq, int flat, int videoCount) {
-    static_cast<void>(seq);
-    return flat < videoCount ? kVideoLaneHeight : kAudioLaneHeight;
 }
 
 qreal contentWidth(const bl::Sequence& seq, qreal pxPerFrame) {
@@ -416,8 +460,13 @@ qreal contentWidth(const bl::Sequence& seq, qreal pxPerFrame) {
 
 qreal contentHeight(const bl::Sequence& seq) {
     qreal h = kRulerHeight;
-    h += kVideoLaneHeight * static_cast<qreal>(seq.videoTracks.size());
-    h += kAudioLaneHeight * static_cast<qreal>(seq.audioTracks.size());
+    const int vc = static_cast<int>(seq.videoTracks.size());
+    for (size_t i = 0; i < seq.videoTracks.size(); ++i) {
+        h += laneHeight(seq, static_cast<int>(i), vc);
+    }
+    for (size_t i = 0; i < seq.audioTracks.size(); ++i) {
+        h += laneHeight(seq, vc + static_cast<int>(i), vc);
+    }
     return h;
 }
 

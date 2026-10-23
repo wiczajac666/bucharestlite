@@ -19,6 +19,15 @@ public:
         size_t count;
     };
 
+    struct HistoryEntry {
+        size_t index;              // Index in the stack (0-based)
+        std::string name;          // Command name
+        size_t bytes;              // Memory footprint
+        bool isCurrent;            // True if this is the current state (index)
+        bool isMacro;              // True if this is a macro/composite command
+        std::vector<std::string> macroChildren; // Names of child commands if macro
+    };
+
     UndoStack() = default;
     ~UndoStack() = default;
 
@@ -50,6 +59,11 @@ public:
     void setMemoryLimit(size_t limitBytes);
 
     void setStateCallback(std::function<void()> callback);
+
+    // History panel support
+    std::vector<HistoryEntry> getHistory() const;
+    // Jump to a specific index in the history (0 = empty, count() = latest)
+    bool jumpToIndex(size_t targetIndex);
 
 private:
     struct CompositeCommand;

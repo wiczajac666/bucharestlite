@@ -168,8 +168,17 @@ void MainWindow::buildDocks() {
     scopesPanel_ = new ScopesPanel(scopes);
     scopes->setWidget(scopesPanel_);
 
+    undoHistoryPanel_ = new UndoHistoryPanel(this);
+    undoHistoryPanel_->setObjectName(QStringLiteral("UndoHistoryDock"));
+    undoHistoryPanel_->setUndoStack(controller_ ? &controller_->undoStack() : nullptr);
+    addDockWidget(Qt::RightDockWidgetArea, undoHistoryPanel_);
+    undoHistoryPanel_->hide();  // Hidden by default, user can enable from View menu
+    connect(undoHistoryPanel_, &UndoHistoryPanel::jumpToIndexRequested, this,
+            [this](size_t index) {
+                if (controller_) controller_->undoStack().jumpToIndex(index);
+            });
+
     // Top row: three docks side by side (splitting the top area, so the
-    // timeline below keeps the full window width).
     addDockWidget(Qt::TopDockWidgetArea, mediaBin);
     splitDockWidget(mediaBin, preview, Qt::Horizontal);
     splitDockWidget(preview, scopes, Qt::Horizontal);
@@ -294,6 +303,13 @@ void MainWindow::setupMeterEngine() {
     masterFaderPanel_->setMeterResolver(resolver);
     if (timelinePanel_) timelinePanel_->setWaveformResolver(resolver);
 
+    const auto thumbResolver =
+        [this](const std::string& mediaItemId)
+        -> std::shared_ptr<const bl::MediaThumbnail> {
+        return thumbnailEngine_ ? thumbnailEngine_->thumbnailFor(mediaItemId) : nullptr;
+    };
+    if (timelinePanel_) timelinePanel_->setThumbnailResolver(thumbResolver);
+
     // Meters follow every playhead move (playback ticks and ruler scrubs alike
     // funnel through PreviewPanel::playheadChanged).
     connect(previewPanel_, &PreviewPanel::playheadChanged, mixerPanel_,
@@ -331,7 +347,10 @@ void MainWindow::setupThumbnailEngine() {
         // Decoding settled on a worker thread; marshal the row update onto the
         // panel objects' thread (the GUI thread).
         QMetaObject::invokeMethod(this,
-                                  [this, mediaItemId] { applyThumbnail(mediaItemId); },
+                                  [this, mediaItemId] {
+                                      applyThumbnail(mediaItemId);
+                                      if (timelinePanel_) timelinePanel_->refreshThumbnails();
+                                  },
                                   Qt::QueuedConnection);
     };
 
@@ -569,6 +588,38 @@ void MainWindow::buildActions() {
     registerAction(extractZoneAction_, "timeline.extract", tr("Extract Zone"),
                    QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_X));
 
+    // Timeline edit modes (Phase 4+).
+    razorAction_ = new QAction(tr("Razor Tool"), this);
+    razorAction_->setObjectName(QStringLiteral("actionRazorTool"));
+    razorAction_->setCheckable(true);
+    connect(razorAction_, &QAction::toggled, this, [this](bool on) {
+        if (timelinePanel_) {
+            if (on) timelinePanel_->setEditMode(bl::ui::TimelineState::EditMode::Razor);
+            else timelinePanel_->setEditMode(bl::ui::TimelineState::EditMode::Select);
+        }
+    });
+    registerAction(razorAction_, "timeline.razor", tr("Razor Tool"), QKeySequence(Qt::Key_R));
+
+    cycleEditModeAction_ = new QAction(tr("Cycle Edit Mode"), this);
+    cycleEditModeAction_->setObjectName(QStringLiteral("actionCycleEditMode"));
+    connect(cycleEditModeAction_, &QAction::triggered, this, [this] {
+        if (!timelinePanel_) return;
+        const int count = 7; // Select, Range, Ripple, Roll, Slip, Spacer, Razor
+        int next = static_cast<int>(timelinePanel_->editMode()) + 1;
+        if (next >= count) next = 0;
+        timelinePanel_->setEditMode(static_cast<bl::ui::TimelineState::EditMode>(next));
+    });
+    registerAction(cycleEditModeAction_, "timeline.cycle_edit_mode", tr("Cycle Edit Mode"),
+                   QKeySequence(Qt::Key_E));
+
+    resetTrackHeightAction_ = new QAction(tr("Reset Track Height"), this);
+    resetTrackHeightAction_->setObjectName(QStringLiteral("actionResetTrackHeight"));
+    connect(resetTrackHeightAction_, &QAction::triggered, this, [this] {
+        if (timelinePanel_) timelinePanel_->resetActiveTrackHeight();
+    });
+    registerAction(resetTrackHeightAction_, "timeline.reset_track_height", tr("Reset Track Height"),
+                   QKeySequence(Qt::CTRL | Qt::Key_H));
+
     // Timeline clipboard and markers (Phase 7). Cut/Copy/Paste operate on the
     // timeline selection; Ctrl+C/X/V inside a text field are handled by the
     // widget itself (ShortcutOverride), so renaming a track still copies text.
@@ -689,6 +740,7 @@ void MainWindow::buildMenuAndToolbar() {
     viewMenu->addAction(mixer->toggleViewAction());
     viewMenu->addAction(timeline->toggleViewAction());
     viewMenu->addAction(scopes->toggleViewAction());
+    viewMenu->addAction(undoHistoryPanel_->toggleViewAction());
     viewMenu->addSeparator();
     viewMenu->addAction(fitTimelineAction_);
     viewMenu->addAction(fullScreenPreviewAction_);

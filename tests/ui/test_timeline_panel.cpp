@@ -1098,9 +1098,9 @@ TEST(TimelineLaneOrder, LaneTopFollowsPermutationOrder) {
             EXPECT_GT(top, prev) << "lane tops must descend the widget";
             prev = top;
         }
-        // Heights are per-kind, independent of the order.
-        EXPECT_EQ(tg::laneHeight(seq, 0, 2), tg::kVideoLaneHeight);
-        EXPECT_EQ(tg::laneHeight(seq, 2, 2), tg::kAudioLaneHeight);
+        // Heights are per-kind, independent of the order (use defaults since no custom heights set).
+        EXPECT_EQ(tg::laneHeight(seq, 0, 2), tg::kDefaultVideoLaneHeight);
+        EXPECT_EQ(tg::laneHeight(seq, 2, 2), tg::kDefaultAudioLaneHeight);
     }
 }
 

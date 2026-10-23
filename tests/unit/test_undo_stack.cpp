@@ -372,4 +372,130 @@ TEST(ThreadSafetyTest, UndoStackConcurrentPushUndoRedoStaysConsistent) {
     EXPECT_LE(stack.index(), stack.count());
 }
 
+TEST(UndoStackTest, GetHistoryReturnsAllEntries) {
+    UndoStack stack;
+    std::vector<int> log;
+
+    stack.push(std::make_unique<ValueCommand>("step1", log, 1));
+    stack.push(std::make_unique<ValueCommand>("step2", log, 2));
+    stack.push(std::make_unique<ValueCommand>("step3", log, 3));
+
+    const auto history = stack.getHistory();
+    ASSERT_EQ(history.size(), 3u);
+    EXPECT_EQ(history[0].name, "step1");
+    EXPECT_EQ(history[1].name, "step2");
+    EXPECT_EQ(history[2].name, "step3");
+    EXPECT_FALSE(history[0].isCurrent);
+    EXPECT_FALSE(history[1].isCurrent);
+    EXPECT_TRUE(history[2].isCurrent); // index=3, last entry is current
+    EXPECT_FALSE(history[0].isMacro);
+    EXPECT_FALSE(history[1].isMacro);
+    EXPECT_FALSE(history[2].isMacro);
+}
+
+TEST(UndoStackTest, GetHistoryShowsMacroChildren) {
+    UndoStack stack;
+    std::vector<int> log;
+
+    stack.beginMacro("multi move");
+    stack.push(std::make_unique<ValueCommand>("child1", log, 1));
+    stack.push(std::make_unique<ValueCommand>("child2", log, 2));
+    stack.endMacro();
+
+    const auto history = stack.getHistory();
+    ASSERT_EQ(history.size(), 1u);
+    EXPECT_EQ(history[0].name, "multi move");
+    EXPECT_TRUE(history[0].isMacro);
+    EXPECT_EQ(history[0].macroChildren.size(), 2u);
+    EXPECT_EQ(history[0].macroChildren[0], "child1");
+    EXPECT_EQ(history[0].macroChildren[1], "child2");
+}
+
+TEST(UndoStackTest, JumpToIndexMovesToTarget) {
+    UndoStack stack;
+    std::vector<int> log;
+
+    stack.push(std::make_unique<ValueCommand>("a", log, 1));
+    stack.push(std::make_unique<ValueCommand>("b", log, 2));
+    stack.push(std::make_unique<ValueCommand>("c", log, 3));
+    ASSERT_EQ(log, (std::vector<int>{1, 2, 3}));
+    ASSERT_EQ(stack.index(), 3u);
+
+    // Jump back to after first command
+    EXPECT_TRUE(stack.jumpToIndex(1));
+    EXPECT_EQ(log, (std::vector<int>{1}));
+    EXPECT_EQ(stack.index(), 1u);
+
+    // Jump forward to after second command
+    EXPECT_TRUE(stack.jumpToIndex(2));
+    EXPECT_EQ(log, (std::vector<int>{1, 2}));
+    EXPECT_EQ(stack.index(), 2u);
+
+    // Jump to end
+    EXPECT_TRUE(stack.jumpToIndex(3));
+    EXPECT_EQ(log, (std::vector<int>{1, 2, 3}));
+    EXPECT_EQ(stack.index(), 3u);
+}
+
+TEST(UndoStackTest, JumpToIndexZeroClearsAll) {
+    UndoStack stack;
+    std::vector<int> log;
+
+    stack.push(std::make_unique<ValueCommand>("a", log, 1));
+    stack.push(std::make_unique<ValueCommand>("b", log, 2));
+    EXPECT_EQ(log, (std::vector<int>{1, 2}));
+
+    EXPECT_TRUE(stack.jumpToIndex(0));
+    EXPECT_TRUE(log.empty());
+    EXPECT_EQ(stack.index(), 0u);
+    EXPECT_EQ(stack.count(), 2u); // history still there
+}
+
+TEST(UndoStackTest, JumpToIndexOutOfBoundsFails) {
+    UndoStack stack;
+    std::vector<int> log;
+
+    stack.push(std::make_unique<ValueCommand>("a", log, 1));
+    EXPECT_EQ(stack.count(), 1u);
+
+    EXPECT_FALSE(stack.jumpToIndex(2));
+    EXPECT_FALSE(stack.jumpToIndex(10));
+    EXPECT_EQ(log, (std::vector<int>{1}));
+    EXPECT_EQ(stack.index(), 1u);
+}
+
+TEST(UndoStackTest, JumpToIndexFailsDuringMacro) {
+    UndoStack stack;
+    std::vector<int> log;
+
+    stack.push(std::make_unique<ValueCommand>("a", log, 1));
+    stack.beginMacro("macro");
+    stack.push(std::make_unique<ValueCommand>("b", log, 2));
+
+    EXPECT_FALSE(stack.jumpToIndex(1));
+    EXPECT_FALSE(stack.jumpToIndex(0));
+
+    stack.endMacro();
+    EXPECT_TRUE(stack.jumpToIndex(1));
+}
+
+TEST(UndoStackTest, HistoryReflectsUndoRedo) {
+    UndoStack stack;
+    std::vector<int> log;
+
+    stack.push(std::make_unique<ValueCommand>("a", log, 1));
+    stack.push(std::make_unique<ValueCommand>("b", log, 2));
+
+    auto history = stack.getHistory();
+    EXPECT_TRUE(history[1].isCurrent); // index=2, last is current
+
+    stack.undo();
+    history = stack.getHistory();
+    EXPECT_TRUE(history[0].isCurrent); // index=1, first is current
+
+    stack.redo();
+    history = stack.getHistory();
+    EXPECT_TRUE(history[1].isCurrent); // index=2, last is current
+}
+
 } // namespace

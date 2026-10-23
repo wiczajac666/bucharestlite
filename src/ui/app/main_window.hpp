@@ -13,6 +13,7 @@
 #include "panels/preview_panel.hpp"
 #include "panels/scopes_panel.hpp"
 #include "panels/timeline_panel.hpp"
+#include "panels/undo_history_panel.hpp"
 #include "shortcuts/action_registry.hpp"
 
 #include <bl_audio/audio_meter_engine.hpp>
@@ -152,6 +153,7 @@ private:
     MixerPanel* mixerPanel_{nullptr};
     MasterFaderPanel* masterFaderPanel_{nullptr};
     ScopesPanel* scopesPanel_{nullptr};
+    UndoHistoryPanel* undoHistoryPanel_{nullptr};
 
     QAction* undoAction_{nullptr};
     QAction* redoAction_{nullptr};
@@ -169,6 +171,9 @@ private:
     QAction* clearZoneAction_{nullptr};
     QAction* liftZoneAction_{nullptr};
     QAction* extractZoneAction_{nullptr};
+    QAction* razorAction_{nullptr};
+    QAction* cycleEditModeAction_{nullptr};
+    QAction* resetTrackHeightAction_{nullptr};
     QAction* cutAction_{nullptr};
     QAction* copyAction_{nullptr};
     QAction* pasteAction_{nullptr};

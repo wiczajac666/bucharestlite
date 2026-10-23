@@ -211,6 +211,12 @@ public:
     bool removeTrack(bool video, size_t index, bool force);
     bool moveTrack(bool video, size_t from, size_t to);
 
+    // Track height (for per-track resize/collapse). Height is clamped to
+    // [18, 200]. `setTrackCollapsed` sets height to 18 (collapsed) or restores
+    // the previous height (stored in a side map, or defaults to kind default).
+    bool setTrackHeight(int flatTrack, int height);
+    bool setTrackCollapsed(int flatTrack, bool collapsed);
+
     // Zone edits over [start, start + dur): lift clears the range keeping
     // everything outside it; extract additionally closes the gap on every
     // unlocked track. Locked tracks are skipped, not refused.
@@ -250,6 +256,8 @@ private:
     std::string lastError_;
     MediaDurationFn mediaDuration_;
     std::vector<ClipboardEntry> clipboard_;
+    // Map from flat track index to previous height before collapse.
+    std::map<int, int> collapsedHeightMap_;
 };
 
 } // namespace bl::ui
