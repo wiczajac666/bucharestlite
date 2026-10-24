@@ -68,6 +68,11 @@ public:
     // Update proxy info for a media item (called when proxy generation completes)
     void setProxyInfo(const std::string& mediaItemId, const ProxyInfo& info);
 
+    // Per-media-item proxy override: true = force proxy, false = force original,
+    // absent = use global useProxies_ setting.
+    void setMediaProxyOverride(const std::string& mediaItemId, std::optional<bool> useProxy);
+    std::optional<bool> mediaProxyOverride(const std::string& mediaItemId) const;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

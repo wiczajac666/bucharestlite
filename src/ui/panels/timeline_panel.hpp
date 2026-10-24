@@ -315,6 +315,7 @@ struct TimelineState {
     bool ripple{false};
     bool snap{true};
     bool autoSplitAv{true};  // drop an A/V clip as a linked video+audio pair
+    bool useProxies{false};  // global "Use Proxies" toggle
     timeline_geometry::LaneOrder laneOrder{timeline_geometry::LaneOrder::Split};
 };
 
@@ -408,6 +409,10 @@ public:
     bool autoSplitAv() const { return state_.autoSplitAv; }
     void setAutoSplitAv(bool on);
 
+    // Global "Use Proxies" toggle: when on, preview uses proxy files if available.
+    bool useProxies() const { return state_.useProxies; }
+    void setUseProxies(bool on);
+
     // --- Timeline zone (Phase 4/5) -----------------------------------------
     // In/out range set by Range-mode ruler drags and the toolbar buttons; the
     // zone strip and lift/extract operations build on this.
@@ -441,6 +446,18 @@ public:
     QSet<bl::ClipId> selection() const { return selection_; }
     void setSelection(const QSet<bl::ClipId>& ids);
     void clearSelection();
+
+    // --- Proxy per-clip override -----------------------------------------------
+    // Per-clip proxy preference: true = force proxy, false = force original,
+    // absent = use global setting.
+    void setClipProxyOverride(const bl::ClipId& id, std::optional<bool> useProxy);
+    std::optional<bool> clipProxyOverride(const bl::ClipId& id) const;
+    // Apply current proxy overrides to the preview engine (call after changes).
+    void applyProxyOverrides();
+
+    // Per-clip proxy override persistence.
+    nlohmann::json clipProxyOverridesToJson() const;
+    void restoreClipProxyOverridesFromJson(const nlohmann::json& j);
 
     // --- Clip groups (Phase 6 A/V linking) ----------------------------------
     // Other live clips grouped with `id` ({} when ungrouped).
@@ -547,6 +564,7 @@ signals:
     void laneOrderChanged(timeline_geometry::LaneOrder order);
     void timelineStateChanged();
     void zoneChanged();
+    void clipProxyOverrideChanged(const bl::ClipId& id, std::optional<bool> useProxy);
     // "Edit Title…" on a title clip's context menu. Emitted with the clip's
     // media id; the receiver (MainWindow) re-opens the Title Editor.
     void editTitleRequested(const std::string& mediaId);
@@ -584,6 +602,7 @@ private:
     QToolButton* insertModeBtn_{nullptr};
     QToolButton* rippleBtn_{nullptr};
     QToolButton* avSplitBtn_{nullptr};
+    QToolButton* useProxyBtn_{nullptr};
     QToolButton* zoneInBtn_{nullptr};
     QToolButton* zoneOutBtn_{nullptr};
     QToolButton* clearZoneBtn_{nullptr};
@@ -605,6 +624,8 @@ private:
     std::map<bl::ClipId, ClipItem*> clipItems_;
     bl::SourceMeterResolver waveformResolver_;
     ThumbnailResolver thumbnailResolver_;
+    // Per-clip proxy override: nullopt = use global, true = force proxy, false = force original
+    std::map<bl::ClipId, std::optional<bool>> clipProxyOverrides_;
 };
 
 } // namespace bl::ui

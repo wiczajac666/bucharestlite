@@ -315,4 +315,17 @@ bl::Time PreviewPanel::sequenceDuration(const bl::Sequence& sequence) {
     return end;
 }
 
+void PreviewPanel::setMediaProxyOverride(const std::string& mediaItemId, std::optional<bool> useProxy) {
+    if (engine_) {
+        engine_->setMediaProxyOverride(mediaItemId, useProxy);
+    }
+}
+
+std::optional<bool> PreviewPanel::mediaProxyOverride(const std::string& mediaItemId) const {
+    if (engine_) {
+        return engine_->mediaProxyOverride(mediaItemId);
+    }
+    return std::nullopt;
+}
+
 } // namespace bl::ui

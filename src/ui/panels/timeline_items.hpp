@@ -159,6 +159,18 @@ public:
         return thumbnail_;
     }
 
+    // Proxy override: true = use proxy, false = use original
+    void setUseProxy(bool useProxy) {
+        useProxy_ = useProxy;
+    }
+    bool useProxy() const { return useProxy_; }
+
+    // Proxy status badge: "none", "generating", "ready", "failed"
+    void setProxyStatus(const QString& status) {
+        proxyStatus_ = status;
+    }
+    const QString& proxyStatus() const { return proxyStatus_; }
+
 protected:
     void paint(QPainter* painter, const QStyleOptionGraphicsItem* option,
                QWidget* widget) override;
@@ -172,6 +184,8 @@ private:
     std::optional<QRectF> preview_;
     std::shared_ptr<const bl::AudioMeterEnvelope> waveform_;
     std::shared_ptr<const bl::MediaThumbnail> thumbnail_;
+    bool useProxy_{true};  // Default to using proxy when available
+    QString proxyStatus_{QStringLiteral("none")};
 };
 
 namespace timeline_geometry {

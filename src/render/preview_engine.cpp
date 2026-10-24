@@ -59,6 +59,19 @@ void PreviewEngine::reset() {
     }
 }
 
+void PreviewEngine::setMediaProxyOverride(const std::string& mediaItemId, std::optional<bool> useProxy) {
+    if (impl_) {
+        impl_->decoder.setMediaProxyOverride(mediaItemId, useProxy);
+    }
+}
+
+std::optional<bool> PreviewEngine::mediaProxyOverride(const std::string& mediaItemId) const {
+    if (impl_) {
+        return impl_->decoder.mediaProxyOverride(mediaItemId);
+    }
+    return std::nullopt;
+}
+
 const CompositorConfig& PreviewEngine::config() const noexcept {
     static const CompositorConfig kEmpty;
     return impl_ ? impl_->compositor.config() : kEmpty;

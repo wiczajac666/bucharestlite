@@ -92,6 +92,7 @@ private:
     bool doSave();
     bool doSaveAs();
     void showShortcutsDialog();
+    void showPreferencesDialog();
     void compareQuality();
     // Detaches the single PreviewPanel into a frameless full-screen window on a
     // chosen monitor, and restores it into its Preview dock on the next toggle

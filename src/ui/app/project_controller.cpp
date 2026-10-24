@@ -587,9 +587,16 @@ bool ProjectController::removeFromMediaBin(const QString& id) {
     const MediaBinItem item = *it;
     const nlohmann::json spec = titleSpecFor(rawId);
     const size_t index = static_cast<size_t>(it - project_.mediaBin.begin());
+    const std::string proxyPath = item.proxyPath; // Capture proxy path for cleanup
     undoStack_.push(std::make_unique<FunctionCommand>(
         QStringLiteral("Remove media from bin").toStdString(),
-        [this, item, spec] {
+        [this, item, spec, proxyPath] {
+            // Delete proxy file if it exists
+            if (!proxyPath.empty()) {
+                std::error_code ec;
+                std::filesystem::remove(proxyPath, ec);
+                // Ignore errors - file might already be gone
+            }
             project_.mediaBin.erase(
                 std::remove_if(project_.mediaBin.begin(), project_.mediaBin.end(),
                                [&item](const MediaBinItem& it) { return it.id == item.id; }),
@@ -693,6 +700,10 @@ void ProjectController::adopt(ProjectData data, Timeline timeline, std::string f
 
 void ProjectController::syncTimelineToExtensions() {
     project_.extensions["timeline"] = timeline_;
+}
+
+void ProjectController::setClipProxyOverrides(const nlohmann::json& j) {
+    project_.extensions["clipProxyOverrides"] = j;
 }
 
 void ProjectController::recomputeDirty() {

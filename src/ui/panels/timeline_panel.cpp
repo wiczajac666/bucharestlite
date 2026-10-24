@@ -6,6 +6,7 @@
 #include "panels/timeline_items.hpp"
 
 #include <QAction>
+#include <QActionGroup>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QContextMenuEvent>
@@ -1827,6 +1828,19 @@ void TimelineView::contextMenuEvent(QContextMenuEvent* event) {
         QAction* toggleAct =
             menu.addAction(enabled ? tr("Disable") : tr("Enable"));
         menu.addSeparator();
+        // Proxy override actions (per-clip)
+        QAction* useProxyAct = menu.addAction(tr("Use Proxy"));
+        useProxyAct->setCheckable(true);
+        useProxyAct->setChecked(host_->clipProxyOverride(item->clip().id).value_or(false));
+        QAction* useOriginalAct = menu.addAction(tr("Use Original"));
+        useOriginalAct->setCheckable(true);
+        useOriginalAct->setChecked(host_->clipProxyOverride(item->clip().id) == false);
+        // Make them mutually exclusive
+        QActionGroup* proxyGroup = new QActionGroup(this);
+        proxyGroup->addAction(useProxyAct);
+        proxyGroup->addAction(useOriginalAct);
+        proxyGroup->setExclusive(true);
+        menu.addSeparator();
         QAction* zoneInAct = menu.addAction(tr("Set Zone In Here"));
         QAction* zoneOutAct = menu.addAction(tr("Set Zone Out Here"));
         // Titles carry their stored design, so they can be re-opened in the
@@ -1862,6 +1876,20 @@ void TimelineView::contextMenuEvent(QContextMenuEvent* event) {
             }
             for (const auto& [flat, id] : clips) {
                 host_->editor().setClipEnabled(flat, id, !enabled);
+            }
+        } else if (picked == useProxyAct) {
+            // Apply "Use Proxy" to all selected clips
+            for (const auto& entry : host_->clipItems_) {
+                if (host_->selection().contains(entry.first)) {
+                    host_->setClipProxyOverride(entry.first, true);
+                }
+            }
+        } else if (picked == useOriginalAct) {
+            // Apply "Use Original" to all selected clips
+            for (const auto& entry : host_->clipItems_) {
+                if (host_->selection().contains(entry.first)) {
+                    host_->setClipProxyOverride(entry.first, false);
+                }
             }
         } else if (picked == zoneInAct) {
             host_->setZoneIn(at);
@@ -2071,6 +2099,16 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
     avSplitBtn_->setAutoRaise(true);
     avSplitBtn_->setFocusPolicy(Qt::NoFocus);
 
+    // Global "Use Proxies" toggle: when on, preview uses proxy files if available.
+    useProxyBtn_ = new QToolButton(this);
+    useProxyBtn_->setObjectName(QStringLiteral("useProxyButton"));
+    useProxyBtn_->setText(tr("Proxy"));
+    useProxyBtn_->setToolTip(tr("Use proxy files for preview (when available)"));
+    useProxyBtn_->setCheckable(true);
+    useProxyBtn_->setChecked(state_.useProxies);
+    useProxyBtn_->setAutoRaise(true);
+    useProxyBtn_->setFocusPolicy(Qt::NoFocus);
+
     // Timeline zone (Phase 5): set the in/out points at the playhead and clear.
     zoneInBtn_ = new QToolButton(this);
     zoneInBtn_->setObjectName(QStringLiteral("zoneInButton"));
@@ -2134,6 +2172,8 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
             &TimelinePanel::setRippleEnabled);
     connect(avSplitBtn_, &QToolButton::toggled, this,
             &TimelinePanel::setAutoSplitAv);
+    connect(useProxyBtn_, &QToolButton::toggled, this,
+            &TimelinePanel::setUseProxies);
     connect(zoneInBtn_, &QToolButton::clicked, this,
             [this] { setZoneIn(playhead_); });
     connect(zoneOutBtn_, &QToolButton::clicked, this,
@@ -2149,6 +2189,7 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
     topBar->addWidget(insertModeBtn_);
     topBar->addWidget(rippleBtn_);
     topBar->addWidget(avSplitBtn_);
+    topBar->addWidget(useProxyBtn_);
     topBar->addSpacing(8);
     topBar->addWidget(zoneInBtn_);
     topBar->addWidget(zoneOutBtn_);
@@ -2326,6 +2367,7 @@ void TimelinePanel::setTimelineState(const TimelineState& state) {
     setInsertMode(state.insertMode);
     setRippleEnabled(state.ripple);
     setAutoSplitAv(state.autoSplitAv);
+    setUseProxies(state.useProxies);
     setSnapEnabled(state.snap);
 }
 
@@ -2368,6 +2410,16 @@ void TimelinePanel::setAutoSplitAv(bool on) {
     if (avSplitBtn_) {
         const QSignalBlocker blocker(avSplitBtn_);
         avSplitBtn_->setChecked(on);
+    }
+    emit timelineStateChanged();
+}
+
+void TimelinePanel::setUseProxies(bool on) {
+    if (state_.useProxies == on) return;
+    state_.useProxies = on;
+    if (useProxyBtn_) {
+        const QSignalBlocker blocker(useProxyBtn_);
+        useProxyBtn_->setChecked(on);
     }
     emit timelineStateChanged();
 }
@@ -3080,6 +3132,81 @@ void TimelinePanel::updatePlayheadItem() {
     if (playheadItem_) {
         playheadItem_->setPos(xForTime(playhead_), 0);
     }
+}
+
+void TimelinePanel::setClipProxyOverride(const bl::ClipId& id, std::optional<bool> useProxy) {
+    if (useProxy.has_value()) {
+        clipProxyOverrides_[id] = useProxy.value();
+    } else {
+        clipProxyOverrides_.erase(id);
+    }
+    applyProxyOverrides();
+    emit clipProxyOverrideChanged(id, useProxy);
+}
+
+std::optional<bool> TimelinePanel::clipProxyOverride(const bl::ClipId& id) const {
+    auto it = clipProxyOverrides_.find(id);
+    if (it != clipProxyOverrides_.end()) {
+        return it->second;
+    }
+    return std::nullopt;
+}
+
+void TimelinePanel::applyProxyOverrides() {
+    if (!view_ || !view_->scene()) return;
+    // Update each clip item's decode source based on its override
+    for (auto& [id, item] : clipItems_) {
+        if (!item) continue;
+        auto it = clipProxyOverrides_.find(id);
+        bool useProxy = it != clipProxyOverrides_.end() ? it->second.value() : state_.useProxies;
+        item->setUseProxy(useProxy);
+
+        // Update proxy status badge
+        QString status;
+        if (it != clipProxyOverrides_.end()) {
+            status = it->second.value() ? "force_proxy" : "force_original";
+        } else {
+            // Check if proxy is available for this clip
+            // We need to check the media bin for proxy status
+            const auto& bin = controller_->mediaBin();
+            auto binIt = std::find_if(bin.begin(), bin.end(),
+                                      [&id](const auto& item) { return item.id == id; });
+            if (binIt != bin.end()) {
+                if (binIt->proxyStatus == "ready") {
+                    status = "ready";
+                } else if (binIt->proxyStatus == "generating") {
+                    status = "generating";
+                } else if (binIt->proxyStatus == "failed") {
+                    status = "failed";
+                }
+            }
+        }
+        item->setProxyStatus(status);
+    }
+}
+
+nlohmann::json TimelinePanel::clipProxyOverridesToJson() const {
+    nlohmann::json j = nlohmann::json::object();
+    for (const auto& [clipId, useProxy] : clipProxyOverrides_) {
+        if (useProxy.has_value()) {
+            j[clipId] = useProxy.value();
+        } else {
+            j[clipId] = nullptr;
+        }
+    }
+    return j;
+}
+
+void TimelinePanel::restoreClipProxyOverridesFromJson(const nlohmann::json& j) {
+    clipProxyOverrides_.clear();
+    if (!j.is_object()) return;
+    for (auto it = j.begin(); it != j.end(); ++it) {
+        const std::string& clipId = it.key();
+        if (it.value().is_boolean()) {
+            clipProxyOverrides_[clipId] = it.value().get<bool>();
+        }
+    }
+    applyProxyOverrides();
 }
 
 } // namespace bl::ui

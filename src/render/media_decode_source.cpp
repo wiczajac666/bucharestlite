@@ -37,6 +37,7 @@ struct MediaDecodeSource::Impl {
     std::vector<std::unique_ptr<PluginHandle>> handles;
     std::unordered_map<std::string, std::string> paths;
     std::unordered_map<std::string, ProxyInfo> proxyInfos;
+    std::unordered_map<std::string, std::optional<bool>> proxyOverrides;  // Per-media-item proxy override
     FrameCache& cache;
 
     struct SourceState {
@@ -151,8 +152,14 @@ Result<Frame> MediaDecodeSource::getFrame(const std::string& mediaItemId, Time s
     }
 
     // Determine which path to use (proxy or original)
+    // Check per-item override first, then fall back to global setting
     std::string decodePath = pathIt->second;
-    if (useProxies_) {
+    bool useProxy = useProxies_;
+    auto overrideIt = impl_->proxyOverrides.find(mediaItemId);
+    if (overrideIt != impl_->proxyOverrides.end() && overrideIt->second.has_value()) {
+        useProxy = overrideIt->second.value();
+    }
+    if (useProxy) {
         auto proxyIt = impl_->proxyInfos.find(mediaItemId);
         if (proxyIt != impl_->proxyInfos.end() && proxyIt->second.ready) {
             decodePath = proxyIt->second.path;
@@ -312,6 +319,22 @@ Result<Frame> MediaDecodeSource::getFrame(const std::string& mediaItemId, Time s
 
 void MediaDecodeSource::setProxyInfo(const std::string& mediaItemId, const ProxyInfo& info) {
     impl_->proxyInfos[mediaItemId] = info;
+}
+
+void MediaDecodeSource::setMediaProxyOverride(const std::string& mediaItemId, std::optional<bool> useProxy) {
+    if (useProxy.has_value()) {
+        impl_->proxyOverrides[mediaItemId] = useProxy.value();
+    } else {
+        impl_->proxyOverrides.erase(mediaItemId);
+    }
+}
+
+std::optional<bool> MediaDecodeSource::mediaProxyOverride(const std::string& mediaItemId) const {
+    auto it = impl_->proxyOverrides.find(mediaItemId);
+    if (it != impl_->proxyOverrides.end()) {
+        return it->second;
+    }
+    return std::nullopt;
 }
 
 } // namespace bl

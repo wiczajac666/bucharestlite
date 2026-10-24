@@ -60,6 +60,9 @@ public:
     // exact format AutosaveRing::rotate persists and ProjectRepository loads.
     nlohmann::json serializeDocument();
 
+    // Save clip proxy overrides to project extensions.
+    void setClipProxyOverrides(const nlohmann::json& j);
+
     // Loads a recovered autosave document. Adopts it with `originalPath` as the
     // file path (so a subsequent save writes the recovered content to the real
     // project) and forces dirty; media paths are resolved relative to the

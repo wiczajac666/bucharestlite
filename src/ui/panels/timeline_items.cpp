@@ -360,6 +360,48 @@ void ClipItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget
         painter->setPen(QColor(0x22, 0x22, 0x22));
         painter->drawText(badge, Qt::AlignCenter, QStringLiteral("S"));
     }
+
+    // Proxy status badge.
+    // Shows proxy availability/override status at top-right of clip.
+    const QString& pstatus = proxyStatus_;
+    if (!pstatus.isEmpty() && pstatus != "none") {
+        QColor badgeColor;
+        QString badgeText;
+        if (pstatus == "ready") {
+            badgeColor = QColor(0x3f, 0xa9, 0x5a);  // Green
+            badgeText = QStringLiteral("✓");
+        } else if (pstatus == "generating") {
+            badgeColor = QColor(0xd3, 0xa0, 0x51);  // Orange/amber
+            badgeText = QStringLiteral("⟳");
+        } else if (pstatus == "failed") {
+            badgeColor = QColor(0xc0, 0x4a, 0x4a);  // Red
+            badgeText = QStringLiteral("✕");
+        } else if (pstatus == "force_proxy") {
+            badgeColor = QColor(0x3f, 0xa9, 0x5a);  // Green
+            badgeText = QStringLiteral("P");
+        } else if (pstatus == "force_original") {
+            badgeColor = QColor(0x6c, 0x8f, 0xd3);  // Blue
+            badgeText = QStringLiteral("O");
+        } else {
+            badgeColor = QColor(0x88, 0x8d, 0x93);  // Gray
+            badgeText = QStringLiteral("?");
+        }
+
+        const qreal badgeSize = 14.0;
+        const qreal badgeX = r.right() - badgeSize - 2.0;
+        const qreal badgeY = r.top() + 2.0;
+        const QRectF badgeRect(badgeX, badgeY, badgeSize, badgeSize);
+
+        painter->setBrush(badgeColor);
+        painter->setPen(Qt::NoPen);
+        painter->drawRoundedRect(badgeRect, 3.0, 3.0);
+        painter->setPen(Qt::white);
+        QFont badgeFont = painter->font();
+        badgeFont.setPixelSize(10);
+        badgeFont.setBold(true);
+        painter->setFont(badgeFont);
+        painter->drawText(badgeRect, Qt::AlignCenter, badgeText);
+    }
 }
 
 // ---------------------------------------------------------------------------

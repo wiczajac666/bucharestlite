@@ -41,6 +41,10 @@ public:
     // change or media-bin mutation).
     void reset();
 
+    // Per-media-item proxy override for the decode source.
+    void setMediaProxyOverride(const std::string& mediaItemId, std::optional<bool> useProxy);
+    std::optional<bool> mediaProxyOverride(const std::string& mediaItemId) const;
+
     const CompositorConfig& config() const noexcept;
 
 private:

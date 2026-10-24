@@ -88,6 +88,10 @@ public slots:
     // duration and refreshes the current frame.
     void onTimelineChanged();
 
+    // Per-media-item proxy override for the preview decoder.
+    void setMediaProxyOverride(const std::string& mediaItemId, std::optional<bool> useProxy);
+    std::optional<bool> mediaProxyOverride(const std::string& mediaItemId) const;
+
 private slots:
     void onTimerTick();
     void onProjectChanged();

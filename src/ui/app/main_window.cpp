@@ -9,6 +9,7 @@
 #include "export/export_worker.hpp"
 #include "panels/timeline_panel.hpp"
 #include "shortcuts/shortcuts_dialog.hpp"
+#include "app/preferences_dialog.hpp"
 #include "title/title_renderer.hpp"
 #include "widgets/fullscreen_preview_window.hpp"
 
@@ -269,7 +270,12 @@ void MainWindow::buildDocks() {
         settings_->setValue(kRippleKey, state.ripple);
         settings_->setValue(kSnapKey, state.snap);
         settings_->setValue("timeline/autoSplitAv", state.autoSplitAv);
+        settings_->setValue("timeline/useProxies", state.useProxies);
     });
+
+    // Forward per-clip proxy overrides to the preview decoder
+    connect(timelinePanel_, &TimelinePanel::clipProxyOverrideChanged,
+            previewPanel_, &PreviewPanel::setMediaProxyOverride);
 
     setupMeterEngine();
     setupThumbnailEngine();
@@ -363,15 +369,21 @@ void MainWindow::setupProxyGenerator() {
     proxyJobManager_ = std::make_unique<bl::JobManager>(2); // 2 worker threads for proxies
 
     bl::ProxyConfig config;
-    config.enabled = true;
-    config.autoProxyMinWidth = 3840; // 4K and above
-    config.resolutionFactor = 0.5f;  // half resolution
-    config.crf = 18;
-    config.codec = "h264";
-    config.maxConcurrentJobs = 2;
+    // Load proxy settings from QSettings
+    settings_->beginGroup("proxy");
+    config.enabled = settings_->value("enabled", true).toBool();
+    config.autoProxyMinWidth = settings_->value("autoProxyMinWidth", 3840).toUInt();
+    config.resolutionFactor = settings_->value("resolutionFactor", 0.5).toDouble();
+    config.crf = settings_->value("crf", 18).toInt();
+    config.codec = settings_->value("codec", "h264").toString().toStdString();
+    config.maxConcurrentJobs = settings_->value("maxConcurrentJobs", 2).toUInt();
+    std::string proxyDir = settings_->value("proxyDir", "").toString().toStdString();
+    settings_->endGroup();
 
-    if (controller_) {
+    if (controller_ && proxyDir.empty()) {
         config.proxyDir = std::filesystem::path(controller_->filePath().toStdString()).parent_path().string();
+    } else {
+        config.proxyDir = proxyDir;
     }
 
     proxyGenerator_ = std::make_unique<bl::ProxyGenerator>(*proxyJobManager_, config);
@@ -546,6 +558,10 @@ void MainWindow::buildActions() {
         if (!path.isEmpty()) {
             if (controller_->open(path).ok()) {
                 maybePromptRecovery();
+                // Restore clip proxy overrides if available
+                if (timelinePanel_ && controller_->project().extensions.contains("clipProxyOverrides")) {
+                    timelinePanel_->restoreClipProxyOverridesFromJson(controller_->project().extensions["clipProxyOverrides"]);
+                }
             }
         }
     });
@@ -863,6 +879,11 @@ void MainWindow::buildMenuAndToolbar() {
 
     auto* toolsMenu = menuBar()->addMenu(tr("&Tools"));
     toolsMenu->addAction(compareQualityAction_);
+    toolsMenu->addSeparator();
+    auto* preferencesAction = new QAction(tr("Preferences..."), this);
+    connect(preferencesAction, &QAction::triggered, this,
+            &MainWindow::showPreferencesDialog);
+    toolsMenu->addAction(preferencesAction);
 
     auto* helpMenu = menuBar()->addMenu(tr("&Help"));
     auto* shortcutsAction = new QAction(tr("Keyboard Shortcuts..."), this);
@@ -890,6 +911,33 @@ void MainWindow::buildMenuAndToolbar() {
 void MainWindow::showShortcutsDialog() {
     ShortcutsDialog dialog(actionRegistry_, *settings_, this);
     dialog.exec();
+}
+
+void MainWindow::showPreferencesDialog() {
+    PreferencesDialog dialog(*settings_, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        // Settings saved, refresh proxy generator with new config
+        if (proxyGenerator_) {
+            bl::ProxyConfig config;
+            settings_->beginGroup("proxy");
+            config.enabled = settings_->value("enabled", true).toBool();
+            config.autoProxyMinWidth = settings_->value("autoProxyMinWidth", 3840).toUInt();
+            config.resolutionFactor = settings_->value("resolutionFactor", 0.5).toDouble();
+            config.crf = settings_->value("crf", 18).toInt();
+            config.codec = settings_->value("codec", "h264").toString().toStdString();
+            config.maxConcurrentJobs = settings_->value("maxConcurrentJobs", 2).toUInt();
+            std::string proxyDir = settings_->value("proxyDir", "").toString().toStdString();
+            settings_->endGroup();
+
+            if (controller_ && proxyDir.empty()) {
+                config.proxyDir = std::filesystem::path(controller_->filePath().toStdString()).parent_path().string();
+            } else {
+                config.proxyDir = proxyDir;
+            }
+
+            proxyGenerator_->setConfig(config);
+        }
+    }
 }
 
 void MainWindow::compareQuality() {
@@ -1396,6 +1444,7 @@ void MainWindow::maybeRestoreLayout() {
         timelineState.ripple = settings_->value(kRippleKey, false).toBool();
         timelineState.snap = settings_->value(kSnapKey, true).toBool();
         timelineState.autoSplitAv = settings_->value("timeline/autoSplitAv", true).toBool();
+        timelineState.useProxies = settings_->value("timeline/useProxies", false).toBool();
         timelinePanel_->setTimelineState(timelineState);
     }
 }
@@ -1434,6 +1483,9 @@ bool MainWindow::doSave() {
     if (controller_->filePath().isEmpty()) {
         return doSaveAs();
     }
+    if (timelinePanel_) {
+        controller_->setClipProxyOverrides(timelinePanel_->clipProxyOverridesToJson());
+    }
     return controller_->save().ok();
 }
 
@@ -1443,6 +1495,9 @@ bool MainWindow::doSaveAs() {
                                      tr("Bucharest Projects (*.blproj);;All Files (*)"));
     if (path.isEmpty()) {
         return false;
+    }
+    if (timelinePanel_) {
+        controller_->setClipProxyOverrides(timelinePanel_->clipProxyOverridesToJson());
     }
     return controller_->saveAs(path).ok();
 }
@@ -1483,6 +1538,10 @@ bool MainWindow::maybePromptRecovery() {
             tr("Recovery failed: %1").arg(QString::fromStdString(result.message())),
             8000);
         return false;
+    }
+    // Restore clip proxy overrides if available
+    if (timelinePanel_ && controller_->project().extensions.contains("clipProxyOverrides")) {
+        timelinePanel_->restoreClipProxyOverridesFromJson(controller_->project().extensions["clipProxyOverrides"]);
     }
     return true;
 }

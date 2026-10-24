@@ -5,6 +5,7 @@ add_library(bl_ui STATIC
     app/project_controller.cpp
     app/main_window.cpp
     app/autosave_manager.cpp
+    app/preferences_dialog.cpp
     panels/timeline_panel.cpp
     panels/timeline_items.cpp
     panels/timeline_edit_controller.cpp
