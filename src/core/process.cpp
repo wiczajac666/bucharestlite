@@ -35,7 +35,18 @@ std::string readAndRemove(const std::filesystem::path& path) {
     in.close();
     std::error_code ec;
     std::filesystem::remove(path, ec);
-    return tailOf(buffer.str());
+    // Normalize CRLF (Windows) line endings to LF so captured output is
+    // consistent across platforms (e.g. "cmd /c echo hello" emits CRLF).
+    const std::string raw = buffer.str();
+    std::string normalized;
+    normalized.reserve(raw.size());
+    for (size_t i = 0; i < raw.size(); ++i) {
+        if (raw[i] == '\r' && i + 1 < raw.size() && raw[i + 1] == '\n') {
+            continue;
+        }
+        normalized.push_back(raw[i]);
+    }
+    return tailOf(normalized);
 }
 
 #ifdef _WIN32
