@@ -2,6 +2,7 @@
 
 #include <bl_core/job_manager.hpp>
 #include <bl_core/media_source.hpp>
+#include <bl_core/process.hpp>
 #include <bl_core/project_data.hpp>
 #include <bl_core/result.hpp>
 
@@ -23,15 +24,19 @@ std::string makeProxyPath(const std::string& projectDir,
     if (codec == "h265" || codec == "hevc") ext = ".mp4";
     else if (codec == "vp9") ext = ".webm";
 
-    std::string dir;
-    if (proxyDir.empty()) {
-        dir = projectDir + "/proxy/";
+    std::filesystem::path dir;
+    if (!proxyDir.empty()) {
+        dir = proxyDir;
+    } else if (!projectDir.empty()) {
+        dir = std::filesystem::path(projectDir) / "proxy";
     } else {
-        dir = proxyDir + "/";
+        dir = std::filesystem::temp_directory_path() /
+              "bucharest-lite-proxy";
     }
 
-    std::filesystem::create_directories(dir);
-    return dir + mediaItemId + "_proxy" + ext;
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    return (dir / (mediaItemId + "_proxy" + ext)).string();
 }
 
 // Helper to compute proxy dimensions
@@ -57,6 +62,9 @@ ProxyGenerator::ProxyGenerator(JobManager& jobManager, ProxyConfig config)
 }
 
 ProxyGenerator::~ProxyGenerator() {
+    // Detach the event handler first: it captures `this`, and worker threads
+    // may still be finishing cancelled jobs after this destructor returns.
+    jobManager_.onEvent(nullptr);
     cancelAll();
 }
 
@@ -86,47 +94,74 @@ JobId ProxyGenerator::queueProxy(const ProxyJobInput& input) {
     // Create the proxy generation job
     auto job = std::make_unique<LambdaJob>(
         "proxy:" + input.mediaItemId,
-        [this, input](const ProgressFn& report, const ICancelToken& cancel) -> Result<void> {
+        [input](const ProgressFn& report, const ICancelToken& cancel) -> Result<void> {
             // Report progress start
             report(0.0f, "Starting proxy generation for " + input.mediaItemId);
 
-            // Build FFmpeg command for proxy generation
-            // Using libx264 with CRF, scaling, fast preset for proxy
+            // Build the FFmpeg invocation. runProcess() execs it directly, so
+            // paths with spaces or shell metacharacters are passed through as
+            // arguments rather than being interpreted by a shell.
+            std::string encoder = "libx264";
+            if (input.codec == "h265" || input.codec == "hevc") {
+                encoder = "libx265";
+            } else if (input.codec == "vp9") {
+                encoder = "libvpx-vp9";
+            } else if (input.codec == "av1") {
+                encoder = "libaom-av1";
+            }
+
             std::vector<std::string> args = {
+                "ffmpeg",
+                "-hide_banner",                 // quieter, machine-readable log
+                "-loglevel", "error",
+                "-nostdin",
                 "-y",                           // overwrite
                 "-i", input.sourcePath,         // input
-                "-c:v", "libx264",              // H.264 encoder
-                "-preset", "fast",              // fast encoding
-                "-crf", std::to_string(input.crf),
-                "-vf", "scale=" + std::to_string(input.proxyWidth) + ":" +
-                          std::to_string(input.proxyHeight) + ":flags=lanczos",
-                "-an",                          // no audio for proxy
-                input.proxyPath                 // output
+                "-c:v", encoder,
             };
+            // Encoder-specific speed knobs: libx264/libx265 use -preset, while
+            // the VP9 and AV1 wrappers reject it and expose -cpu-used instead.
+            if (encoder == "libvpx-vp9") {
+                args.insert(args.end(),
+                            {"-deadline", "realtime", "-cpu-used", "5"});
+            } else if (encoder == "libaom-av1") {
+                args.insert(args.end(), {"-cpu-used", "8"});
+            } else {
+                args.insert(args.end(), {"-preset", "fast"});
+            }
+            args.insert(args.end(),
+                        {
+                            "-crf", std::to_string(input.crf),
+                            "-vf", "scale=" + std::to_string(input.proxyWidth) +
+                                       ":" + std::to_string(input.proxyHeight) +
+                                       ":flags=lanczos",
+                            "-pix_fmt", "yuv420p",
+                            "-c:a", "aac",      // keep audio for A/V preview
+                            "-b:a", "128k",
+                            input.proxyPath,    // output
+                        });
 
             report(0.1f, "Encoding proxy...");
 
-            // Execute FFmpeg (this is a simplified version - in production use
-            // proper FFmpeg API or a wrapper)
-            // For now, we'll use a system call approach
-            std::string cmd = "ffmpeg ";
-            for (const auto& arg : args) {
-                cmd += " \"" + arg + "\"";
-            }
+            const ProcessResult process =
+                runProcess(args, [&cancel] { return cancel.cancelled(); });
 
-            int result = std::system(cmd.c_str());
-
-            if (cancel.cancelled()) {
-                // Clean up partial file
+            if (process.cancelled || cancel.cancelled()) {
                 std::filesystem::remove(input.proxyPath);
                 return Result<void>::err(Err::Cancelled, "Proxy generation cancelled");
             }
 
             report(0.9f, "Finalizing...");
 
-            if (result != 0) {
+            if (!process.started || process.exitCode != 0) {
                 std::filesystem::remove(input.proxyPath);
-                return Result<void>::err(Err::Internal, "FFmpeg proxy generation failed");
+                std::string message = "FFmpeg proxy generation failed";
+                if (!process.started) {
+                    message += ": could not start ffmpeg (is it installed and on PATH?)";
+                } else if (!process.output.empty()) {
+                    message += ": " + process.output;
+                }
+                return Result<void>::err(Err::Internal, message);
             }
 
             report(1.0f, "Proxy generation complete");
@@ -140,40 +175,42 @@ JobId ProxyGenerator::queueProxy(const ProxyJobInput& input) {
     // Track the job
     mediaIdToJob_[input.mediaItemId] = jobId;
     jobToMediaId_[jobId] = input.mediaItemId;
+    jobInputs_[jobId] = input;
 
     return jobId;
 }
 
 bool ProxyGenerator::cancelJob(JobId id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-
-    auto it = jobToMediaId_.find(id);
-    if (it == jobToMediaId_.end()) return false;
-
-    std::string mediaId = it->second;
-    bool cancelled = jobManager_.cancel(id);
-
-    if (cancelled) {
-        mediaIdToJob_.erase(mediaId);
-        jobToMediaId_.erase(id);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (jobToMediaId_.find(id) == jobToMediaId_.end()) return false;
     }
-
-    return cancelled;
+    // Cancel outside the lock: JobManager dispatches the Cancelled event
+    // synchronously, which re-enters onJobEvent().
+    return jobManager_.cancel(id);
 }
 
 void ProxyGenerator::cancelAll() {
-    std::lock_guard<std::mutex> lock(mutex_);
-
-    for (const auto& [id, mediaId] : jobToMediaId_) {
+    std::vector<JobId> ids;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        ids.reserve(jobToMediaId_.size());
+        for (const auto& [id, mediaId] : jobToMediaId_) {
+            (void)mediaId;
+            ids.push_back(id);
+        }
+    }
+    for (const JobId id : ids) {
         jobManager_.cancel(id);
     }
-    jobToMediaId_.clear();
-    mediaIdToJob_.clear();
 }
 
 size_t ProxyGenerator::pendingCount() const {
-    // JobManager doesn't expose pending count directly, approximate
-    return jobToMediaId_.size();
+    // Everything tracked minus what is currently running.
+    std::lock_guard<std::mutex> lock(mutex_);
+    const size_t tracked = jobToMediaId_.size();
+    const size_t active = activeCount_.load(std::memory_order_relaxed);
+    return tracked > active ? tracked - active : 0;
 }
 
 size_t ProxyGenerator::activeCount() const {
@@ -192,40 +229,64 @@ void ProxyGenerator::onJobEvent(const JobEvent& event) {
         return;
     }
 
-    std::lock_guard<std::mutex> lock(mutex_);
+    ProxyJobResult result;
+    ProxyProgressFn callback;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
 
-    auto it = jobToMediaId_.find(event.id);
-    if (it == jobToMediaId_.end()) return;
+        auto it = jobToMediaId_.find(event.id);
+        if (it == jobToMediaId_.end()) return;
 
-    std::string mediaId = it->second;
-    jobToMediaId_.erase(it);
-    mediaIdToJob_.erase(mediaId);
+        const std::string mediaId = it->second;
+        const auto inputIt = jobInputs_.find(event.id);
 
-    // Decrement active count
-    activeCount_.fetch_sub(1, std::memory_order_relaxed);
+        jobToMediaId_.erase(it);
+        mediaIdToJob_.erase(mediaId);
 
-    // Report result via callback
-    if (progressCallback_) {
-        ProxyJobResult result;
+        // Decrement active count
+        activeCount_.fetch_sub(1, std::memory_order_relaxed);
+
         result.mediaItemId = mediaId;
         result.success = (event.type == JobEventType::Done);
         result.errorMessage = event.message;
 
-        if (result.success) {
-            // We need to get the proxy path/dimensions from somewhere
-            // In a full implementation, this would be stored in the job result
+        if (result.success && inputIt != jobInputs_.end()) {
+            // The job knows where it wrote (and at what size), so the media
+            // bin can record a usable proxy without re-probing the file.
+            result.proxyPath = inputIt->second.proxyPath;
+            result.proxyWidth = inputIt->second.proxyWidth;
+            result.proxyHeight = inputIt->second.proxyHeight;
         }
+        if (inputIt != jobInputs_.end()) {
+            jobInputs_.erase(inputIt);
+        }
+        callback = progressCallback_;
+    }
 
-        progressCallback_(result);
+    // Invoke outside the lock: the callback may query the generator (counts)
+    // or re-enter the job manager.
+    if (callback) {
+        callback(result);
     }
 }
 
 bool ProxyGenerator::shouldAutoProxy(const MediaBinItem& item, const ProxyConfig& config) {
     if (!config.enabled) return false;
     if (!item.proxyPath.empty()) return false; // Already has proxy
-    // Only skip if proxy is ready or currently generating
-    if (item.proxyStatus == "ready" || item.proxyStatus == "generating") return false;
+    // Skip jobs that are done, running, or already failed. Retrying failures
+    // automatically would spin: every failed job emits projectChanged, which
+    // re-runs the queue scan.
+    if (item.proxyStatus == "ready" || item.proxyStatus == "generating" ||
+        item.proxyStatus == "failed") {
+        return false;
+    }
     return item.sourceWidth >= config.autoProxyMinWidth;
+}
+
+std::string ProxyGenerator::proxyPathFor(const ProxyConfig& config,
+                                         const std::string& projectDir,
+                                         const std::string& mediaItemId) {
+    return makeProxyPath(projectDir, config.proxyDir, mediaItemId, config.codec);
 }
 
 } // namespace bl

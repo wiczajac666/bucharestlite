@@ -8,6 +8,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace bl {
@@ -27,6 +28,8 @@ public:
         bool isMacro;              // True if this is a macro/composite command
         std::vector<std::string> macroChildren; // Names of child commands if macro
     };
+
+    using StateCallbackId = size_t;
 
     UndoStack() = default;
     ~UndoStack() = default;
@@ -58,7 +61,15 @@ public:
     size_t memoryLimit() const;
     void setMemoryLimit(size_t limitBytes);
 
+    // Primary state callback (single slot, last writer wins). Prefer
+    // addStateCallback() when another component already owns this slot.
     void setStateCallback(std::function<void()> callback);
+
+    // Additional observers, notified after the primary callback. Returns an id
+    // for removeStateCallback(). Safe to call from any thread; the observer is
+    // invoked on whichever thread mutated the stack.
+    StateCallbackId addStateCallback(std::function<void()> callback);
+    void removeStateCallback(StateCallbackId id);
 
     // History panel support
     std::vector<HistoryEntry> getHistory() const;
@@ -67,6 +78,9 @@ public:
 
 private:
     struct CompositeCommand;
+    using Observer = std::pair<StateCallbackId, std::function<void()>>;
+
+    void notifyStateChanged();
 
     void evictWhileOverLimit(std::vector<std::unique_ptr<ICommand>>& entries,
                              size_t& index, size_t& bytesUsed);
@@ -84,6 +98,8 @@ private:
     size_t macroBytes_{0};
 
     std::function<void()> stateCallback_;
+    std::vector<Observer> observers_;
+    StateCallbackId nextObserverId_{1};
 };
 
 } // namespace bl

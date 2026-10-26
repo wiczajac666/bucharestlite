@@ -42,6 +42,10 @@ public:
     double gain() const noexcept { return gain_; }
     double pan() const noexcept { return pan_; }
     int32_t height() const noexcept { return height_; }
+    // False until setHeight() is called. Legacy projects carry the model's
+    // old generic default (60) for every track; the UI must treat those as
+    // "unset" and fall back to per-kind lane heights.
+    bool hasCustomHeight() const noexcept { return heightCustom_; }
 
     void setName(std::string n) { name_ = std::move(n); }
     void setMuted(bool m) { muted_ = m; }
@@ -50,7 +54,11 @@ public:
     void setHidden(bool h) { hidden_ = h; }
     void setGain(double g) { gain_ = g; }
     void setPan(double p) { pan_ = p; }
-    void setHeight(int32_t h) { height_ = h; }
+    void setHeight(int32_t h) {
+        height_ = h;
+        heightCustom_ = true;
+    }
+    void clearCustomHeight() noexcept { heightCustom_ = false; }
 
     const std::vector<ClipType>& clips() const noexcept { return clips_; }
 
@@ -618,6 +626,7 @@ private:
     double gain_{1.0};
     double pan_{0.0};
     int32_t height_{60};
+    bool heightCustom_{false};
     std::vector<ClipType> clips_;
     std::vector<EffectInstance> effects_;
 

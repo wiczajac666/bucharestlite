@@ -347,6 +347,51 @@ TEST(JobManagerTest, ExecutesAndEmitsLifecycleEvents) {
     manager.shutdown();
 }
 
+TEST(JobManagerTest, AdditionalHandlersObserveAlongsidePrimary) {
+    JobManager manager(1);
+    EventCollector primary;
+    primary.attach(manager);
+
+    std::atomic<int> observerDone{0};
+    const auto observerId = manager.addEventHandler(
+        [&](const bl::JobEvent& e) {
+            if (e.type == JobEventType::Done) {
+                observerDone.fetch_add(1, std::memory_order_relaxed);
+            }
+        });
+    std::atomic<int> removedDone{0};
+    const auto removedId = manager.addEventHandler(
+        [&](const bl::JobEvent& e) {
+            if (e.type == JobEventType::Done) {
+                removedDone.fetch_add(1, std::memory_order_relaxed);
+            }
+        });
+    manager.removeEventHandler(removedId);
+
+    manager.enqueue(std::make_unique<LambdaJob>(
+        "work", [](const bl::ProgressFn&, const ICancelToken&) {
+            return Result<void>();
+        }));
+
+    EXPECT_TRUE(primary.waitFor(
+        [](const std::vector<bl::JobEvent>& evts) {
+            for (const auto& e : evts) {
+                if (e.type == JobEventType::Done && e.jobName == "work") {
+                    return true;
+                }
+            }
+            return false;
+        },
+        std::chrono::seconds(5)));
+    // Both handlers fire inline from the same emit; by the time the primary
+    // collector saw Done the observers have run too.
+    EXPECT_EQ(observerDone.load(), 1);
+    EXPECT_EQ(removedDone.load(), 0);
+
+    manager.removeEventHandler(observerId);
+    manager.shutdown();
+}
+
 TEST(JobManagerTest, PriorityOrderSingleWorker) {
     EventCollector events;
     JobManager manager(1);

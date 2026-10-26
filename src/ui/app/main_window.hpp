@@ -106,7 +106,9 @@ private:
     void applyThumbnail(const std::string& mediaItemId);
 
     void setupProxyGenerator();
+    void loadProxyConfig();
     void syncProxyJobs();
+    void updateProxyStatusLabel();
 
     void startExport();
     void startBatchExport();
@@ -194,8 +196,13 @@ private:
 
     std::unique_ptr<bl::AudioMeterEngine> meterEngine_;
     std::unique_ptr<bl::MediaBinThumbnailEngine> thumbnailEngine_;
-    std::unique_ptr<bl::ProxyGenerator> proxyGenerator_;
+    // Declared before the generator: members are destroyed in reverse order,
+    // and the JobManager must outlive the ProxyGenerator whose jobs it runs.
     std::unique_ptr<bl::JobManager> proxyJobManager_;
+    std::unique_ptr<bl::ProxyGenerator> proxyGenerator_;
+    bl::ProxyConfig proxyConfig_;
+    QLabel* proxyStatusLabel_{nullptr};
+    bl::JobManager::EventHandlerId proxyStatusHandler_{0};
 };
 
 } // namespace bl::ui

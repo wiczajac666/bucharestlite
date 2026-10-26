@@ -204,4 +204,27 @@ TEST(PreviewPanelTest, PlayAdvancesUntilDurationThenStops) {
     EXPECT_EQ(f.panel.transport().playhead(), f.panel.transport().duration());
 }
 
+TEST(PreviewPanelTest, ProxySettingsSurviveProjectChange) {
+    Fixture f;
+    f.panel.setUseProxies(true);
+    f.panel.setMediaProxyOverride("1", true);
+
+    // A project change drops and rebuilds the engine; the panel-level proxy
+    // configuration must be re-applied to the fresh decode source.
+    f.controller.newProject(QStringLiteral("Other"));
+    EXPECT_TRUE(f.panel.useProxies());
+    ASSERT_TRUE(f.panel.mediaProxyOverride("1").has_value());
+    EXPECT_TRUE(*f.panel.mediaProxyOverride("1"));
+}
+
+TEST(PreviewPanelTest, ProxyOverrideCanBeCleared) {
+    Fixture f;
+    f.panel.setMediaProxyOverride("1", false);
+    ASSERT_TRUE(f.panel.mediaProxyOverride("1").has_value());
+    EXPECT_FALSE(*f.panel.mediaProxyOverride("1"));
+
+    f.panel.setMediaProxyOverride("1", std::nullopt);
+    EXPECT_FALSE(f.panel.mediaProxyOverride("1").has_value());
+}
+
 } // namespace

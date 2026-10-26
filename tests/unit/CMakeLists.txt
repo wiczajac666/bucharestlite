@@ -53,6 +53,7 @@ add_executable(bl_core_tests
     test_quality_metrics.cpp
     test_export_roundtrip.cpp
     test_proxy.cpp
+    test_process.cpp
 )
 
 target_link_libraries(bl_core_tests PRIVATE bl_core bl_timeline bl_render bl_audio bl::ui GTest::gtest_main)

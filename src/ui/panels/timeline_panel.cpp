@@ -2422,6 +2422,7 @@ void TimelinePanel::setUseProxies(bool on) {
         useProxyBtn_->setChecked(on);
     }
     emit timelineStateChanged();
+    emit useProxiesChanged(on);
 }
 
 void TimelinePanel::setZone(const bl::Time& in, const bl::Time& out) {
@@ -2917,6 +2918,7 @@ void TimelinePanel::rebuildFromModel() {
         activeTrack_ = 0;
     }
     if (header_) header_->rebuild();
+    applyProxyOverrides();
 }
 
 void TimelinePanel::refreshWaveforms() {
@@ -3152,25 +3154,43 @@ std::optional<bool> TimelinePanel::clipProxyOverride(const bl::ClipId& id) const
     return std::nullopt;
 }
 
+std::string TimelinePanel::mediaItemIdForClip(const bl::ClipId& id) const {
+    if (!controller_) return {};
+    const bl::Sequence& seq = controller_->timeline().sequence();
+    auto lookup = [&id](const auto& tracks) -> std::string {
+        for (const auto& track : tracks) {
+            const auto index = track.findClipById(id);
+            if (index.has_value()) {
+                return track.clips()[*index].source.mediaItemId;
+            }
+        }
+        return {};
+    };
+    std::string mediaId = lookup(seq.videoTracks);
+    if (mediaId.empty()) mediaId = lookup(seq.audioTracks);
+    return mediaId;
+}
+
 void TimelinePanel::applyProxyOverrides() {
     if (!view_ || !view_->scene()) return;
-    // Update each clip item's decode source based on its override
+    // Update each clip item's decode source and status badge from its override
+    // (or the global toggle) and the media item's proxy state.
     for (auto& [id, item] : clipItems_) {
         if (!item) continue;
         auto it = clipProxyOverrides_.find(id);
         bool useProxy = it != clipProxyOverrides_.end() ? it->second.value() : state_.useProxies;
         item->setUseProxy(useProxy);
 
-        // Update proxy status badge
         QString status;
         if (it != clipProxyOverrides_.end()) {
             status = it->second.value() ? "force_proxy" : "force_original";
         } else {
-            // Check if proxy is available for this clip
-            // We need to check the media bin for proxy status
+            const std::string mediaId = mediaItemIdForClip(id);
             const auto& bin = controller_->mediaBin();
             auto binIt = std::find_if(bin.begin(), bin.end(),
-                                      [&id](const auto& item) { return item.id == id; });
+                                      [&mediaId](const auto& entry) {
+                                          return entry.id == mediaId;
+                                      });
             if (binIt != bin.end()) {
                 if (binIt->proxyStatus == "ready") {
                     status = "ready";
@@ -3207,6 +3227,12 @@ void TimelinePanel::restoreClipProxyOverridesFromJson(const nlohmann::json& j) {
         }
     }
     applyProxyOverrides();
+    // Notify listeners (MainWindow forwards these to the preview decode
+    // source, which resolves proxies per media item) so a project restored
+    // from disk honors its saved overrides.
+    for (const auto& [clipId, useProxy] : clipProxyOverrides_) {
+        emit clipProxyOverrideChanged(clipId, useProxy);
+    }
 }
 
 } // namespace bl::ui

@@ -460,6 +460,30 @@ TEST(PersistenceTest, TrackMixerStateRoundTrips) {
     EXPECT_DOUBLE_EQ(legacy.pan(), 0.0);
 }
 
+TEST(PersistenceTest, TrackHeightFlagsCustomValue) {
+    bl::VideoTrack track("V1", bl::TrackKind::Video);
+    ASSERT_FALSE(track.hasCustomHeight());
+    track.setHeight(72);
+    ASSERT_TRUE(track.hasCustomHeight());
+
+    nlohmann::json j = track;
+    EXPECT_EQ(j.at("height").get<int>(), 72);
+    EXPECT_TRUE(j.at("heightCustom").get<bool>());
+
+    bl::VideoTrack restored;
+    from_json(j, restored);
+    EXPECT_TRUE(restored.hasCustomHeight());
+    EXPECT_EQ(restored.height(), 72);
+
+    // Legacy projects stored the model's generic 60 with no flag: that must
+    // load as "unset" so the UI applies per-kind lane heights.
+    bl::VideoTrack legacy;
+    nlohmann::json legacyJson = {{"name", "V1"}, {"height", 60}};
+    from_json(legacyJson, legacy);
+    EXPECT_FALSE(legacy.hasCustomHeight());
+    EXPECT_EQ(legacy.height(), 60);
+}
+
 TEST(PersistenceTest, SequenceMasterStateRoundTrips) {
     bl::SequenceSettings s;
     s.masterGain = 0.7;

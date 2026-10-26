@@ -99,6 +99,12 @@ public:
     // Determine if a source should auto-generate proxy based on config
     static bool shouldAutoProxy(const MediaBinItem& item, const ProxyConfig& config);
 
+    // Destination path for a proxy: `<proxyDir>` when set, otherwise
+    // `<projectDir>/proxy`. Creates the directory as a side effect.
+    static std::string proxyPathFor(const ProxyConfig& config,
+                                    const std::string& projectDir,
+                                    const std::string& mediaItemId);
+
 private:
     JobManager& jobManager_;
     ProxyConfig config_;
@@ -106,6 +112,7 @@ private:
     mutable std::mutex mutex_;
     std::unordered_map<JobId, std::string> jobToMediaId_; // JobId -> mediaItemId
     std::unordered_map<std::string, JobId> mediaIdToJob_; // mediaItemId -> JobId
+    std::unordered_map<JobId, ProxyJobInput> jobInputs_;  // JobId -> job parameters
     std::atomic<size_t> activeCount_{0};
 
     ProxyProgressFn progressCallback_;

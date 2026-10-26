@@ -622,11 +622,15 @@ Container muxing/demuxing is **not** per-plugin: `bl_core` owns libavformat wrap
 
 ## 12. Proxy Workflow
 
-> **Post-v1.** The v1 build ships **no proxy workflow**. The partially-written
-> `proxy_generator` stub (`include/bl_core/proxy/*` + `src/core/proxy/*`) was
-> non-functional, wired into no UI, and included two non-existent headers, so it
-> was removed in v1. High-resolution media plays directly via demand decode
-> (see §1). The design below is retained as the post-v1 plan.
+> **Shipped in v1.9.15.** The proxy workflow described below is implemented: the
+> former non-functional `proxy_generator` stub (`include/bl_core/proxy/*` +
+> `src/core/proxy/*`) was replaced by a functional `ProxyGenerator`
+> (`bl_core/proxy/proxy.{hpp,cpp}`) driven by the `JobManager`, wired to the
+> global **Use Proxies** toggle, auto-queued for sources at or above the
+> configurable width threshold, and consumed by the preview decoder through
+> per-media-item overrides. High-resolution media plays via the low-res proxy
+> when enabled; **export always relinks to the full-res originals** (a missing
+> original fails the export loudly, never silently exporting proxy quality).
 
 - Trigger: import of any source with width ≥ 3840 (configurable) auto-queues a proxy job; user can force/disable globally.
 - Proxy format: H.264, half-or-quarter resolution, high-quality CRF 18, burned-in `proxy/` folder beside project (or central cache dir).

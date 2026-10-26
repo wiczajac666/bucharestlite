@@ -20,7 +20,9 @@ public:
     explicit UndoHistoryPanel(QWidget* parent = nullptr);
     ~UndoHistoryPanel() override;
 
-    // Set the undo stack to observe. The panel connects to its state callback.
+    // Set the undo stack to observe. The panel subscribes to the stack's
+    // state notifications without disturbing the primary callback that
+    // ProjectController installs for dirty-state/action updates.
     void setUndoStack(bl::UndoStack* stack);
 
     // Refresh the list from the undo stack.
@@ -36,6 +38,7 @@ private:
     void populateList();
 
     bl::UndoStack* stack_{nullptr};
+    bl::UndoStack::StateCallbackId callbackId_{0};
     QListWidget* list_{nullptr};
     QLabel* statusLabel_{nullptr};
     QPushButton* clearButton_{nullptr};

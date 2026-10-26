@@ -201,6 +201,13 @@ void PreviewPanel::rebuildEngine() {
     engineHeight_ = seq.settings.height;
     engineFps_ = seq.settings.fps;
     engine_ = std::make_unique<PreviewEngine>(std::move(engine.value()));
+    // A rebuilt engine starts with default decode settings; restore the
+    // panel's proxy configuration so toggling proxies survives project loads
+    // and preview size changes.
+    engine_->setUseProxies(useProxies_);
+    for (const auto& [mediaItemId, useProxy] : proxyOverrides_) {
+        engine_->setMediaProxyOverride(mediaItemId, useProxy);
+    }
 }
 
 void PreviewPanel::refresh() {
@@ -315,15 +322,31 @@ bl::Time PreviewPanel::sequenceDuration(const bl::Sequence& sequence) {
     return end;
 }
 
+void PreviewPanel::setUseProxies(bool use) {
+    if (useProxies_ == use) return;
+    useProxies_ = use;
+    if (engine_) {
+        engine_->setUseProxies(use);
+        refresh();
+    }
+}
+
 void PreviewPanel::setMediaProxyOverride(const std::string& mediaItemId, std::optional<bool> useProxy) {
+    if (useProxy.has_value()) {
+        proxyOverrides_[mediaItemId] = useProxy;
+    } else {
+        proxyOverrides_.erase(mediaItemId);
+    }
     if (engine_) {
         engine_->setMediaProxyOverride(mediaItemId, useProxy);
+        refresh();
     }
 }
 
 std::optional<bool> PreviewPanel::mediaProxyOverride(const std::string& mediaItemId) const {
-    if (engine_) {
-        return engine_->mediaProxyOverride(mediaItemId);
+    auto it = proxyOverrides_.find(mediaItemId);
+    if (it != proxyOverrides_.end()) {
+        return it->second;
     }
     return std::nullopt;
 }

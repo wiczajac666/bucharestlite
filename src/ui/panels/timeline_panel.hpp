@@ -452,6 +452,9 @@ public:
     // absent = use global setting.
     void setClipProxyOverride(const bl::ClipId& id, std::optional<bool> useProxy);
     std::optional<bool> clipProxyOverride(const bl::ClipId& id) const;
+    // Media-bin id backing a clip ("" when the clip is unknown). Proxy decode
+    // overrides apply per media item, not per clip instance.
+    std::string mediaItemIdForClip(const bl::ClipId& id) const;
     // Apply current proxy overrides to the preview engine (call after changes).
     void applyProxyOverrides();
 
@@ -563,6 +566,7 @@ signals:
     void activeTrackChanged(int flat);
     void laneOrderChanged(timeline_geometry::LaneOrder order);
     void timelineStateChanged();
+    void useProxiesChanged(bool use);
     void zoneChanged();
     void clipProxyOverrideChanged(const bl::ClipId& id, std::optional<bool> useProxy);
     // "Edit Title…" on a title clip's context menu. Emitted with the clip's

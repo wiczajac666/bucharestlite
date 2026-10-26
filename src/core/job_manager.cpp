@@ -103,6 +103,22 @@ void JobManager::onEvent(std::function<void(const JobEvent&)> handler) {
     eventHandler_ = std::move(handler);
 }
 
+JobManager::EventHandlerId JobManager::addEventHandler(
+    std::function<void(const JobEvent&)> handler) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const EventHandlerId id = nextHandlerId_++;
+    eventHandlers_.emplace_back(id, std::move(handler));
+    return id;
+}
+
+void JobManager::removeEventHandler(EventHandlerId id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    eventHandlers_.erase(
+        std::remove_if(eventHandlers_.begin(), eventHandlers_.end(),
+                       [id](const auto& entry) { return entry.first == id; }),
+        eventHandlers_.end());
+}
+
 void JobManager::shutdown(ShutdownMode mode) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -216,6 +232,9 @@ void JobManager::workerLoop() {
 
 void JobManager::emitLocked(const JobEvent& event) {
     if (eventHandler_) eventHandler_(event);
+    for (const auto& entry : eventHandlers_) {
+        if (entry.second) entry.second(event);
+    }
 }
 
 bool JobManager::higherPriorityThan(const Entry& a, const Entry& b) {

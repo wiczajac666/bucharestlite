@@ -56,7 +56,12 @@ Legend: `[x]` shipped · `[~]` in progress · `[ ]` pending
       into no UI, and the stale `src/core/proxy/proxy_generator.hpp` declared a
       conflicting `ProxyJobParams`/`createProxyJob` overload and included two
       non-existent headers (`bl_core/media_locator.hpp`,
-      `bl_core/rational.hpp`). Implement post-v1 if a proxy workflow is wanted.
+      `bl_core/rational.hpp`). **Implemented post-v1 as v1.9.15**: the
+      `ProxyGenerator` + `ProxyConfig` (JobManager-backed async FFmpeg half-res
+      queue) replaced the stub, with the global "Use Proxies" toggle, auto-queue
+      ≥ configurable width, per-clip overrides, preferences dialog, status
+      badges and status-bar progress; export always relinks to the full-res
+      originals.
 
 ## P3 — Color & scopes
 

@@ -12,9 +12,9 @@ Two more docks, the **Inspector** (clip properties, keyframes and effects) and
 the **Mixer** (per-track and master levels), start hidden to keep the workspace
 uncluttered. Show them — and toggle any panel — from the **View** menu, or with
 their shortcuts: Ctrl+1 Media Bin, Ctrl+2 Preview, Ctrl+3 Inspector, Ctrl+4
-Mixer, Ctrl+5 Timeline, Ctrl+6 Scopes. Drag dock title bars to rearrange the
-workspace; your layout and which panels are visible are remembered between
-sessions.
+Mixer, Ctrl+5 Timeline, Ctrl+6 Scopes, Ctrl+7 Undo History. Drag dock title
+bars to rearrange the workspace; your layout and which panels are visible are
+remembered between sessions.
 
 ## New from a template
 
@@ -185,6 +185,21 @@ video underneath shows through). Titles are created from `File → Add Title…`
   Rename or delete a marker from its own right-click menu. Markers are undoable
   and take part in snapping.
 
+## Undo History
+
+Every edit is pushed onto the undo stack, and the **Undo History** dock lets
+you browse and jump through that history.
+
+- Open it via **View → Undo History…** or press `Ctrl+7`. The dock shows one
+  entry per undo step (command name + approximate size; macros expand into
+  indented children), marks the current position, and greys out future
+  (redo) states.
+- Click an entry to jump the undo stack to that state (`UndoStack::jumpToIndex`);
+  the timeline follows and redo steps forward from there. **Clear History**
+  empties the stack.
+
+Undo history is **not** persisted in a project file (documented limitation).
+
 ## Effects & Color
 
 Select a clip and use the Inspector's **Effects** group to stack effects. The
@@ -322,6 +337,27 @@ main window.
   solo) plus a master bus. Its live L/R meters follow the playhead, so they are
   snapshots of the mix *at that instant* rather than a real-time output
   reading (see *Known UI limitations (v1)*).
+
+## Proxy workflow (v1.9.15)
+
+Bucharest Lite can edit high-resolution media using low-resolution **proxies**.
+
+- **Enable.** The **Use Proxies** toolbar button toggles proxy usage globally
+  (persisted between sessions).
+- **Auto-generate.** While enabled, adding or importing media whose source is
+  at least the configured threshold wide (3840 px default) automatically queues a
+  low-res proxy (H.264, half resolution, high quality). Progress is reported in
+  the status bar, and the timeline clip shows a ✓ (ready), ⟳ (generating) or ✕
+  (failed) proxy badge.
+- **Per-clip overrides.** Each clip can force proxy use on/off for its own
+  media; the choice is persisted in the project and is a single undo step.
+- **Preferences.** Proxy behaviour (directory, auto-proxy minimum width,
+  resolution factor, CRF, codec, concurrency) is configured through the
+  preferences dialog's proxy group.
+- **Export.** Export always relinks to the full-resolution originals; a missing
+  original fails the export loudly rather than silently exporting proxy quality.
+
+Proxy generation requires an `ffmpeg` binary on your `PATH`.
 
 ## Export Workflow
 

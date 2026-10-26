@@ -68,7 +68,7 @@ bool UndoStack::push(std::unique_ptr<ICommand> command) {
             changed = true;
         }
     }
-    if (changed && stateCallback_) stateCallback_();
+    if (changed) notifyStateChanged();
     return true;
 }
 
@@ -81,7 +81,7 @@ bool UndoStack::undo() {
         --index_;
         changed = true;
     }
-    if (changed && stateCallback_) stateCallback_();
+    if (changed) notifyStateChanged();
     return true;
 }
 
@@ -94,7 +94,7 @@ bool UndoStack::redo() {
         ++index_;
         changed = true;
     }
-    if (changed && stateCallback_) stateCallback_();
+    if (changed) notifyStateChanged();
     return true;
 }
 
@@ -151,7 +151,7 @@ void UndoStack::clear() {
         bytesUsed_ = 0;
         changed = true;
     }
-    if (changed && stateCallback_) stateCallback_();
+    if (changed) notifyStateChanged();
 }
 
 void UndoStack::beginMacro(std::string name) {
@@ -199,7 +199,7 @@ bool UndoStack::endMacro() {
         evictWhileOverLimit(done_, index_, bytesUsed_);
         changed = true;
     }
-    if (changed && stateCallback_) stateCallback_();
+    if (changed) notifyStateChanged();
     return true;
 }
 
@@ -227,6 +227,39 @@ void UndoStack::setMemoryLimit(size_t limitBytes) {
 void UndoStack::setStateCallback(std::function<void()> callback) {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     stateCallback_ = std::move(callback);
+}
+
+UndoStack::StateCallbackId UndoStack::addStateCallback(
+    std::function<void()> callback) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    const StateCallbackId id = nextObserverId_++;
+    observers_.emplace_back(id, std::move(callback));
+    return id;
+}
+
+void UndoStack::removeStateCallback(StateCallbackId id) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    observers_.erase(std::remove_if(observers_.begin(), observers_.end(),
+                                    [id](const Observer& o) {
+                                        return o.first == id;
+                                    }),
+                     observers_.end());
+}
+
+void UndoStack::notifyStateChanged() {
+    // Copy under the lock, invoke outside it: an observer may run undo/redo
+    // itself (e.g. the history panel jumping to an index).
+    std::function<void()> primary;
+    std::vector<Observer> observers;
+    {
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
+        primary = stateCallback_;
+        observers = observers_;
+    }
+    if (primary) primary();
+    for (const auto& observer : observers) {
+        if (observer.second) observer.second();
+    }
 }
 
 std::vector<UndoStack::HistoryEntry> UndoStack::getHistory() const {
@@ -257,23 +290,25 @@ std::vector<UndoStack::HistoryEntry> UndoStack::getHistory() const {
 }
 
 bool UndoStack::jumpToIndex(size_t targetIndex) {
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
-    if (macroActive_) return false;
-    if (targetIndex > done_.size()) return false;
+    {
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
+        if (macroActive_) return false;
+        if (targetIndex > done_.size()) return false;
 
-    // Undo/redo to reach the target index
-    while (index_ > targetIndex) {
-        if (index_ == 0) break;
-        done_[index_ - 1]->undo();
-        --index_;
-    }
-    while (index_ < targetIndex) {
-        if (index_ >= done_.size()) break;
-        done_[index_]->redo();
-        ++index_;
+        // Undo/redo to reach the target index
+        while (index_ > targetIndex) {
+            if (index_ == 0) break;
+            done_[index_ - 1]->undo();
+            --index_;
+        }
+        while (index_ < targetIndex) {
+            if (index_ >= done_.size()) break;
+            done_[index_]->redo();
+            ++index_;
+        }
     }
 
-    if (stateCallback_) stateCallback_();
+    notifyStateChanged();
     return true;
 }
 

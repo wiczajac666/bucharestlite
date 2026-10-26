@@ -15,6 +15,7 @@ void to_json(nlohmann::json& j, const VideoTrack& t) {
         {"gain", t.gain()},
         {"pan", t.pan()},
         {"height", t.height()},
+        {"heightCustom", t.hasCustomHeight()},
         {"clips", t.clips()},
         {"effects", t.effects()}
     };
@@ -29,6 +30,11 @@ void from_json(const nlohmann::json& j, VideoTrack& t) {
     t.setGain(j.value("gain", 1.0));
     t.setPan(j.value("pan", 0.0));
     t.setHeight(j.value("height", 60));
+    if (!j.value("heightCustom", false)) {
+        // Pre-height-feature projects store the old generic default; treat it
+        // as unset so the UI applies its per-kind lane heights.
+        t.clearCustomHeight();
+    }
     if (j.contains("clips")) {
         const auto& arr = j.at("clips");
         for (const auto& item : arr) {

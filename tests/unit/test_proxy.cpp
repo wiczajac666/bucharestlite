@@ -135,4 +135,52 @@ TEST(ProxyGeneratorTest, CancelAllClearsJobs) {
     EXPECT_EQ(generator.pendingCount(), 0u);
 }
 
+TEST(ProxyGeneratorTest, ProxyPathForUsesConfiguredDirectoryAndCodecExtension) {
+    const auto dir =
+        std::filesystem::temp_directory_path() / "bl-proxy-test-vp9";
+    std::filesystem::remove_all(dir);
+
+    ProxyConfig config;
+    config.proxyDir = dir.string();
+    config.codec = "vp9";
+
+    const std::filesystem::path path(ProxyGenerator::proxyPathFor(
+        config, "/project", "media 1"));
+    EXPECT_EQ(path.parent_path(), dir);
+    EXPECT_EQ(path.filename().string(), "media 1_proxy.webm");
+    EXPECT_TRUE(std::filesystem::exists(dir));
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST(ProxyGeneratorTest, ProxyPathForDefaultsToProjectProxyDir) {
+    const auto project =
+        std::filesystem::temp_directory_path() / "bl-proxy-test-project";
+    std::filesystem::remove_all(project);
+
+    ProxyConfig config;
+    config.proxyDir.clear();
+    config.codec = "h264";
+
+    const std::filesystem::path path(
+        ProxyGenerator::proxyPathFor(config, project.string(), "m1"));
+    EXPECT_EQ(path.parent_path(), project / "proxy");
+    EXPECT_EQ(path.filename().string(), "m1_proxy.mp4");
+
+    std::filesystem::remove_all(project);
+}
+
+TEST(ProxyGeneratorTest, ProxyPathForFallsBackToTempDir) {
+    ProxyConfig config;
+    config.proxyDir.clear();
+    config.codec = "hevc";
+
+    const std::filesystem::path path(
+        ProxyGenerator::proxyPathFor(config, "", "m2"));
+    EXPECT_EQ(path.parent_path(),
+              std::filesystem::temp_directory_path() /
+                  "bucharest-lite-proxy");
+    EXPECT_EQ(path.filename().string(), "m2_proxy.mp4");
+}
+
 } // namespace

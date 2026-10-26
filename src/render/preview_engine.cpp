@@ -59,9 +59,31 @@ void PreviewEngine::reset() {
     }
 }
 
+void PreviewEngine::setUseProxies(bool use) {
+    if (impl_) {
+        impl_->decoder.setUseProxies(use);
+        // FrameCache has no per-source invalidation, so drop every cached
+        // frame and reopen sources: frames decoded before the toggle would
+        // otherwise keep showing the old resolution.
+        impl_->cache.clear();
+        impl_->decoder.reset();
+    }
+}
+
+bool PreviewEngine::useProxies() const {
+    if (impl_) {
+        return impl_->decoder.useProxies();
+    }
+    return false;
+}
+
 void PreviewEngine::setMediaProxyOverride(const std::string& mediaItemId, std::optional<bool> useProxy) {
     if (impl_) {
         impl_->decoder.setMediaProxyOverride(mediaItemId, useProxy);
+        // FrameCache is global rather than keyed per media item, so this
+        // clears more than strictly necessary; correctness first.
+        impl_->cache.clear();
+        impl_->decoder.reset();
     }
 }
 

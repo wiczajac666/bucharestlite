@@ -47,12 +47,20 @@ UndoHistoryPanel::UndoHistoryPanel(QWidget* parent)
     });
 }
 
-UndoHistoryPanel::~UndoHistoryPanel() = default;
+UndoHistoryPanel::~UndoHistoryPanel() {
+    if (stack_ && callbackId_ != 0) {
+        stack_->removeStateCallback(callbackId_);
+    }
+}
 
 void UndoHistoryPanel::setUndoStack(bl::UndoStack* stack) {
+    if (stack_ && callbackId_ != 0) {
+        stack_->removeStateCallback(callbackId_);
+        callbackId_ = 0;
+    }
     stack_ = stack;
     if (stack_) {
-        stack_->setStateCallback([this] { onStackChanged(); });
+        callbackId_ = stack_->addStateCallback([this] { onStackChanged(); });
     }
     clearButton_->setEnabled(stack_ != nullptr);
     refresh();

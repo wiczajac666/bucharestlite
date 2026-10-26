@@ -13,7 +13,9 @@
 #include <QMetaType>
 #include <QWidget>
 
+#include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -63,6 +65,9 @@ public:
     TransportController& transport() { return transport_; }
     const TransportController& transport() const { return transport_; }
 
+    // Whether the preview decoder is currently allowed to use proxy files.
+    bool useProxies() const { return useProxies_; }
+
     PreviewSurface* surface() { return surface_; }
     const PreviewSurface* surface() const { return surface_; }
 
@@ -89,6 +94,7 @@ public slots:
     void onTimelineChanged();
 
     // Per-media-item proxy override for the preview decoder.
+    void setUseProxies(bool use);
     void setMediaProxyOverride(const std::string& mediaItemId, std::optional<bool> useProxy);
     std::optional<bool> mediaProxyOverride(const std::string& mediaItemId) const;
 
@@ -111,6 +117,12 @@ private:
     int32_t engineHeight_{0};
     bl::Rational engineFps_{0, 1};
     std::unique_ptr<PreviewEngine> engine_;
+
+    // Proxy settings outlive engine rebuilds (project changes and size/fps
+    // changes recreate the engine), so they live on the panel and are
+    // re-applied whenever a fresh engine is created.
+    bool useProxies_{false};
+    std::map<std::string, std::optional<bool>> proxyOverrides_;
 
     PreviewSurface* surface_{nullptr};
     QToolButton* playButton_{nullptr};

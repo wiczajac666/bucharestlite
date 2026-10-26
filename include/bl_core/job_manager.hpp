@@ -105,7 +105,15 @@ public:
     size_t pendingCount() const;
     size_t activeCount() const;
 
+    using EventHandlerId = size_t;
+
+    // Primary handler (single slot, last writer wins). ProxyGenerator owns this
+    // slot; UI code should subscribe with addEventHandler() instead.
     void onEvent(std::function<void(const JobEvent&)> handler);
+    // Additional handlers, invoked after the primary one. Returns an id for
+    // removeEventHandler().
+    EventHandlerId addEventHandler(std::function<void(const JobEvent&)> handler);
+    void removeEventHandler(EventHandlerId id);
 
     enum class ShutdownMode { Drain, Abandon };
     void shutdown(ShutdownMode mode = ShutdownMode::Drain);
@@ -134,6 +142,9 @@ private:
     bool drainingNow_{false};
 
     std::function<void(const JobEvent&)> eventHandler_;
+    std::vector<std::pair<EventHandlerId, std::function<void(const JobEvent&)>>>
+        eventHandlers_;
+    EventHandlerId nextHandlerId_{1};
 
     std::vector<std::thread> workers_;
 };

@@ -102,7 +102,7 @@ void PreferencesDialog::setupUi() {
 
     crfSpin_ = new QSpinBox(this);
     crfSpin_->setRange(0, 51);
-    crfSpin_->setToolTip(tr("Constant Rate Factor (lower = higher quality, larger file). 0 = encoder default."));
+    crfSpin_->setToolTip(tr("Constant Rate Factor (lower = higher quality, larger file). 0 = lossless."));
     genLayout->addRow(tr("CRF (quality):"), crfSpin_);
 
     codecCombo_ = new QComboBox(this);

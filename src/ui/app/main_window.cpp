@@ -94,6 +94,12 @@ MainWindow::MainWindow(QWidget* parent, QSettings* settings) : QMainWindow(paren
 
     setWindowTitle(QStringLiteral("Bucharest Lite"));
 
+    // Proxy queue status is always visible, even before a project is opened.
+    proxyStatusLabel_ = new QLabel(this);
+    proxyStatusLabel_->setObjectName(QStringLiteral("proxyStatusLabel"));
+    proxyStatusLabel_->setText(tr("Proxies: idle"));
+    statusBar()->addPermanentWidget(proxyStatusLabel_);
+
     controller_ = new ProjectController(this);
     autosaveManager_ = new AutosaveManager(controller_, this);
     autosaveManager_->setIntervalSeconds(
@@ -135,6 +141,15 @@ MainWindow::~MainWindow() {
         thumbnailEngine_->onReady = nullptr;
         thumbnailEngine_->clear();
     }
+    if (proxyJobManager_ && proxyStatusHandler_ != 0) {
+        // Unsubscribe before the generator cancels its jobs: cancellation
+        // dispatches events synchronously and must not reach a half-destroyed
+        // window.
+        proxyJobManager_->removeEventHandler(proxyStatusHandler_);
+        proxyStatusHandler_ = 0;
+    }
+    proxyGenerator_.reset();
+    proxyJobManager_.reset();
     if (exportWorker_) {
         exportWorker_->cancel();
         exportThread_->quit();
@@ -273,9 +288,20 @@ void MainWindow::buildDocks() {
         settings_->setValue("timeline/useProxies", state.useProxies);
     });
 
-    // Forward per-clip proxy overrides to the preview decoder
-    connect(timelinePanel_, &TimelinePanel::clipProxyOverrideChanged,
-            previewPanel_, &PreviewPanel::setMediaProxyOverride);
+    // Forward proxy toggle and per-clip overrides to the preview decoder. The
+    // decoder resolves proxies per media item, so translate the clip id first.
+    if (timelinePanel_ && previewPanel_) {
+        connect(timelinePanel_, &TimelinePanel::useProxiesChanged,
+                previewPanel_, &PreviewPanel::setUseProxies);
+        connect(timelinePanel_, &TimelinePanel::clipProxyOverrideChanged, this,
+                [this](const bl::ClipId& clipId, std::optional<bool> useProxy) {
+                    const std::string mediaId =
+                        timelinePanel_->mediaItemIdForClip(clipId);
+                    if (!mediaId.empty()) {
+                        previewPanel_->setMediaProxyOverride(mediaId, useProxy);
+                    }
+                });
+    }
 
     setupMeterEngine();
     setupThumbnailEngine();
@@ -365,107 +391,161 @@ void MainWindow::setupThumbnailEngine() {
     syncThumbnailJobs();
 }
 
-void MainWindow::setupProxyGenerator() {
-    proxyJobManager_ = std::make_unique<bl::JobManager>(2); // 2 worker threads for proxies
-
-    bl::ProxyConfig config;
-    // Load proxy settings from QSettings
-    settings_->beginGroup("proxy");
-    config.enabled = settings_->value("enabled", true).toBool();
-    config.autoProxyMinWidth = settings_->value("autoProxyMinWidth", 3840).toUInt();
-    config.resolutionFactor = settings_->value("resolutionFactor", 0.5).toDouble();
-    config.crf = settings_->value("crf", 18).toInt();
-    config.codec = settings_->value("codec", "h264").toString().toStdString();
-    config.maxConcurrentJobs = settings_->value("maxConcurrentJobs", 2).toUInt();
-    std::string proxyDir = settings_->value("proxyDir", "").toString().toStdString();
-    settings_->endGroup();
-
-    if (controller_ && proxyDir.empty()) {
-        config.proxyDir = std::filesystem::path(controller_->filePath().toStdString()).parent_path().string();
+void MainWindow::updateProxyStatusLabel() {
+    if (!proxyStatusLabel_) return;
+    const size_t active = proxyGenerator_ ? proxyGenerator_->activeCount() : 0;
+    const size_t pending = proxyGenerator_ ? proxyGenerator_->pendingCount() : 0;
+    if (active == 0 && pending == 0) {
+        proxyStatusLabel_->setText(tr("Proxies: idle"));
     } else {
-        config.proxyDir = proxyDir;
+        proxyStatusLabel_->setText(
+            tr("Proxies: %1 running, %2 queued").arg(active).arg(pending));
     }
+}
 
-    proxyGenerator_ = std::make_unique<bl::ProxyGenerator>(*proxyJobManager_, config);
+void MainWindow::loadProxyConfig() {
+    settings_->beginGroup(QStringLiteral("proxy"));
+    proxyConfig_.enabled =
+        settings_->value(QStringLiteral("enabled"), true).toBool();
+    proxyConfig_.autoProxyMinWidth =
+        settings_->value(QStringLiteral("autoProxyMinWidth"), 3840).toUInt();
+    proxyConfig_.resolutionFactor =
+        settings_->value(QStringLiteral("resolutionFactor"), 0.5).toDouble();
+    proxyConfig_.crf = settings_->value(QStringLiteral("crf"), 18).toInt();
+    proxyConfig_.codec =
+        settings_->value(QStringLiteral("codec"), QStringLiteral("h264"))
+            .toString()
+            .toStdString();
+    proxyConfig_.maxConcurrentJobs =
+        settings_->value(QStringLiteral("maxConcurrentJobs"), 2).toUInt();
+    proxyConfig_.proxyDir =
+        settings_->value(QStringLiteral("proxyDir"), QString())
+            .toString()
+            .toStdString();
+    settings_->endGroup();
+}
 
-    // Set up progress callback
+void MainWindow::setupProxyGenerator() {
+    // Worker count and threshold both come from the persisted preferences.
+    loadProxyConfig();
+
+    const unsigned workers = std::max(1u, proxyConfig_.maxConcurrentJobs);
+    proxyJobManager_ = std::make_unique<bl::JobManager>(workers);
+    proxyGenerator_ =
+        std::make_unique<bl::ProxyGenerator>(*proxyJobManager_, proxyConfig_);
+    updateProxyStatusLabel();
+
+    // JobManager has one primary handler, which ProxyGenerator owns. Subscribe
+    // as an additional observer so the status bar sees every event.
+    proxyStatusHandler_ = proxyJobManager_->addEventHandler(
+        [this](const bl::JobEvent&) {
+            QMetaObject::invokeMethod(
+                this, [this] { updateProxyStatusLabel(); },
+                Qt::QueuedConnection);
+        });
+
+    // Completion (with the media item id and the proxy path/size) arrives here.
     proxyGenerator_->setProgressCallback([this](const bl::ProxyJobResult& result) {
-        QMetaObject::invokeMethod(this, [this, result] {
-            if (!controller_) return;
+        QMetaObject::invokeMethod(
+            this,
+            [this, result] {
+                if (!controller_) return;
 
-            auto& bin = controller_->project().mediaBin;
-            auto it = std::find_if(bin.begin(), bin.end(),
-                                   [&result](const auto& item) {
-                                       return item.id == result.mediaItemId;
-                                   });
-            if (it != bin.end()) {
-                if (result.success) {
-                    it->proxyPath = result.proxyPath;
-                    it->proxyWidth = result.proxyWidth;
-                    it->proxyHeight = result.proxyHeight;
-                    it->proxyStatus = "ready";
-                } else {
-                    it->proxyStatus = "failed";
-                    // Store error for UI display
+                auto& bin = controller_->project().mediaBin;
+                auto it = std::find_if(bin.begin(), bin.end(),
+                                       [&result](const auto& item) {
+                                           return item.id == result.mediaItemId;
+                                       });
+                std::string itemName = result.mediaItemId;
+                if (it != bin.end()) {
+                    itemName = it->name.empty() ? it->path : it->name;
+                    if (result.success) {
+                        it->proxyPath = result.proxyPath;
+                        it->proxyWidth = result.proxyWidth;
+                        it->proxyHeight = result.proxyHeight;
+                        it->proxyStatus = "ready";
+                    } else {
+                        // Keep any previous proxy usable and let the decoder
+                        // fall back to the original.
+                        it->proxyStatus = "failed";
+                    }
+                    emit controller_->projectChanged();
                 }
-                emit controller_->projectChanged();
-            }
-        }, Qt::QueuedConnection);
+
+                updateProxyStatusLabel();
+                if (result.success) {
+                    statusBar()->showMessage(
+                        tr("Proxy ready: %1")
+                            .arg(QString::fromStdString(itemName)),
+                        5000);
+                } else {
+                    statusBar()->showMessage(
+                        tr("Proxy failed: %1")
+                            .arg(QString::fromStdString(result.errorMessage)),
+                        8000);
+                }
+            },
+            Qt::QueuedConnection);
     });
 
-    // Queue proxies for existing media that meet criteria
-    if (controller_) {
-        syncProxyJobs();
-    }
+    // Queue proxies for media that is already in the bin.
+    syncProxyJobs();
 }
 
 void MainWindow::syncProxyJobs() {
     if (!proxyGenerator_ || !controller_) return;
 
-    // Store config locally since we can't access it from proxyGenerator_
-    bl::ProxyConfig config;
-    config.enabled = true;
-    config.autoProxyMinWidth = 3840;
-    config.resolutionFactor = 0.5f;
-    config.crf = 18;
-    config.codec = "h264";
-    config.maxConcurrentJobs = 2;
-    if (controller_) {
-        config.proxyDir = std::filesystem::path(controller_->filePath().toStdString()).parent_path().string();
-    }
+    const std::string projectDir =
+        std::filesystem::path(controller_->filePath().toStdString())
+            .parent_path()
+            .string();
 
+    bool queuedAny = false;
     const auto& bin = controller_->mediaBin();
     for (const auto& item : bin) {
-        if (bl::ProxyGenerator::shouldAutoProxy(item, config)) {
-            bl::ProxyJobInput input;
-            input.mediaItemId = item.id;
-            input.sourcePath = item.path;
-            input.sourceWidth = item.sourceWidth > 0 ? item.sourceWidth : 3840;
-            input.sourceHeight = item.sourceHeight > 0 ? item.sourceHeight : 2160;
-            input.proxyWidth = static_cast<uint32_t>(input.sourceWidth * config.resolutionFactor);
-            input.proxyHeight = static_cast<uint32_t>(input.sourceHeight * config.resolutionFactor);
-            input.proxyPath = std::filesystem::path(
-                config.proxyDir.empty()
-                    ? std::filesystem::path(controller_->filePath().toStdString()).parent_path().string() + "/proxy/"
-                    : config.proxyDir
-            ).append(item.id + "_proxy.mp4").string();
-            input.crf = config.crf;
-            input.codec = config.codec;
+        if (!bl::ProxyGenerator::shouldAutoProxy(item, proxyConfig_)) continue;
 
-            // Queue proxy generation
-            proxyGenerator_->queueProxy(input);
+        const uint32_t sourceWidth = item.sourceWidth > 0
+                                         ? item.sourceWidth
+                                         : proxyConfig_.autoProxyMinWidth;
+        const uint32_t sourceHeight = item.sourceHeight > 0
+                                          ? item.sourceHeight
+                                          : (sourceWidth * 9u) / 16u;
 
-            // Update status
-            auto& mutableBin = controller_->project().mediaBin;
-            for (auto& b : mutableBin) {
-                if (b.id == item.id) {
-                    b.proxyStatus = "generating";
-                    break;
-                }
+        bl::ProxyJobInput input;
+        input.mediaItemId = item.id;
+        input.sourcePath = item.path;
+        input.sourceWidth = sourceWidth;
+        input.sourceHeight = sourceHeight;
+        // H.264 needs even dimensions.
+        input.proxyWidth = std::max<uint32_t>(
+            2, static_cast<uint32_t>(sourceWidth * proxyConfig_.resolutionFactor)) &
+            ~1u;
+        input.proxyHeight = std::max<uint32_t>(
+            2, static_cast<uint32_t>(sourceHeight * proxyConfig_.resolutionFactor)) &
+            ~1u;
+        input.proxyPath =
+            bl::ProxyGenerator::proxyPathFor(proxyConfig_, projectDir, item.id);
+        input.crf = proxyConfig_.crf;
+        input.codec = proxyConfig_.codec;
+
+        if (proxyGenerator_->queueProxy(input) == 0) {
+            // Disabled, already queued, or at the concurrency limit. The next
+            // completion re-enters here and picks up the remaining items.
+            continue;
+        }
+        queuedAny = true;
+
+        auto& mutableBin = controller_->project().mediaBin;
+        for (auto& entry : mutableBin) {
+            if (entry.id == item.id) {
+                entry.proxyStatus = "generating";
+                break;
             }
         }
     }
-    emit controller_->projectChanged();
+
+    if (queuedAny) emit controller_->projectChanged();
 }
 
 void MainWindow::syncThumbnailJobs() {
@@ -807,6 +887,8 @@ void MainWindow::buildActions() {
         {mixer, {"view.toggle.mixer", QKeySequence(Qt::CTRL | Qt::Key_4)}},
         {timeline, {"view.toggle.timeline", QKeySequence(Qt::CTRL | Qt::Key_5)}},
         {scopes, {"view.toggle.scopes", QKeySequence(Qt::CTRL | Qt::Key_6)}},
+        {undoHistoryPanel_,
+         {"view.toggle.undo_history", QKeySequence(Qt::CTRL | Qt::Key_7)}},
     };
     for (const auto& [dock, spec] : docks) {
         QAction* toggle = dock->toggleViewAction();
@@ -915,29 +997,16 @@ void MainWindow::showShortcutsDialog() {
 
 void MainWindow::showPreferencesDialog() {
     PreferencesDialog dialog(*settings_, this);
-    if (dialog.exec() == QDialog::Accepted) {
-        // Settings saved, refresh proxy generator with new config
-        if (proxyGenerator_) {
-            bl::ProxyConfig config;
-            settings_->beginGroup("proxy");
-            config.enabled = settings_->value("enabled", true).toBool();
-            config.autoProxyMinWidth = settings_->value("autoProxyMinWidth", 3840).toUInt();
-            config.resolutionFactor = settings_->value("resolutionFactor", 0.5).toDouble();
-            config.crf = settings_->value("crf", 18).toInt();
-            config.codec = settings_->value("codec", "h264").toString().toStdString();
-            config.maxConcurrentJobs = settings_->value("maxConcurrentJobs", 2).toUInt();
-            std::string proxyDir = settings_->value("proxyDir", "").toString().toStdString();
-            settings_->endGroup();
+    if (dialog.exec() != QDialog::Accepted) return;
 
-            if (controller_ && proxyDir.empty()) {
-                config.proxyDir = std::filesystem::path(controller_->filePath().toStdString()).parent_path().string();
-            } else {
-                config.proxyDir = proxyDir;
-            }
-
-            proxyGenerator_->setConfig(config);
-        }
+    // Preferences are persisted by the dialog; reload them into the live
+    // generator. The worker count is fixed for the lifetime of the manager.
+    loadProxyConfig();
+    if (proxyGenerator_) {
+        proxyGenerator_->setConfig(proxyConfig_);
     }
+    updateProxyStatusLabel();
+    syncProxyJobs();
 }
 
 void MainWindow::compareQuality() {
@@ -1357,6 +1426,8 @@ void MainWindow::connectController() {
     connect(controller_, &ProjectController::projectChanged, this, &MainWindow::updateTitle);
     connect(controller_, &ProjectController::projectChanged, this, &MainWindow::syncMeterAnalysis);
     connect(controller_, &ProjectController::projectChanged, this, &MainWindow::syncThumbnailJobs);
+    // New imports (and finished proxy jobs) can make more media eligible.
+    connect(controller_, &ProjectController::projectChanged, this, &MainWindow::syncProxyJobs);
     connect(controller_, &ProjectController::dirtyChanged, this, &MainWindow::updateTitle);
     connect(controller_, &ProjectController::undoChanged, this, [this] {
         undoAction_->setEnabled(controller_->canUndo());
@@ -1439,7 +1510,8 @@ void MainWindow::maybeRestoreLayout() {
         // /WX treats the shadowing C4456 as an error (GCC does not warn).
         TimelineState timelineState = timelinePanel_->timelineState();
         timelineState.editMode = static_cast<TimelineState::EditMode>(
-            std::clamp(settings_->value(kEditModeKey, 0).toInt(), 0, 5));
+            std::clamp(settings_->value(kEditModeKey, 0).toInt(), 0,
+                       static_cast<int>(TimelineState::EditMode::Razor)));
         timelineState.insertMode = settings_->value(kInsertModeKey, false).toBool();
         timelineState.ripple = settings_->value(kRippleKey, false).toBool();
         timelineState.snap = settings_->value(kSnapKey, true).toBool();

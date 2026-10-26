@@ -453,17 +453,20 @@ int flatForLane(const bl::Sequence& seq, int lane, LaneOrder order) {
 }
 
 qreal laneHeight(const bl::Sequence& seq, int flat, int videoCount) {
-    // Get the track's stored height, falling back to kind-specific defaults.
+    // Use the track's custom height when the user has set one, otherwise fall
+    // back to the per-kind defaults (the model's generic 60 is not a UI size).
     qreal h = 0.0;
     if (flat < videoCount) {
         if (static_cast<size_t>(flat) < seq.videoTracks.size()) {
-            h = static_cast<qreal>(seq.videoTracks[static_cast<size_t>(flat)].height());
+            const auto& track = seq.videoTracks[static_cast<size_t>(flat)];
+            h = track.hasCustomHeight() ? static_cast<qreal>(track.height()) : 0.0;
         }
         if (h <= 0.0) h = kDefaultVideoLaneHeight;
     } else {
         const int ai = flat - videoCount;
         if (static_cast<size_t>(ai) < seq.audioTracks.size()) {
-            h = static_cast<qreal>(seq.audioTracks[static_cast<size_t>(ai)].height());
+            const auto& track = seq.audioTracks[static_cast<size_t>(ai)];
+            h = track.hasCustomHeight() ? static_cast<qreal>(track.height()) : 0.0;
         }
         if (h <= 0.0) h = kDefaultAudioLaneHeight;
     }

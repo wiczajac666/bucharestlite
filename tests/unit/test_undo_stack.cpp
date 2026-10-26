@@ -294,6 +294,57 @@ TEST(UndoStackTest, CallbacksFireOnEveryStateChange) {
     EXPECT_EQ(calls, 5);
 }
 
+TEST(UndoStackTest, AdditionalObserversCoexistWithPrimaryCallback) {
+    UndoStack stack;
+    std::vector<int> log;
+    int primaryCalls = 0;
+    int observerCalls = 0;
+    int removedCalls = 0;
+
+    stack.setStateCallback([&primaryCalls] { ++primaryCalls; });
+    const auto observer = stack.addStateCallback([&observerCalls] {
+        ++observerCalls;
+    });
+    const auto doomed = stack.addStateCallback([&removedCalls] {
+        ++removedCalls;
+    });
+    stack.removeStateCallback(doomed);
+
+    stack.push(std::make_unique<ValueCommand>("a", log, 1));
+
+    EXPECT_EQ(primaryCalls, 1);
+    EXPECT_EQ(observerCalls, 1);
+    EXPECT_EQ(removedCalls, 0);
+
+    // The primary slot still replaces only itself: late subscribers survive.
+    stack.setStateCallback([&primaryCalls] { ++primaryCalls; });
+    stack.undo();
+    EXPECT_EQ(primaryCalls, 2);
+    EXPECT_EQ(observerCalls, 2);
+
+    stack.removeStateCallback(observer);
+    stack.redo();
+    EXPECT_EQ(primaryCalls, 3);
+    EXPECT_EQ(observerCalls, 2);
+}
+
+TEST(UndoStackTest, ObserverMayMutateTheStackFromItsCallback) {
+    UndoStack stack;
+    std::vector<int> log;
+    stack.push(std::make_unique<ValueCommand>("a", log, 1));
+    stack.push(std::make_unique<ValueCommand>("b", log, 2));
+
+    // Mirrors the history panel calling jumpToIndex() from a notification.
+    const auto id = stack.addStateCallback([&stack] {
+        if (stack.index() == 2) stack.jumpToIndex(0);
+    });
+    stack.undo(); // index 1 -> callback sees <2, no-op
+    EXPECT_EQ(stack.index(), 1u);
+    stack.redo(); // index 2 -> callback jumps to 0 without deadlocking
+    EXPECT_EQ(stack.index(), 0u);
+    stack.removeStateCallback(id);
+}
+
 TEST(UndoStackTest, ClearForgetsHistoryButKeepsDocumentState) {
     UndoStack stack;
     std::vector<int> log;

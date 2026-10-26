@@ -169,9 +169,10 @@ These are the **must-have** features — the baseline for any functional NLE:
     luma/RGB **histogram**, luma **waveform** and chroma **vectorscope** views
     tapped from the composited preview frame)
 15. **Modular codec support** — plugin-based encoder/decoder loading
-16. **Proxy editing** — auto-generated low-res for smooth editing (out of v1
-    scope: high-res media plays directly via demand decode; see
-    `docs/architecture/ARCHITECTURE.md` §1)
+16. **Proxy editing** — auto-generated low-res for smooth editing (shipped in
+    v1.9.15: global toggle, auto-generate ≥ configurable source width, per-clip
+    overrides, preferences dialog; see
+    `docs/architecture/ARCHITECTURE.md` §12)
 17. **Project auto-save** — crash recovery
 18. **Unlimited undo/redo**
 19. **Custom export** — format selection, quality presets, batch render

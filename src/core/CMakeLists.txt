@@ -16,6 +16,7 @@ add_library(bl_core STATIC
     decoder_bridge.cpp
     builtin_plugins.cpp
     image_sequence.cpp
+    process.cpp
     proxy.cpp
     ../plugins/passthrough/passthrough_plugin.c
     platform/dynamic_library.cpp

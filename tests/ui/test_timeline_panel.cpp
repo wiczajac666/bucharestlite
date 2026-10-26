@@ -24,6 +24,7 @@
 #include <QMimeData>
 #include <QPoint>
 #include <QSlider>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QToolButton>
 #include <QUrl>
@@ -1104,6 +1105,43 @@ TEST(TimelineLaneOrder, LaneTopFollowsPermutationOrder) {
     }
 }
 
+TEST(TimelineLaneOrder, CustomTrackHeightOverridesKindDefault) {
+    Sequence seq = laneOrderSequence(2, 1);
+
+    // The model's generic 60 is not a UI size: untouched tracks use the
+    // per-kind defaults.
+    ASSERT_FALSE(seq.videoTracks[0].hasCustomHeight());
+    EXPECT_EQ(tg::laneHeight(seq, 0, 2), tg::kDefaultVideoLaneHeight);
+    EXPECT_EQ(tg::laneHeight(seq, 2, 2), tg::kDefaultAudioLaneHeight);
+
+    // A user-set height (including one that happens to equal the model
+    // default) is honoured exactly.
+    seq.videoTracks[0].setHeight(100);
+    seq.videoTracks[1].setHeight(60);
+    seq.audioTracks[0].setHeight(18);
+    ASSERT_TRUE(seq.videoTracks[0].hasCustomHeight());
+    EXPECT_EQ(tg::laneHeight(seq, 0, 2), 100.0);
+    EXPECT_EQ(tg::laneHeight(seq, 1, 2), 60.0);
+    EXPECT_EQ(tg::laneHeight(seq, 2, 2), 18.0);
+
+    // Out-of-range stored values are clamped to the usable lane band.
+    seq.videoTracks[0].setHeight(1000);
+    seq.videoTracks[1].setHeight(1);
+    EXPECT_EQ(tg::laneHeight(seq, 0, 2), tg::kMaxLaneHeight);
+    EXPECT_EQ(tg::laneHeight(seq, 1, 2), tg::kMinLaneHeight);
+}
+
+TEST(TimelineLaneOrder, LaneTopAccountsForCustomHeights) {
+    Sequence seq = laneOrderSequence(2, 2);
+    seq.videoTracks[0].setHeight(100);
+
+    const double secondTop = tg::laneTop(seq, 1, 2, tg::LaneOrder::Split);
+    EXPECT_EQ(secondTop, tg::kRulerHeight + 100.0);
+    // The audio lanes start after both video lanes.
+    EXPECT_EQ(tg::laneTop(seq, 2, 2, tg::LaneOrder::Split),
+              tg::kRulerHeight + 100.0 + tg::kDefaultVideoLaneHeight);
+}
+
 // ---------------------------------------------------------------------------
 // Phase 2: interactive track headers.
 // ---------------------------------------------------------------------------
@@ -1422,7 +1460,7 @@ TEST(TimelineEditState, DefaultsAndToolbarDriveState) {
 
     auto* mode = fx.panel.findChild<QComboBox*>(QStringLiteral("editModeCombo"));
     ASSERT_NE(mode, nullptr);
-    ASSERT_EQ(mode->count(), 6);
+    ASSERT_EQ(mode->count(), 7);
     EXPECT_EQ(mode->currentData().toInt(),
               static_cast<int>(EditMode::Select));
 
@@ -1431,6 +1469,9 @@ TEST(TimelineEditState, DefaultsAndToolbarDriveState) {
     fx.panel.setEditMode(EditMode::Slip);
     EXPECT_EQ(mode->currentIndex(), 4);
     EXPECT_EQ(mode->currentData().toInt(), static_cast<int>(EditMode::Slip));
+    fx.panel.setEditMode(EditMode::Razor);
+    EXPECT_EQ(mode->currentIndex(), 6);
+    EXPECT_EQ(mode->currentData().toInt(), static_cast<int>(EditMode::Razor));
 
     auto* insert = fx.panel.findChild<QToolButton*>(QStringLiteral("insertModeButton"));
     auto* ripple = fx.panel.findChild<QToolButton*>(QStringLiteral("rippleButton"));
@@ -1969,4 +2010,48 @@ TEST(TimelinePanel, selectedClipRangeSpansSelection) {
     ASSERT_TRUE(fx.panel.selectedClipRange(in, out));
     EXPECT_EQ(frameOf(in), 0);
     EXPECT_EQ(frameOf(out), 27);
+}
+
+TEST(TimelinePanel, mediaItemIdForClipResolvesBothLaneKinds) {
+    Fixture fx;
+    fx.addClip(0, makeClip("v", 0, 5));
+    fx.addClip(1, makeClip("a", 0, 5));
+
+    EXPECT_EQ(fx.panel.mediaItemIdForClip("v"), "m");
+    EXPECT_EQ(fx.panel.mediaItemIdForClip("a"), "m");
+    EXPECT_TRUE(fx.panel.mediaItemIdForClip("missing").empty());
+}
+
+TEST(TimelinePanel, proxyOverrideStoresSignalsAndRestores) {
+    Fixture fx;
+    fx.addClip(0, makeClip("v", 0, 5));
+    QSignalSpy spy(&fx.panel, &bl::ui::TimelinePanel::clipProxyOverrideChanged);
+
+    fx.panel.setClipProxyOverride("v", true);
+    ASSERT_EQ(spy.count(), 1);
+    ASSERT_TRUE(fx.panel.clipProxyOverride("v").has_value());
+    EXPECT_TRUE(*fx.panel.clipProxyOverride("v"));
+
+    fx.panel.setClipProxyOverride("v", false);
+    ASSERT_EQ(spy.count(), 2);
+    ASSERT_TRUE(fx.panel.clipProxyOverride("v").has_value());
+    EXPECT_FALSE(*fx.panel.clipProxyOverride("v"));
+
+    fx.panel.setClipProxyOverride("v", std::nullopt);
+    ASSERT_EQ(spy.count(), 3);
+    EXPECT_FALSE(fx.panel.clipProxyOverride("v").has_value());
+
+    // Saving keeps only set overrides; restoring replays them so downstream
+    // listeners (the preview decoder) learn about saved preferences.
+    fx.panel.setClipProxyOverride("v", true);
+    const nlohmann::json saved = fx.panel.clipProxyOverridesToJson();
+    ASSERT_TRUE(saved.contains("v"));
+    EXPECT_TRUE(saved["v"].get<bool>());
+
+    fx.panel.restoreClipProxyOverridesFromJson(
+        nlohmann::json{{"v", false}, {"other", true}});
+    ASSERT_TRUE(fx.panel.clipProxyOverride("v").has_value());
+    EXPECT_FALSE(*fx.panel.clipProxyOverride("v"));
+    ASSERT_TRUE(fx.panel.clipProxyOverride("other").has_value());
+    EXPECT_TRUE(*fx.panel.clipProxyOverride("other"));
 }

@@ -1,5 +1,46 @@
 # Bucharest Lite Changelog
 
+## v1.9.15 — 2026-10-24
+
+### Added
+- **Proxy editing infrastructure** — low-res proxy workflow for smooth 4K+ editing:
+  - Global **Use Proxies** toolbar toggle (persisted under `timeline/useProxies`).
+  - Async low-res **proxy generation** via the Qt-free `JobManager` +
+    `ProxyGenerator` / `ProxyConfig` (`bl_core/proxy`): FFmpeg half-res H.264
+    (CRF 18) with codec-aware encoder arguments, auto-queued for sources at or
+    above the configured minimum width (default 3840).
+  - **Proxy status badges** on timeline clips (✓ ready / ⟳ generating / ✕ failed)
+    and **proxy generation progress** in the status bar (`Proxies: idle` /
+    `Proxies: N running, M queued`).
+  - **Per-clip proxy overrides** persisted in project JSON (one undo step per
+    edit), forwarded to the preview decoder per media item.
+  - **Proxy preferences dialog** — proxy directory, auto-proxy minimum source
+    width, resolution factor, CRF, codec, concurrency (persisted under the
+    `proxy` QSettings group).
+  - **Proxy cleanup** when media is removed from the bin; **export always
+    relinks to full-res originals**.
+- **Undo / redo history panel** (**View → Undo History…**, `Ctrl+7`) for visual
+  timeline history navigation; `UndoStack` gained multi-observer state
+  notifications (`addStateCallback` / `removeStateCallback`) on top of the
+  primary `setStateCallback` slot.
+
+### Fixed
+- **Timeline lane heights** regression — `Track` now carries an explicit
+  `heightCustom_` flag with per-kind defaults (44 video / 36 audio); legacy
+  projects (serialized height without the custom marker) load as unset and take
+  the per-kind default.
+- **`EditMode` restore clamp** off-by-one corrected (was `0, 5`, now
+  `0, EditMode::Razor`).
+- **Proxy FFmpeg arguments** made codec-conditional (VP9: `-deadline realtime
+  -cpu-used 5`; AV1: `-cpu-used 8`; others: `-preset fast`) and process spawn is
+  now shell-free via the new `bl::runProcess` core layer.
+
+### Notes
+- **913/913** tests green (`linux-release`; debug + release suites).
+- Proxy generation requires an `ffmpeg` **binary** on `PATH` (the Flatpak
+  bundles the FFmpeg libraries, not the executable).
+- Version bumped to **1.9.15**.
+
 ## v1.9.14 — 2026-10-14
 
 ### Added

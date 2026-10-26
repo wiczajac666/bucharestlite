@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -201,6 +202,33 @@ TEST(PreviewEngineTest, UnknownMediaItemRendersBlackNotError) {
     ASSERT_TRUE(out.ok()) << out.message();
     EXPECT_TRUE(std::all_of(out->data.begin(), out->data.end(),
                             [](uint8_t b) { return b == 0; }));
+}
+
+TEST(PreviewEngineTest, ProxySettingsRoundTripAndSurviveReset) {
+    auto result = PreviewEngine::create(makeConfig(), mediaBinWithTheora());
+    ASSERT_TRUE(result.ok()) << result.message();
+    PreviewEngine engine = std::move(result.value());
+
+    EXPECT_FALSE(engine.useProxies());
+    engine.setUseProxies(true);
+    EXPECT_TRUE(engine.useProxies());
+
+    // Decoder resets (project change, source release) must not silently drop
+    // the user's proxy preference.
+    engine.reset();
+    EXPECT_TRUE(engine.useProxies());
+
+    EXPECT_FALSE(engine.mediaProxyOverride("m1").has_value());
+    engine.setMediaProxyOverride("m1", true);
+    ASSERT_TRUE(engine.mediaProxyOverride("m1").has_value());
+    EXPECT_TRUE(*engine.mediaProxyOverride("m1"));
+
+    engine.setMediaProxyOverride("m1", false);
+    ASSERT_TRUE(engine.mediaProxyOverride("m1").has_value());
+    EXPECT_FALSE(*engine.mediaProxyOverride("m1"));
+
+    engine.setMediaProxyOverride("m1", std::nullopt);
+    EXPECT_FALSE(engine.mediaProxyOverride("m1").has_value());
 }
 
 } // namespace
