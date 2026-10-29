@@ -330,6 +330,13 @@ void ClipItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget
     painter->setClipping(false);
 
     if (selected) {
+        // Highlight overlay so the selection is visible at a glance, in
+        // addition to the outline below.
+        painter->save();
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(QColor(0xff, 0xd0, 0x5a, 55));
+        painter->drawRect(r);
+        painter->restore();
         painter->setPen(QPen(QColor(0xff, 0xd0, 0x5a), 2.0));
         painter->setBrush(Qt::NoBrush);
         painter->drawRect(r.adjusted(1.0, 1.0, -1.0, -1.0));

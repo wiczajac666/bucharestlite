@@ -14,6 +14,7 @@
 #include "widgets/fullscreen_preview_window.hpp"
 
 #include <bl_core/time.hpp>
+#include <bl_core/platform/paths.hpp>
 #include <bl_timeline/project_template.hpp>
 #include <bl_timeline/subtitle_import.hpp>
 #include <bl_timeline/title.hpp>
@@ -177,7 +178,16 @@ void MainWindow::buildDocks() {
 
     preview = new QDockWidget(tr("Preview"), this);
     preview->setObjectName(QStringLiteral("PreviewDock"));
-    previewPanel_ = new PreviewPanel(controller_, this);
+    std::vector<std::pair<std::string, bl::PluginOrigin>> pluginDirs;
+    {
+        auto roots = bl::platform::pluginRootDirectories();
+        for (size_t i = 0; i < roots.size(); ++i) {
+            pluginDirs.emplace_back(roots[i],
+                                   i == 0 ? bl::PluginOrigin::System
+                                          : bl::PluginOrigin::User);
+        }
+    }
+    previewPanel_ = new PreviewPanel(controller_, this, pluginDirs);
     preview->setWidget(previewPanel_);
 
     scopes = new QDockWidget(tr("Scopes"), this);
