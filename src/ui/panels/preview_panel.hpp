@@ -2,6 +2,11 @@
 
 #include "transport/transport_controller.hpp"
 
+#include <bl_audio/audio_engine.hpp>
+#include <bl_audio/audio_meter_analysis.hpp>
+#include <bl_core/codec_registry.hpp>
+#include <bl_core/decoder_bridge.hpp>
+#include <bl_core/demuxer.hpp>
 #include <bl_core/plugin_loader.hpp>
 #include <bl_core/time.hpp>
 #include <bl_render/compositor.hpp>
@@ -13,10 +18,12 @@
 #include <QMetaType>
 #include <QWidget>
 
+#include <atomic>
 #include <map>
 #include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -61,6 +68,7 @@ public:
                           QWidget* parent = nullptr,
                           std::vector<std::pair<std::string, bl::PluginOrigin>>
                               pluginDirs = {});
+    ~PreviewPanel();
 
     TransportController& transport() { return transport_; }
     const TransportController& transport() const { return transport_; }
@@ -125,6 +133,16 @@ private:
     std::map<std::string, std::optional<bool>> proxyOverrides_;
 
     PreviewSurface* surface_{nullptr};
+    bl::CodecRegistry audioRegistry_;
+    std::vector<std::unique_ptr<bl::PluginHandle>> audioHandles_;
+    std::unique_ptr<bl::AudioEngine> audioEngine_;
+    std::atomic<bool> audioPlaying_{false};
+    std::thread audioPlaybackThread_;
+    std::thread audioFeederThread_;
+    void startAudio();
+    void stopAudio();
+    void audioPlaybackLoop();
+    void audioFeederLoop();
     QToolButton* playButton_{nullptr};
     QToolButton* stopButton_{nullptr};
     QToolButton* stepBackButton_{nullptr};

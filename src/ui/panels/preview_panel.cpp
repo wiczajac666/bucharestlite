@@ -2,7 +2,13 @@
 
 #include "app/project_controller.hpp"
 
+#include <bl_audio/audio_engine.hpp>
+#include <bl_core/builtin_plugins.hpp>
+#include <bl_core/demuxer.hpp>
+#include <bl_core/decoder_bridge.hpp>
 #include <bl_core/logger.hpp>
+#include <bl_core/plugin_loader.hpp>
+#include <bl_plugins/codec_plugin.h>
 #include <bl_render/preview_engine.hpp>
 #include <bl_timeline/timeline.hpp>
 
@@ -15,6 +21,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <string>
 #include <utility>
 #include <vector>
@@ -114,6 +121,24 @@ PreviewPanel::PreviewPanel(ProjectController* controller,
 
     surface_ = new PreviewSurface(this);
 
+    // Build a codec registry for audio decoding from the configured plugin dirs.
+    (void)bl::registerBuiltins(audioRegistry_);
+    {
+        bl::PluginLoader loader;
+        for (const auto& [dir, origin] : pluginDirs_) {
+            auto report = loader.scanDirectory(dir, origin);
+            if (!report.ok()) continue;
+            for (auto& handle : report.value().plugins) {
+                (void)audioRegistry_.registerPlugin(const_cast<BlCodecPlugin*>(handle->plugin()));
+                audioHandles_.push_back(std::move(handle));
+            }
+        }
+    }
+
+    if (auto r = bl::AudioEngine::create(bl::createDefaultAudioOutput()); r.ok()) {
+        audioEngine_ = std::make_unique<bl::AudioEngine>(std::move(r.value()));
+    }
+
     playButton_ = new QToolButton(this);
     playButton_->setObjectName(QStringLiteral("previewPlayButton"));
     playButton_->setText(tr(kPlayGlyph));
@@ -181,7 +206,12 @@ PreviewPanel::PreviewPanel(ProjectController* controller,
     clock_.start();
 }
 
+PreviewPanel::~PreviewPanel() {
+    stopAudio();
+}
+
 void PreviewPanel::onProjectChanged() {
+    stopAudio();
     engine_.reset();
     refresh();
 }
@@ -260,8 +290,10 @@ void PreviewPanel::onTransportState() {
             clock_.restart();
             timer_->start();
         }
+        startAudio();
     } else {
         timer_->stop();
+        stopAudio();
     }
     updateTimecode();
 }
@@ -349,6 +381,153 @@ std::optional<bool> PreviewPanel::mediaProxyOverride(const std::string& mediaIte
         return it->second;
     }
     return std::nullopt;
+}
+
+void PreviewPanel::startAudio() {
+    if (!audioEngine_ || audioPlaying_.load()) return;
+    bl::AudioMixConfig cfg;
+    cfg.sampleRate = 48000;
+    cfg.channels = 2;
+    auto r = audioEngine_->start(cfg);
+    if (!r.ok()) return;
+    audioPlaying_.store(true);
+    audioPlaybackThread_ = std::thread(&PreviewPanel::audioPlaybackLoop, this);
+    audioFeederThread_ = std::thread(&PreviewPanel::audioFeederLoop, this);
+}
+
+void PreviewPanel::stopAudio() {
+    audioPlaying_.store(false);
+    if (audioPlaybackThread_.joinable()) audioPlaybackThread_.join();
+    if (audioFeederThread_.joinable()) audioFeederThread_.join();
+    if (audioEngine_) audioEngine_->stop();
+}
+
+void PreviewPanel::audioPlaybackLoop() {
+    while (audioPlaying_.load()) {
+        if (!audioEngine_) break;
+        bl::AudioBuffer out;
+        auto r = audioEngine_->pullMix(out, 512);
+        if (!r.ok()) break;
+#ifndef _WIN32
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+#endif
+    }
+}
+
+void PreviewPanel::audioFeederLoop() {
+    // Best-effort: decode audio for active clips around the playhead and push
+    // small chunks into the engine. Runs while playback is active.
+    while (audioPlaying_.load()) {
+        if (!audioEngine_ || !controller_) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            continue;
+        }
+        const auto& seq = controller_->timeline().sequence();
+        const bl::Time now = transport_.playhead();
+        const double chunkSeconds = 0.05; // 50 ms chunks
+
+        // Build a codec registry is already in audioRegistry_.
+        for (size_t ti = 0; ti < seq.audioTracks.size(); ++ti) {
+            const auto& track = seq.audioTracks[ti];
+            if (track.muted()) continue;
+            for (const auto& clip : track.clips()) {
+                if (!clip.enabled || !clip.hasAudio) continue;
+                const bl::Time clipEnd = clip.timelineStart + clip.timelineDuration;
+                if (now < clip.timelineStart || now >= clipEnd) continue;
+
+                // Find media path
+                const std::string mediaId = clip.source.mediaItemId;
+                // Resolve path via controller media bin
+                std::string path;
+                for (const auto& item : controller_->project().mediaBin) {
+                    if (item.id == mediaId) { path = item.path; break; }
+                }
+                if (path.empty()) continue;
+
+                // Decode a chunk of audio starting at 'now' mapped to source time.
+                // Map timeline time -> source time (simple: sourceIn + (now - timelineStart) * speed).
+                double speed = clip.speed.rateNum > 0 && clip.speed.rateDen > 0
+                                   ? static_cast<double>(clip.speed.rateNum) / clip.speed.rateDen
+                                   : 1.0;
+                if (speed == 0) speed = 1.0;
+                const double srcSec = clip.source.sourceIn.toSeconds() +
+                                      (now.toSeconds() - clip.timelineStart.toSeconds()) * speed;
+
+                // Open demuxer, seek, decode until we have ~chunkSeconds of audio.
+                auto demuxed = bl::Demuxer::open(path);
+                if (!demuxed.ok()) continue;
+                bl::Demuxer demuxer = std::move(demuxed.value());
+                const bl::StreamInfo& info = demuxer.info();
+                if (info.audioStreams.empty()) continue;
+                const bl::AudioStreamInfo& stream = info.audioStreams.front();
+
+                BlCodecConfig cfg{};
+                cfg.abi_version = BL_PLUGIN_ABI_VERSION;
+                cfg.codec_name = stream.codecName.c_str();
+                cfg.extradata = stream.extradata.empty() ? nullptr : stream.extradata.data();
+                cfg.extradata_size = stream.extradata.size();
+                cfg.audio.sample_rate = stream.sampleRate > 0 ? stream.sampleRate : 48000;
+                cfg.audio.channels = stream.channels > 0 ? stream.channels : 2;
+                const BlHostApi host = {
+                    BL_PLUGIN_ABI_VERSION,
+                    [](size_t s, void*) { return std::malloc(s); },
+                    [](void* p, void*) { std::free(p); },
+                    nullptr};
+                cfg.host = &host;
+
+                auto bridgeR = bl::DecoderBridge::create(audioRegistry_, stream.codecName, cfg);
+                if (!bridgeR.ok()) continue;
+                bl::DecoderBridge decoder = std::move(bridgeR.value());
+
+                uint32_t srcRate = stream.sampleRate > 0 ? stream.sampleRate : 48000;
+                uint32_t srcCh = stream.channels > 0 ? stream.channels : 2;
+                // Resample not implemented: target engine rate may differ; push as-is
+                // and accept pitch shift if rates differ. For typical 48k media it matches.
+
+                if (auto sk = demuxer.seek(bl::Time::fromSeconds(srcSec, {1000000,1})); !sk.ok()) {
+                    // continue anyway
+                }
+
+                const uint32_t targetFrames = static_cast<uint32_t>(chunkSeconds * srcRate);
+                bl::AudioBuffer buf;
+                buf.resize(targetFrames, srcCh);
+                uint32_t written = 0;
+                bool eos = false;
+                while (written < targetFrames && !eos) {
+                    auto pktR = demuxer.nextPacket();
+                    if (!pktR.ok()) { eos = true; break; }
+                    auto pkt = std::move(pktR.value());
+                    if (!pkt.has_value()) { eos = true; break; }
+                    if (pkt->streamIndex != stream.index) continue;
+                    auto decR = decoder.decode(*pkt);
+                    if (!decR.ok()) {
+                        if (decR.message() == "need more input") continue;
+                        continue;
+                    }
+                    const bl::Frame& f = *decR;
+                    if (f.empty() || f.type != bl::Frame::Type::Audio) continue;
+                    const uint32_t frames = f.sampleCount;
+                    const uint32_t toCopy = std::min(frames, targetFrames - written);
+                    // f.data is planar float: channel c plane at offset c*linesize floats
+                    for (uint32_t i = 0; i < toCopy; ++i) {
+                        for (uint32_t c = 0; c < srcCh; ++c) {
+                            const float* plane = reinterpret_cast<const float*>(
+                                f.data + static_cast<size_t>(c) * f.linesize * sizeof(float));
+                            buf.data[(written + i) * srcCh + c] = plane[i];
+                        }
+                    }
+                    written += toCopy;
+                    if (written >= targetFrames) break;
+                }
+                buf.sampleCount = written;
+                if (written > 0) {
+                    audioEngine_->pushSamples(static_cast<uint32_t>(ti), std::move(buf));
+                }
+            }
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(40));
+    }
 }
 
 } // namespace bl::ui

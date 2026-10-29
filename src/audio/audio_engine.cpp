@@ -155,3 +155,82 @@ const AudioMixConfig& AudioEngine::config() const { return impl_->config; }
 bool AudioEngine::isRunning() const { return impl_->running; }
 
 } // namespace bl
+
+#if defined(_WIN32)
+#include <windows.h>
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib")
+#endif
+
+namespace bl {
+
+#if defined(_WIN32)
+namespace {
+struct WaveOutDevice : IDeviceOutput {
+    HWAVEOUT hwo{nullptr};
+    WAVEFORMATEX wfx{};
+    HANDLE doneEvent{nullptr};
+    bool opened{false};
+
+    Result<void> open(const AudioMixConfig& cfg) override {
+        wfx.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
+        wfx.nChannels = static_cast<WORD>(cfg.channels);
+        wfx.nSamplesPerSec = cfg.sampleRate;
+        wfx.wBitsPerSample = 32;
+        wfx.nBlockAlign = static_cast<WORD>(cfg.channels * 4);
+        wfx.nAvgBytesPerSec = cfg.sampleRate * wfx.nBlockAlign;
+        wfx.cbSize = 0;
+        doneEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (!doneEvent) return Result<void>::err(Err::Internal, "CreateEvent failed");
+        MMRESULT r = waveOutOpen(&hwo, WAVE_MAPPER, &wfx,
+                                 reinterpret_cast<DWORD_PTR>(doneEvent), 0,
+                                 CALLBACK_EVENT);
+        if (r != MMSYSERR_NOERROR) {
+            CloseHandle(doneEvent);
+            doneEvent = nullptr;
+            return Result<void>::err(Err::Internal,
+                                    "waveOutOpen failed: " + std::to_string(r));
+        }
+        opened = true;
+        return Result<void>{};
+    }
+    void write(const AudioBuffer& buf) override {
+        if (!opened || !hwo || buf.sampleCount == 0) return;
+        WAVEHDR hdr{};
+        hdr.lpData = reinterpret_cast<LPSTR>(const_cast<float*>(buf.data.data()));
+        hdr.dwBufferLength = buf.sampleCount * buf.channels * sizeof(float);
+        if (waveOutPrepareHeader(hwo, &hdr, sizeof(hdr)) != MMSYSERR_NOERROR) return;
+        ResetEvent(doneEvent);
+        if (waveOutWrite(hwo, &hdr, sizeof(hdr)) != MMSYSERR_NOERROR) {
+            waveOutUnprepareHeader(hwo, &hdr, sizeof(hdr));
+            return;
+        }
+        WaitForSingleObject(doneEvent, 10000);
+        waveOutUnprepareHeader(hwo, &hdr, sizeof(hdr));
+    }
+    void close() override {
+        if (hwo) {
+            waveOutReset(hwo);
+            waveOutClose(hwo);
+            hwo = nullptr;
+        }
+        if (doneEvent) {
+            CloseHandle(doneEvent);
+            doneEvent = nullptr;
+        }
+        opened = false;
+    }
+    ~WaveOutDevice() { close(); }
+};
+} // namespace
+#endif
+
+std::unique_ptr<IDeviceOutput> createDefaultAudioOutput() {
+#if defined(_WIN32)
+    return std::make_unique<WaveOutDevice>();
+#else
+    return std::make_unique<NullDeviceOutput>();
+#endif
+}
+
+} // namespace bl

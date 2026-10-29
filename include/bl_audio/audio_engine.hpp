@@ -24,6 +24,11 @@ public:
     void close() override {}
 };
 
+// Creates a platform-default audio output device. On Windows this is a
+// waveOut-based PCM sink; on other platforms (for now) it falls back to the
+// null device. The returned pointer is never null.
+std::unique_ptr<IDeviceOutput> createDefaultAudioOutput();
+
 class AudioEngine {
 public:
     static Result<AudioEngine> create(std::unique_ptr<IDeviceOutput> output);
