@@ -159,6 +159,10 @@ bool AudioEngine::isRunning() const { return impl_->running; }
 #if defined(_WIN32)
 #include <windows.h>
 #include <mmsystem.h>
+#include <mmreg.h>
+#ifndef WAVE_FORMAT_IEEE_FLOAT
+#define WAVE_FORMAT_IEEE_FLOAT 0x0003
+#endif
 #pragma comment(lib, "winmm.lib")
 #endif
 
