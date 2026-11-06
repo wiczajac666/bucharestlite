@@ -1,5 +1,5 @@
 Name:           bucharest-lite
-Version:        1.9.14
+Version:        1.9.15
 Release:        1%{?dist}
 Summary:        Bucharest Lite - open-source non-linear video editor (NLE)
 
@@ -66,6 +66,18 @@ gtk-update-icon-cache %{_datadir}/icons/hicolor &> /dev/null || :
 %doc README.md FEATURES.md CHANGELOG.md PROJECT_STATUS.md
 
 %changelog
+* Thu Oct 29 2026 Wictoria Zajac <wiczajac666@github.com> - 1.9.15-1
+- Release 1.9.15: proxy editing infrastructure (global "Use Proxies" toggle,
+  per-clip overrides, status badges, preferences dialog, automatic generation
+  and cleanup, status-bar progress), undo/redo history dock (Ctrl+7),
+  per-kind timeline lane heights, EditMode restore clamp fix, codec-aware
+  FFmpeg proxy arguments, and shell-free process helpers for POSIX/Windows.
+- Fix black preview in production builds by handing the platform plugin
+  directories to the preview panel; add clip selection highlight.
+- Wire AudioEngine into the preview panel with a Windows waveOut output
+  backend (null sink on other platforms).
+- Clean up the malformed 1.9.14 Debian changelog entry.
+
 * Wed Oct 14 2026 Wictoria Zajac <wiczajac666@github.com> - 1.9.14-1
 - Release 1.9.14: completes the v1 feature backlog. PSNR/SSIM quality
   comparison (Tools -> Compare Quality...), media-bin folders/collections,
