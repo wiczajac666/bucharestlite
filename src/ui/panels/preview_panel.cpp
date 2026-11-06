@@ -20,6 +20,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <string>
@@ -388,8 +389,10 @@ void PreviewPanel::startAudio() {
     bl::AudioMixConfig cfg;
     cfg.sampleRate = 48000;
     cfg.channels = 2;
-    auto r = audioEngine_->start(cfg);
-    if (!r.ok()) return;
+    if (!audioEngine_->start(cfg).ok()) return;
+
+    audioFeederCursor_ = -1.0;
+    resetAudioReaders();
     audioPlaying_.store(true);
     audioPlaybackThread_ = std::thread(&PreviewPanel::audioPlaybackLoop, this);
     audioFeederThread_ = std::thread(&PreviewPanel::audioFeederLoop, this);
@@ -400,133 +403,189 @@ void PreviewPanel::stopAudio() {
     if (audioPlaybackThread_.joinable()) audioPlaybackThread_.join();
     if (audioFeederThread_.joinable()) audioFeederThread_.join();
     if (audioEngine_) audioEngine_->stop();
+    resetAudioReaders();
+    audioFeederCursor_ = -1.0;
 }
 
+void PreviewPanel::resetAudioReaders() { audioReaders_.clear(); }
+
 void PreviewPanel::audioPlaybackLoop() {
+    // pullMix writes a fixed block to the device; on blocking backends (ALSA,
+    // WinMM) that write is what paces the loop. A null sink cannot pace, so
+    // sleep instead of spinning.
     while (audioPlaying_.load()) {
         if (!audioEngine_) break;
         bl::AudioBuffer out;
-        auto r = audioEngine_->pullMix(out, 512);
-        if (!r.ok()) break;
-#ifndef _WIN32
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-#endif
+        if (!audioEngine_->pullMix(out, 512).ok()) break;
+        if (!audioEngine_->deviceBlocksOnWrite()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
     }
 }
 
 void PreviewPanel::audioFeederLoop() {
-    // Best-effort: decode audio for active clips around the playhead and push
-    // small chunks into the engine. Runs while playback is active.
+    constexpr double kRate = 48000.0;
+    constexpr uint32_t kChunk = 2400; // 50 ms at 48 kHz
+
     while (audioPlaying_.load()) {
         if (!audioEngine_ || !controller_) {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
             continue;
         }
-        const auto& seq = controller_->timeline().sequence();
-        const bl::Time now = transport_.playhead();
-        const double chunkSeconds = 0.05; // 50 ms chunks
 
-        // Build a codec registry is already in audioRegistry_.
-        for (size_t ti = 0; ti < seq.audioTracks.size(); ++ti) {
-            const auto& track = seq.audioTracks[ti];
-            if (track.muted()) continue;
+        const double playhead = transport_.playhead().toSeconds();
+        if (audioFeederCursor_ < 0.0 ||
+            std::abs(playhead - audioFeederCursor_) > 0.15) {
+            resetAudioReaders();
+            audioEngine_->flush();
+            audioFeederCursor_ = playhead;
+        }
+
+        const auto& seq = controller_->timeline().sequence();
+
+        bool anySolo = false;
+        for (const auto& track : seq.audioTracks) {
+            if (track.soloed()) {
+                anySolo = true;
+                break;
+            }
+        }
+
+        bl::AudioBuffer mix;
+        mix.resize(kChunk, 2);
+        mix.clear();
+
+        const double chunkStart = audioFeederCursor_;
+        const double chunkEnd = chunkStart + static_cast<double>(kChunk) / kRate;
+
+        for (const auto& track : seq.audioTracks) {
+            if (track.muted() || (anySolo && !track.soloed())) continue;
+
+            const auto [trackL, trackR] = bl::PanLaw::compute(track.pan());
+
             for (const auto& clip : track.clips()) {
                 if (!clip.enabled || !clip.hasAudio) continue;
-                const bl::Time clipEnd = clip.timelineStart + clip.timelineDuration;
-                if (now < clip.timelineStart || now >= clipEnd) continue;
 
-                // Find media path
-                const std::string mediaId = clip.source.mediaItemId;
-                // Resolve path via controller media bin
+                const double clipStart = clip.timelineStart.toSeconds();
+                const double clipDuration = clip.timelineDuration.toSeconds();
+                if (clipDuration <= 0.0) continue;
+                const double clipEnd = clipStart + clipDuration;
+                if (chunkEnd <= clipStart || chunkStart >= clipEnd) continue;
+
                 std::string path;
                 for (const auto& item : controller_->project().mediaBin) {
-                    if (item.id == mediaId) { path = item.path; break; }
+                    if (item.id == clip.source.mediaItemId) {
+                        path = item.path;
+                        break;
+                    }
                 }
                 if (path.empty()) continue;
 
-                // Decode a chunk of audio starting at 'now' mapped to source time.
-                // Map timeline time -> source time (simple: sourceIn + (now - timelineStart) * speed).
-                double speed = clip.speed.rateNum > 0 && clip.speed.rateDen > 0
-                                   ? static_cast<double>(clip.speed.rateNum) / clip.speed.rateDen
-                                   : 1.0;
-                if (speed == 0) speed = 1.0;
-                const double srcSec = clip.source.sourceIn.toSeconds() +
-                                      (now.toSeconds() - clip.timelineStart.toSeconds()) * speed;
+                const double overlapStart = std::max(chunkStart, clipStart);
+                const double overlapEnd = std::min(chunkEnd, clipEnd);
+                if (overlapEnd <= overlapStart) continue;
 
-                // Open demuxer, seek, decode until we have ~chunkSeconds of audio.
-                auto demuxed = bl::Demuxer::open(path);
-                if (!demuxed.ok()) continue;
-                bl::Demuxer demuxer = std::move(demuxed.value());
-                const bl::StreamInfo& info = demuxer.info();
-                if (info.audioStreams.empty()) continue;
-                const bl::AudioStreamInfo& stream = info.audioStreams.front();
+                const uint32_t offset = static_cast<uint32_t>(
+                    std::llround((overlapStart - chunkStart) * kRate));
+                if (offset >= kChunk) continue;
+                const uint32_t count = std::min<uint32_t>(
+                    static_cast<uint32_t>(
+                        std::llround((overlapEnd - overlapStart) * kRate)),
+                    kChunk - offset);
+                if (count == 0) continue;
 
-                BlCodecConfig cfg{};
-                cfg.abi_version = BL_PLUGIN_ABI_VERSION;
-                cfg.codec_name = stream.codecName.c_str();
-                cfg.extradata = stream.extradata.empty() ? nullptr : stream.extradata.data();
-                cfg.extradata_size = stream.extradata.size();
-                cfg.audio.sample_rate = stream.sampleRate > 0 ? stream.sampleRate : 48000;
-                cfg.audio.channels = stream.channels > 0 ? stream.channels : 2;
-                const BlHostApi host = {
-                    BL_PLUGIN_ABI_VERSION,
-                    [](size_t s, void*) { return std::malloc(s); },
-                    [](void* p, void*) { std::free(p); },
-                    nullptr};
-                cfg.host = &host;
+                auto it = audioReaders_.find(clip.id);
+                if (it == audioReaders_.end()) {
+                    auto opened = bl::PlaybackAudioSource::open(
+                        {path, 48000, 2}, audioRegistry_);
+                    if (!opened.ok()) continue;
+                    it = audioReaders_
+                             .emplace(clip.id,
+                                      std::make_unique<bl::PlaybackAudioSource>(
+                                          std::move(opened.value())))
+                             .first;
+                }
+                bl::PlaybackAudioSource& reader = *it->second;
 
-                auto bridgeR = bl::DecoderBridge::create(audioRegistry_, stream.codecName, cfg);
-                if (!bridgeR.ok()) continue;
-                bl::DecoderBridge decoder = std::move(bridgeR.value());
+                const double speed =
+                    clip.speed.rateNum > 0 && clip.speed.rateDen > 0
+                        ? static_cast<double>(clip.speed.rateNum) /
+                              static_cast<double>(clip.speed.rateDen)
+                        : 1.0;
 
-                uint32_t srcRate = stream.sampleRate > 0 ? stream.sampleRate : 48000;
-                uint32_t srcCh = stream.channels > 0 ? stream.channels : 2;
-                // Resample not implemented: target engine rate may differ; push as-is
-                // and accept pitch shift if rates differ. For typical 48k media it matches.
+                const auto offsetStart = bl::Duration::fromSeconds(
+                    overlapStart - clipStart, {1000000, 1});
+                const auto offsetEnd = bl::Duration::fromSeconds(
+                    overlapEnd - clipStart, {1000000, 1});
+                const double srcStart =
+                    clip.sourceTimeAt(offsetStart).toSeconds();
+                const double srcEnd = clip.sourceTimeAt(offsetEnd).toSeconds();
 
-                if (auto sk = demuxer.seek(bl::Time::fromSeconds(srcSec, {1000000,1})); !sk.ok()) {
-                    // continue anyway
+                // Reversed clips play the source window backwards, so each
+                // chunk is decoded forward from its end and flipped below.
+                if (clip.speed.reversed) {
+                    (void)reader.seekToSeconds(srcEnd);
+                } else if (std::abs(reader.positionSeconds() - srcStart) > 0.06) {
+                    (void)reader.seekToSeconds(srcStart);
                 }
 
-                const uint32_t targetFrames = static_cast<uint32_t>(chunkSeconds * srcRate);
-                bl::AudioBuffer buf;
-                buf.resize(targetFrames, srcCh);
-                uint32_t written = 0;
-                bool eos = false;
-                while (written < targetFrames && !eos) {
-                    auto pktR = demuxer.nextPacket();
-                    if (!pktR.ok()) { eos = true; break; }
-                    auto pkt = std::move(pktR.value());
-                    if (!pkt.has_value()) { eos = true; break; }
-                    if (pkt->streamIndex != stream.index) continue;
-                    auto decR = decoder.decode(*pkt);
-                    if (!decR.ok()) {
-                        if (decR.message() == "need more input") continue;
-                        continue;
+                const uint32_t want = std::max<uint32_t>(
+                    1, static_cast<uint32_t>(std::llround(count * speed)));
+
+                bl::AudioBuffer tmp;
+                const uint32_t produced = reader.pull(tmp, want);
+                if (produced == 0) continue;
+
+                if (clip.speed.reversed) {
+                    for (uint32_t c = 0; c < 2; ++c) {
+                        std::reverse(tmp.channelData(c),
+                                     tmp.channelData(c) + produced);
                     }
-                    const bl::Frame& f = *decR;
-                    if (f.empty() || f.type != bl::Frame::Type::Audio) continue;
-                    const uint32_t frames = f.sampleCount;
-                    const uint32_t toCopy = std::min(frames, targetFrames - written);
-                    // f.data is planar float: channel c plane at offset c*linesize floats
-                    for (uint32_t i = 0; i < toCopy; ++i) {
-                        for (uint32_t c = 0; c < srcCh; ++c) {
-                            const float* plane = reinterpret_cast<const float*>(
-                                f.data + static_cast<size_t>(c) * f.linesize * sizeof(float));
-                            buf.data[(written + i) * srcCh + c] = plane[i];
-                        }
-                    }
-                    written += toCopy;
-                    if (written >= targetFrames) break;
                 }
-                buf.sampleCount = written;
-                if (written > 0) {
-                    audioEngine_->pushSamples(static_cast<uint32_t>(ti), std::move(buf));
+
+                const double gain =
+                    track.gain() * clip.audio.gain;
+                const auto [clipL, clipR] = bl::PanLaw::compute(clip.audio.pan);
+                const double gainL = gain * trackL * clipL;
+                const double gainR = gain * trackR * clipR;
+
+                const uint32_t copy = std::min(produced, count);
+                const bool needsStretch = std::abs(speed - 1.0) > 1e-6;
+
+                for (uint32_t i = 0; i < copy; ++i) {
+                    float left = 0.0f;
+                    float right = 0.0f;
+                    if (!needsStretch) {
+                        left = tmp.channelData(0)[i];
+                        right = tmp.channelData(1)[i];
+                    } else {
+                        const double pos = static_cast<double>(i) * speed;
+                        const auto i0 = static_cast<size_t>(pos);
+                        if (i0 >= produced) break;
+                        const size_t i1 = std::min<size_t>(
+                            i0 + 1, static_cast<size_t>(produced) - 1);
+                        const auto frac = static_cast<float>(pos - i0);
+                        left = tmp.channelData(0)[i0] +
+                               (tmp.channelData(0)[i1] -
+                                tmp.channelData(0)[i0]) * frac;
+                        right = tmp.channelData(1)[i0] +
+                                (tmp.channelData(1)[i1] -
+                                 tmp.channelData(1)[i0]) * frac;
+                    }
+                    mix.channelData(0)[offset + i] +=
+                        static_cast<float>(left * gainL);
+                    mix.channelData(1)[offset + i] +=
+                        static_cast<float>(right * gainR);
                 }
             }
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(40));
+        const uint32_t accepted = audioEngine_->pushSamples(0, std::move(mix));
+        if (accepted == 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            continue;
+        }
+        audioFeederCursor_ += static_cast<double>(accepted) / kRate;
     }
 }
 

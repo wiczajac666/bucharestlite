@@ -2,6 +2,7 @@ add_library(bl_audio STATIC
     track_strip.cpp
     mixer.cpp
     audio_engine.cpp
+    playback_audio_source.cpp
     device_output.cpp
     device_output_alsa.cpp
     device_output_winmm.cpp

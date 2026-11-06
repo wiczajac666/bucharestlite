@@ -26,6 +26,10 @@ public:
     uint32_t pushSamples(uint32_t trackIndex, AudioBuffer buffer);
     Result<void> pullMix(AudioBuffer& output, uint32_t sampleCount);
 
+    // Drop everything queued so far without stopping the device. Used when
+    // the playhead jumps and the feeder starts over from a new position.
+    void flush();
+
     const AudioMixConfig& config() const;
     bool isRunning() const;
     bool deviceBlocksOnWrite() const;

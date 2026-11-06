@@ -39,6 +39,7 @@ add_executable(bl_core_tests
     test_scopes.cpp
     test_audio_mixer.cpp
     test_audio_engine.cpp
+    test_playback_audio_source.cpp
     test_audio_meter_analysis.cpp
     test_media_jobs.cpp
     test_persistence.cpp

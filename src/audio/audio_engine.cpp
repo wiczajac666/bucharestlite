@@ -165,6 +165,14 @@ Result<void> AudioEngine::pullMix(AudioBuffer& output, uint32_t sampleCount) {
     return Result<void>{};
 }
 
+void AudioEngine::flush() {
+    std::lock_guard lock(impl_->mutex);
+    for (auto& [index, ring] : impl_->ringBuffers) {
+        (void)index;
+        ring.count = 0;
+    }
+}
+
 const AudioMixConfig& AudioEngine::config() const { return impl_->config; }
 bool AudioEngine::isRunning() const { return impl_->running; }
 bool AudioEngine::deviceBlocksOnWrite() const { return impl_->output->blocksOnWrite(); }

@@ -4,6 +4,7 @@
 
 #include <bl_audio/audio_engine.hpp>
 #include <bl_audio/audio_meter_analysis.hpp>
+#include <bl_audio/playback_audio_source.hpp>
 #include <bl_core/codec_registry.hpp>
 #include <bl_core/decoder_bridge.hpp>
 #include <bl_core/demuxer.hpp>
@@ -24,6 +25,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -136,11 +138,15 @@ private:
     bl::CodecRegistry audioRegistry_;
     std::vector<std::unique_ptr<bl::PluginHandle>> audioHandles_;
     std::unique_ptr<bl::AudioEngine> audioEngine_;
+    std::unordered_map<std::string, std::unique_ptr<bl::PlaybackAudioSource>>
+        audioReaders_;
+    double audioFeederCursor_{-1.0};
     std::atomic<bool> audioPlaying_{false};
     std::thread audioPlaybackThread_;
     std::thread audioFeederThread_;
     void startAudio();
     void stopAudio();
+    void resetAudioReaders();
     void audioPlaybackLoop();
     void audioFeederLoop();
     QToolButton* playButton_{nullptr};

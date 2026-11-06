@@ -16,6 +16,7 @@ set(BL_MEDIA_STAGE ${CMAKE_CURRENT_BINARY_DIR}/media)
 add_custom_command(
     OUTPUT ${BL_MEDIA_STAGE}/test_video.mp4
            ${BL_MEDIA_STAGE}/test_audio.wav
+           ${BL_MEDIA_STAGE}/test_audio_44k.flac
            ${BL_MEDIA_STAGE}/test_av.mp4
            ${BL_MEDIA_STAGE}/test_video.h264
            ${BL_MEDIA_STAGE}/test_audio_vorbis.ogg
@@ -27,6 +28,7 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E make_directory ${BL_MEDIA_STAGE}
     COMMAND ffmpeg -y -loglevel error -f lavfi -i testsrc=duration=1:size=320x240:rate=24 -pix_fmt yuv420p ${BL_MEDIA_STAGE}/test_video.mp4
     COMMAND ffmpeg -y -loglevel error -f lavfi -i sine=frequency=440:duration=1 -ar 48000 -ac 2 ${BL_MEDIA_STAGE}/test_audio.wav
+    COMMAND ffmpeg -y -loglevel error -f lavfi -i sine=frequency=440:duration=1 -ar 44100 -ac 2 -c:a flac ${BL_MEDIA_STAGE}/test_audio_44k.flac
     COMMAND ffmpeg -y -loglevel error -f lavfi -i testsrc=duration=2:size=320x240:rate=24 -f lavfi -i sine=frequency=440:duration=2 -pix_fmt yuv420p -shortest ${BL_MEDIA_STAGE}/test_av.mp4
     COMMAND ffmpeg -y -loglevel error -f lavfi -i testsrc=duration=2:size=320x240:rate=24 -c:v libx264 -preset veryfast -bf 0 -pix_fmt yuv420p -f h264 ${BL_MEDIA_STAGE}/test_video.h264
     COMMAND ffmpeg -y -loglevel error -f lavfi -i sine=frequency=440:duration=1 -ar 48000 -ac 2 -c:a libvorbis ${BL_MEDIA_STAGE}/test_audio_vorbis.ogg
@@ -42,6 +44,7 @@ add_custom_command(
 add_custom_target(bl_media_fixtures ALL
     DEPENDS ${BL_MEDIA_STAGE}/test_video.mp4
             ${BL_MEDIA_STAGE}/test_audio.wav
+            ${BL_MEDIA_STAGE}/test_audio_44k.flac
             ${BL_MEDIA_STAGE}/test_av.mp4
             ${BL_MEDIA_STAGE}/test_video.h264
             ${BL_MEDIA_STAGE}/test_audio_vorbis.ogg
