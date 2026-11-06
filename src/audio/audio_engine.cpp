@@ -10,6 +10,10 @@
 
 namespace bl {
 
+// Fixed-capacity ring of *planar* float frames. The public AudioBuffer /
+// AudioSpan types are planar (channel c starts at data + c*linesize), so the
+// ring stores one contiguous plane per channel to avoid a transpose on every
+// push/read.
 struct RingBuffer {
     std::vector<float> data;
     uint32_t channels{0};
@@ -20,31 +24,34 @@ struct RingBuffer {
     void init(uint32_t cap, uint32_t ch) {
         channels = ch;
         capacity = cap;
-        data.resize(static_cast<size_t>(cap) * ch, 0.0f);
+        data.assign(static_cast<size_t>(cap) * ch, 0.0f);
         writePos = 0;
         count = 0;
     }
 
-    void push(const float* samples, uint32_t frames) {
+    uint32_t push(const AudioSpan& src, uint32_t frames) {
+        frames = std::min(frames, capacity - count);
         for (uint32_t i = 0; i < frames; ++i) {
+            const uint32_t slot = (writePos + i) % capacity;
             for (uint32_t c = 0; c < channels; ++c) {
-                data[static_cast<size_t>((writePos + i) % capacity) * channels + c] =
-                    samples[i * channels + c];
+                data[static_cast<size_t>(c) * capacity + slot] = src.channelData(c)[i];
             }
         }
         writePos = (writePos + frames) % capacity;
-        count = std::min(count + frames, capacity);
+        count += frames;
+        return frames;
     }
 
-    void read(float* out, uint32_t frames) {
-        uint32_t readPos = (writePos + capacity - count) % capacity;
+    void read(AudioSpan out, uint32_t frames) {
+        frames = std::min(frames, count);
+        const uint32_t readPos = (writePos + capacity - count) % capacity;
         for (uint32_t i = 0; i < frames; ++i) {
+            const uint32_t slot = (readPos + i) % capacity;
             for (uint32_t c = 0; c < channels; ++c) {
-                out[i * channels + c] =
-                    data[static_cast<size_t>((readPos + i) % capacity) * channels + c];
+                out.channelData(c)[i] = data[static_cast<size_t>(c) * capacity + slot];
             }
         }
-        count = (count > frames) ? count - frames : 0;
+        count -= frames;
     }
 
     uint32_t available() const { return count; }
@@ -83,7 +90,10 @@ Result<void> AudioEngine::start(const AudioMixConfig& config) {
     impl_->running = true;
 
     auto res = impl_->output->open(config);
-    if (!res.ok()) return res;
+    if (!res.ok()) {
+        impl_->running = false;
+        return res;
+    }
 
     BL_LOG_INFO("audio", "engine started " + std::to_string(config.sampleRate) + "Hz " +
                              std::to_string(config.channels) + "ch");
@@ -98,21 +108,17 @@ void AudioEngine::stop() {
     BL_LOG_INFO("audio", "engine stopped");
 }
 
-bool AudioEngine::pushSamples(uint32_t trackIndex, AudioBuffer buffer) {
+uint32_t AudioEngine::pushSamples(uint32_t trackIndex, AudioBuffer buffer) {
     std::lock_guard lock(impl_->mutex);
-    if (!impl_->running) return false;
+    if (!impl_->running) return 0;
+    if (buffer.channels != impl_->config.channels) return 0;
 
     auto& rb = impl_->ringBuffers[trackIndex];
     if (rb.capacity == 0) {
         rb.init(impl_->config.sampleRate * 2, impl_->config.channels);
     }
 
-    AudioSpan span = buffer.span();
-    uint32_t frames = std::min(span.sampleCount, rb.capacity - rb.available());
-    if (frames == 0) return false;
-
-    rb.push(span.data, frames);
-    return true;
+    return rb.push(buffer.span(), buffer.sampleCount);
 }
 
 Result<void> AudioEngine::pullMix(AudioBuffer& output, uint32_t sampleCount) {
@@ -129,13 +135,21 @@ Result<void> AudioEngine::pullMix(AudioBuffer& output, uint32_t sampleCount) {
     std::vector<double> gains;
     std::vector<double> pans;
 
+    // Reserve so push_back never reallocates: `inputs` holds spans pointing
+    // into `trackBuffers`, which would dangle after a move.
+    trackBuffers.reserve(impl_->ringBuffers.size());
+    inputs.reserve(impl_->ringBuffers.size());
+    gains.reserve(impl_->ringBuffers.size());
+    pans.reserve(impl_->ringBuffers.size());
+
     for (auto& [idx, rb] : impl_->ringBuffers) {
         if (rb.available() == 0) continue;
 
         AudioBuffer tmp;
         tmp.resize(sampleCount, impl_->config.channels);
-        uint32_t toRead = std::min(sampleCount, rb.available());
-        rb.read(tmp.data.data(), toRead);
+        tmp.clear();
+        const uint32_t toRead = std::min(sampleCount, rb.available());
+        rb.read(tmp.span(), toRead);
 
         trackBuffers.push_back(std::move(tmp));
         inputs.push_back(trackBuffers.back().span());
@@ -153,88 +167,6 @@ Result<void> AudioEngine::pullMix(AudioBuffer& output, uint32_t sampleCount) {
 
 const AudioMixConfig& AudioEngine::config() const { return impl_->config; }
 bool AudioEngine::isRunning() const { return impl_->running; }
-
-} // namespace bl
-
-#if defined(_WIN32)
-#include <windows.h>
-#include <mmsystem.h>
-#include <mmreg.h>
-#ifndef WAVE_FORMAT_IEEE_FLOAT
-#define WAVE_FORMAT_IEEE_FLOAT 0x0003
-#endif
-#pragma comment(lib, "winmm.lib")
-#endif
-
-namespace bl {
-
-#if defined(_WIN32)
-namespace {
-struct WaveOutDevice : IDeviceOutput {
-    HWAVEOUT hwo{nullptr};
-    WAVEFORMATEX wfx{};
-    HANDLE doneEvent{nullptr};
-    bool opened{false};
-
-    Result<void> open(const AudioMixConfig& cfg) override {
-        wfx.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
-        wfx.nChannels = static_cast<WORD>(cfg.channels);
-        wfx.nSamplesPerSec = cfg.sampleRate;
-        wfx.wBitsPerSample = 32;
-        wfx.nBlockAlign = static_cast<WORD>(cfg.channels * 4);
-        wfx.nAvgBytesPerSec = cfg.sampleRate * wfx.nBlockAlign;
-        wfx.cbSize = 0;
-        doneEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        if (!doneEvent) return Result<void>::err(Err::Internal, "CreateEvent failed");
-        MMRESULT r = waveOutOpen(&hwo, WAVE_MAPPER, &wfx,
-                                 reinterpret_cast<DWORD_PTR>(doneEvent), 0,
-                                 CALLBACK_EVENT);
-        if (r != MMSYSERR_NOERROR) {
-            CloseHandle(doneEvent);
-            doneEvent = nullptr;
-            return Result<void>::err(Err::Internal,
-                                    "waveOutOpen failed: " + std::to_string(r));
-        }
-        opened = true;
-        return Result<void>{};
-    }
-    void write(const AudioBuffer& buf) override {
-        if (!opened || !hwo || buf.sampleCount == 0) return;
-        WAVEHDR hdr{};
-        hdr.lpData = reinterpret_cast<LPSTR>(const_cast<float*>(buf.data.data()));
-        hdr.dwBufferLength = buf.sampleCount * buf.channels * sizeof(float);
-        if (waveOutPrepareHeader(hwo, &hdr, sizeof(hdr)) != MMSYSERR_NOERROR) return;
-        ResetEvent(doneEvent);
-        if (waveOutWrite(hwo, &hdr, sizeof(hdr)) != MMSYSERR_NOERROR) {
-            waveOutUnprepareHeader(hwo, &hdr, sizeof(hdr));
-            return;
-        }
-        WaitForSingleObject(doneEvent, 10000);
-        waveOutUnprepareHeader(hwo, &hdr, sizeof(hdr));
-    }
-    void close() override {
-        if (hwo) {
-            waveOutReset(hwo);
-            waveOutClose(hwo);
-            hwo = nullptr;
-        }
-        if (doneEvent) {
-            CloseHandle(doneEvent);
-            doneEvent = nullptr;
-        }
-        opened = false;
-    }
-    ~WaveOutDevice() { close(); }
-};
-} // namespace
-#endif
-
-std::unique_ptr<IDeviceOutput> createDefaultAudioOutput() {
-#if defined(_WIN32)
-    return std::make_unique<WaveOutDevice>();
-#else
-    return std::make_unique<NullDeviceOutput>();
-#endif
-}
+bool AudioEngine::deviceBlocksOnWrite() const { return impl_->output->blocksOnWrite(); }
 
 } // namespace bl
