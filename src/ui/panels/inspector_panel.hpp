@@ -70,6 +70,7 @@ private:
     QWidget* buildColorSection(QWidget* parent);
     QWidget* buildKeyframeSection(QWidget* parent);
     QWidget* buildEffectSection(QWidget* parent);
+    QWidget* buildMaskSection(QWidget* parent);
 
     void onNameChanged();
     void onSubtitleChanged();
@@ -89,6 +90,19 @@ private:
     void onEffectParamsChanged();
     void rebuildEffectParams(const EffectInstance& effect);
     void onParamCommitted(const std::string& key, double value);
+
+    // Masks.
+    const Clip* currentClip() const;
+    int selectedMaskIndex() const;
+    void reloadMaskTable();
+    void commitMasks(std::vector<Mask> masks);
+    void onAddMask();
+    void onRemoveMask();
+    void onMaskSelected(int row);
+    void onMaskPointChanged(int row, int column);
+    void onMaskAddPoint();
+    void onMaskRemovePoint();
+    void onMaskPropertyChanged();
 
     ProjectController* controller_{nullptr};
     ClipEditController editor_;
@@ -147,6 +161,19 @@ private:
     QWidget* effectSliders_{nullptr};
     QVBoxLayout* effectSlidersLayout_{nullptr};
     std::vector<ParamSlider*> paramSliders_;
+
+    // Masks.
+    QListWidget* maskList_{nullptr};
+    QPushButton* maskAdd_{nullptr};
+    QPushButton* maskRemove_{nullptr};
+    QPushButton* maskPointAdd_{nullptr};
+    QPushButton* maskPointRemove_{nullptr};
+    QTableWidget* maskPointTable_{nullptr};
+    QDoubleSpinBox* maskFeather_{nullptr};
+    QDoubleSpinBox* maskOpacity_{nullptr};
+    QCheckBox* maskInvert_{nullptr};
+    QCheckBox* maskSmooth_{nullptr};
+    QWidget* maskDetail_{nullptr};
 };
 
 } // namespace bl::ui

@@ -29,12 +29,12 @@ each item ends with a green `ctest` run and a commit.
 - [x] UI tests for the source monitor and insert/overwrite primitives
 - [x] `ctest` green + commit
 
-## 4. Masking / roto
-- [ ] Mask model (polygon/bezier) + serialization
-- [ ] Mask rasterisation in the compositor path
-- [ ] Inspector mask editor (add/move/delete points, feather)
-- [ ] Preview + export both honour masks
-- [ ] Tests (model round-trip, rasteriser, export smoke)
+## 4. Masking / roto  ✅ done
+- [x] Mask model (polygon + smooth Catmull-Rom curve) + serialization
+- [x] Mask rasterisation in the compositor path (feather, invert, opacity)
+- [x] Inspector mask editor (add/move/delete points, feather)
+- [x] Preview + export both honour masks (shared compositor)
+- [x] Tests (model round-trip, rasteriser, compositor/render path)
 - [x] `ctest` green + commit
 
 ## 5. GPU compositor

@@ -240,6 +240,7 @@ void to_json(nlohmann::json& j, const Clip& c) {
         {"audio", c.audio}
     };
     if (c.keyframes) j["keyframes"] = *c.keyframes;
+    if (!c.masks.empty()) j["masks"] = c.masks;
     if (c.transitionOut) j["transitionOut"] = *c.transitionOut;
     if (c.subtitleText) j["subtitleText"] = *c.subtitleText;
     if (c.subtitleStyle) j["subtitleStyle"] = *c.subtitleStyle;
@@ -268,6 +269,9 @@ void from_json(const nlohmann::json& j, Clip& c) {
     c.enabled = j.value("enabled", true);
     if (j.contains("keyframes")) {
         from_json(j.at("keyframes"), c.keyframes.emplace());
+    }
+    if (j.contains("masks")) {
+        c.masks = j.at("masks").get<std::vector<Mask>>();
     }
     if (j.contains("transitionOut")) {
         from_json(j.at("transitionOut"), c.transitionOut.emplace());

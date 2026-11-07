@@ -21,6 +21,7 @@
 #include <QStackedWidget>
 #include <QVBoxLayout>
 
+#include <algorithm>
 #include <cmath>
 #include <sstream>
 
@@ -96,6 +97,7 @@ InspectorPanel::InspectorPanel(ProjectController* controller, QWidget* parent)
     layout->addWidget(buildSpeedSection(scrollContent));
     layout->addWidget(buildAudioSection(scrollContent));
     layout->addWidget(buildColorSection(scrollContent));
+    layout->addWidget(buildMaskSection(scrollContent));
     layout->addWidget(buildKeyframeSection(scrollContent));
     layout->addWidget(buildEffectSection(scrollContent));
     layout->addStretch(1);
@@ -181,6 +183,9 @@ void InspectorPanel::clearUI() {
         }
         paramSliders_.clear();
     }
+    if (maskList_) maskList_->clear();
+    if (maskPointTable_) maskPointTable_->setRowCount(0);
+    if (maskDetail_) maskDetail_->setEnabled(false);
     suppress_ = false;
 }
 
@@ -297,6 +302,27 @@ void InspectorPanel::reloadFromModel() {
             effectList_->setCurrentRow(previousEffectRow);
         }
         onEffectEnabledChanged();
+    }
+
+    // Masks.
+    if (maskList_) {
+        maskList_->blockSignals(true);
+        const int previousRow = maskList_->currentRow();
+        maskList_->clear();
+        for (const Mask& mask : clip->masks) {
+            QString label = QString::fromStdString(mask.name);
+            if (!mask.enabled) label += " (disabled)";
+            maskList_->addItem(label);
+        }
+        int row = -1;
+        if (previousRow >= 0 && previousRow < maskList_->count()) {
+            row = previousRow;
+        } else if (maskList_->count() > 0) {
+            row = 0;
+        }
+        maskList_->setCurrentRow(row);
+        maskList_->blockSignals(false);
+        reloadMaskTable();
     }
 
     suppress_ = false;
@@ -416,6 +442,106 @@ QWidget* InspectorPanel::buildColorSection(QWidget* parent) {
         colorButtons_.push_back(btn);
     }
     row->addStretch(1);
+    return group;
+}
+
+QWidget* InspectorPanel::buildMaskSection(QWidget* parent) {
+    auto* group = new QGroupBox(tr("Masks"), parent);
+    auto* layout = new QVBoxLayout(group);
+    layout->setContentsMargins(4, 4, 4, 4);
+
+    auto* listRow = new QHBoxLayout();
+    maskList_ = new QListWidget(group);
+    maskList_->setObjectName(QStringLiteral("inspectorMaskList"));
+    maskList_->setAlternatingRowColors(true);
+    maskList_->setMaximumHeight(90);
+    listRow->addWidget(maskList_, 1);
+
+    auto* btnCol = new QVBoxLayout();
+    maskAdd_ = new QPushButton(tr("Add"), group);
+    maskAdd_->setObjectName(QStringLiteral("inspectorMaskAdd"));
+    maskRemove_ = new QPushButton(tr("Remove"), group);
+    maskRemove_->setObjectName(QStringLiteral("inspectorMaskRemove"));
+    btnCol->addWidget(maskAdd_);
+    btnCol->addWidget(maskRemove_);
+    btnCol->addStretch(1);
+    listRow->addLayout(btnCol);
+    layout->addLayout(listRow);
+
+    maskDetail_ = new QWidget(group);
+    auto* detailLayout = new QVBoxLayout(maskDetail_);
+    detailLayout->setContentsMargins(0, 0, 0, 0);
+
+    auto* props = new QFormLayout();
+    maskFeather_ = new QDoubleSpinBox(maskDetail_);
+    maskFeather_->setRange(0.0, 1.0);
+    maskFeather_->setSingleStep(0.01);
+    maskFeather_->setDecimals(3);
+    maskFeather_->setObjectName(QStringLiteral("inspectorMaskFeather"));
+    maskOpacity_ = new QDoubleSpinBox(maskDetail_);
+    maskOpacity_->setRange(0.0, 1.0);
+    maskOpacity_->setSingleStep(0.05);
+    maskOpacity_->setDecimals(2);
+    maskOpacity_->setObjectName(QStringLiteral("inspectorMaskOpacity"));
+    props->addRow(tr("Feather:"), maskFeather_);
+    props->addRow(tr("Opacity:"), maskOpacity_);
+    detailLayout->addLayout(props);
+
+    auto* flags = new QHBoxLayout();
+    maskInvert_ = new QCheckBox(tr("Invert"), maskDetail_);
+    maskInvert_->setObjectName(QStringLiteral("inspectorMaskInvert"));
+    maskSmooth_ = new QCheckBox(tr("Smooth"), maskDetail_);
+    maskSmooth_->setObjectName(QStringLiteral("inspectorMaskSmooth"));
+    flags->addWidget(maskInvert_);
+    flags->addWidget(maskSmooth_);
+    flags->addStretch(1);
+    detailLayout->addLayout(flags);
+
+    maskPointTable_ = new QTableWidget(0, 2, maskDetail_);
+    maskPointTable_->setObjectName(QStringLiteral("inspectorMaskPoints"));
+    maskPointTable_->setHorizontalHeaderLabels({tr("X"), tr("Y")});
+    maskPointTable_->horizontalHeader()->setStretchLastSection(true);
+    maskPointTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    maskPointTable_->setSelectionMode(QAbstractItemView::SingleSelection);
+    maskPointTable_->verticalHeader()->hide();
+    maskPointTable_->setMinimumHeight(110);
+    detailLayout->addWidget(maskPointTable_);
+
+    auto* pointRow = new QHBoxLayout();
+    maskPointAdd_ = new QPushButton(tr("Add point"), maskDetail_);
+    maskPointAdd_->setObjectName(QStringLiteral("inspectorMaskPointAdd"));
+    maskPointRemove_ = new QPushButton(tr("Remove point"), maskDetail_);
+    maskPointRemove_->setObjectName(QStringLiteral("inspectorMaskPointRemove"));
+    pointRow->addWidget(maskPointAdd_);
+    pointRow->addWidget(maskPointRemove_);
+    pointRow->addStretch(1);
+    detailLayout->addLayout(pointRow);
+
+    layout->addWidget(maskDetail_);
+    maskDetail_->setEnabled(false);
+
+    connect(maskAdd_, &QPushButton::clicked, this,
+            &InspectorPanel::onAddMask);
+    connect(maskRemove_, &QPushButton::clicked, this,
+            &InspectorPanel::onRemoveMask);
+    connect(maskList_, &QListWidget::currentRowChanged, this,
+            &InspectorPanel::onMaskSelected);
+    connect(maskPointTable_, &QTableWidget::cellChanged, this,
+            &InspectorPanel::onMaskPointChanged);
+    connect(maskPointAdd_, &QPushButton::clicked, this,
+            &InspectorPanel::onMaskAddPoint);
+    connect(maskPointRemove_, &QPushButton::clicked, this,
+            &InspectorPanel::onMaskRemovePoint);
+    connect(maskFeather_,
+            QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            &InspectorPanel::onMaskPropertyChanged);
+    connect(maskOpacity_,
+            QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            &InspectorPanel::onMaskPropertyChanged);
+    connect(maskInvert_, &QCheckBox::toggled, this,
+            &InspectorPanel::onMaskPropertyChanged);
+    connect(maskSmooth_, &QCheckBox::toggled, this,
+            &InspectorPanel::onMaskPropertyChanged);
     return group;
 }
 
@@ -891,6 +1017,190 @@ void InspectorPanel::onParamCommitted(const std::string& key, double value) {
         effectList_->setCurrentRow(effectRow);
     }
     emit clipChanged();
+}
+
+// ---------------------------------------------------------------------------
+// Masks.
+// ---------------------------------------------------------------------------
+
+const Clip* InspectorPanel::currentClip() const {
+    if (!controller_ || !currentFlat_.has_value()) return nullptr;
+    const Sequence& seq = controller_->timeline().sequence();
+    const int flat = *currentFlat_;
+    const Track<Clip>* track = nullptr;
+    if (flat >= 0 && static_cast<size_t>(flat) < seq.videoTracks.size()) {
+        track = &seq.videoTracks[static_cast<size_t>(flat)];
+    } else {
+        const int audioIndex = flat - static_cast<int>(seq.videoTracks.size());
+        if (audioIndex >= 0 &&
+            static_cast<size_t>(audioIndex) < seq.audioTracks.size()) {
+            track = &seq.audioTracks[static_cast<size_t>(audioIndex)];
+        }
+    }
+    if (!track) return nullptr;
+    for (const Clip& clip : track->clips()) {
+        if (clip.id == currentId_) return &clip;
+    }
+    return nullptr;
+}
+
+int InspectorPanel::selectedMaskIndex() const {
+    if (!maskList_) return -1;
+    const int row = maskList_->currentRow();
+    const Clip* clip = currentClip();
+    if (!clip || row < 0 || static_cast<size_t>(row) >= clip->masks.size()) {
+        return -1;
+    }
+    return row;
+}
+
+void InspectorPanel::commitMasks(std::vector<Mask> masks) {
+    if (suppress_ || !currentFlat_.has_value()) return;
+    if (!editor_.setMasks(*currentFlat_, currentId_, std::move(masks))) return;
+    reloadFromModel();
+    emit clipChanged();
+}
+
+void InspectorPanel::onAddMask() {
+    const Clip* clip = currentClip();
+    if (!clip) return;
+    std::vector<Mask> masks = clip->masks;
+
+    Mask mask;
+    int suffix = static_cast<int>(masks.size()) + 1;
+    const auto idExists = [&masks](const std::string& id) {
+        return std::any_of(masks.begin(), masks.end(),
+                           [&id](const Mask& m) { return m.id == id; });
+    };
+    std::string id = "mask:" + std::to_string(suffix);
+    while (idExists(id)) {
+        id = "mask:" + std::to_string(++suffix);
+    }
+    mask.id = id;
+    mask.name = "Mask " + std::to_string(suffix);
+    // A default inset rectangle gives the user a draggable starting shape
+    // instead of an empty mask that renders as a no-op.
+    mask.points = {{0.1, 0.1}, {0.9, 0.1}, {0.9, 0.9}, {0.1, 0.9}};
+    masks.push_back(std::move(mask));
+    commitMasks(std::move(masks));
+}
+
+void InspectorPanel::onRemoveMask() {
+    const Clip* clip = currentClip();
+    const int row = selectedMaskIndex();
+    if (!clip || row < 0) return;
+    std::vector<Mask> masks = clip->masks;
+    masks.erase(masks.begin() + row);
+    commitMasks(std::move(masks));
+}
+
+void InspectorPanel::onMaskSelected(int /*row*/) { reloadMaskTable(); }
+
+void InspectorPanel::reloadMaskTable() {
+    if (!maskPointTable_ || !maskDetail_) return;
+    const Clip* clip = currentClip();
+    const int row = selectedMaskIndex();
+    const Mask* mask = (clip && row >= 0)
+                           ? &clip->masks[static_cast<size_t>(row)]
+                           : nullptr;
+
+    const QSignalBlocker blockTable(maskPointTable_);
+    const QSignalBlocker blockFeather(maskFeather_);
+    const QSignalBlocker blockOpacity(maskOpacity_);
+    const QSignalBlocker blockInvert(maskInvert_);
+    const QSignalBlocker blockSmooth(maskSmooth_);
+
+    maskDetail_->setEnabled(mask != nullptr);
+    if (!mask) {
+        maskPointTable_->setRowCount(0);
+        return;
+    }
+
+    maskFeather_->setValue(mask->feather);
+    maskOpacity_->setValue(mask->opacity);
+    maskInvert_->setChecked(mask->invert);
+    maskSmooth_->setChecked(mask->smooth);
+
+    maskPointTable_->setRowCount(0);
+    for (const MaskPoint& point : mask->points) {
+        const int pointRow = maskPointTable_->rowCount();
+        maskPointTable_->insertRow(pointRow);
+        maskPointTable_->setItem(
+            pointRow, 0,
+            new QTableWidgetItem(QString::number(point.x, 'f', 4)));
+        maskPointTable_->setItem(
+            pointRow, 1,
+            new QTableWidgetItem(QString::number(point.y, 'f', 4)));
+    }
+}
+
+void InspectorPanel::onMaskPointChanged(int row, int column) {
+    if (suppress_) return;
+    const Clip* clip = currentClip();
+    const int maskRow = selectedMaskIndex();
+    if (!clip || maskRow < 0) return;
+    const Mask& mask = clip->masks[static_cast<size_t>(maskRow)];
+    if (row < 0 || static_cast<size_t>(row) >= mask.points.size()) return;
+
+    auto* item = maskPointTable_->item(row, column);
+    if (!item) return;
+    bool ok = false;
+    const double value = item->text().toDouble(&ok);
+    if (!ok) {
+        reloadMaskTable();
+        return;
+    }
+    std::vector<Mask> masks = clip->masks;
+    MaskPoint& point =
+        masks[static_cast<size_t>(maskRow)].points[static_cast<size_t>(row)];
+    (column == 0 ? point.x : point.y) = std::clamp(value, 0.0, 1.0);
+    commitMasks(std::move(masks));
+}
+
+void InspectorPanel::onMaskAddPoint() {
+    const Clip* clip = currentClip();
+    const int maskRow = selectedMaskIndex();
+    if (!clip || maskRow < 0) return;
+    std::vector<Mask> masks = clip->masks;
+    Mask& mask = masks[static_cast<size_t>(maskRow)];
+    if (mask.points.size() >= 2) {
+        const MaskPoint& first = mask.points.front();
+        const MaskPoint& last = mask.points.back();
+        mask.points.push_back({(first.x + last.x) * 0.5,
+                               (first.y + last.y) * 0.5});
+    } else {
+        mask.points.push_back({0.5, 0.5});
+    }
+    commitMasks(std::move(masks));
+}
+
+void InspectorPanel::onMaskRemovePoint() {
+    const Clip* clip = currentClip();
+    const int maskRow = selectedMaskIndex();
+    if (!clip || maskRow < 0) return;
+    const int pointRow =
+        maskPointTable_ ? maskPointTable_->currentRow() : -1;
+    std::vector<Mask> masks = clip->masks;
+    Mask& mask = masks[static_cast<size_t>(maskRow)];
+    if (pointRow < 0 || static_cast<size_t>(pointRow) >= mask.points.size()) {
+        return;
+    }
+    mask.points.erase(mask.points.begin() + pointRow);
+    commitMasks(std::move(masks));
+}
+
+void InspectorPanel::onMaskPropertyChanged() {
+    if (suppress_) return;
+    const Clip* clip = currentClip();
+    const int maskRow = selectedMaskIndex();
+    if (!clip || maskRow < 0) return;
+    std::vector<Mask> masks = clip->masks;
+    Mask& mask = masks[static_cast<size_t>(maskRow)];
+    mask.feather = maskFeather_->value();
+    mask.opacity = maskOpacity_->value();
+    mask.invert = maskInvert_->isChecked();
+    mask.smooth = maskSmooth_->isChecked();
+    commitMasks(std::move(masks));
 }
 
 } // namespace bl::ui

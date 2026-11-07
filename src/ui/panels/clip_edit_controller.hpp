@@ -55,6 +55,9 @@ public:
     bool setSubtitleText(int flatTrack, const ClipId& id,
                          const std::string& text);
 
+    // Replaces the clip's mask list as one undo step.
+    bool setMasks(int flatTrack, const ClipId& id, std::vector<Mask> masks);
+
     bool addEffect(int flatTrack, const ClipId& id, const EffectInstance& effect);
     bool removeEffect(int flatTrack, const ClipId& id, size_t index);
     bool reorderEffect(int flatTrack, const ClipId& id, size_t from, size_t to);

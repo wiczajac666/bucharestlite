@@ -2,6 +2,7 @@
 
 #include <bl_core/time.hpp>
 #include <bl_timeline/keyframes.hpp>
+#include <bl_timeline/mask.hpp>
 #include <bl_timeline/subtitle.hpp>
 #include <bl_timeline/transition.hpp>
 #include <nlohmann/json.hpp>
@@ -81,6 +82,7 @@ struct Clip {
     bool enabled{true};
 
     std::vector<EffectInstance> effects;
+    std::vector<Mask> masks;
     AudioClipProps audio;
     std::optional<KeyframeTrackSet> keyframes;
     std::optional<TransitionSpec> transitionOut;
@@ -102,7 +104,8 @@ inline bool operator==(const Clip& a, const Clip& b) {
            a.speed == b.speed &&
            a.hasVideo == b.hasVideo && a.hasAudio == b.hasAudio &&
            a.enabled == b.enabled && a.effects == b.effects &&
-           a.audio == b.audio && a.keyframes == b.keyframes &&
+           a.masks == b.masks && a.audio == b.audio &&
+           a.keyframes == b.keyframes &&
            a.transitionOut == b.transitionOut &&
            a.subtitleText == b.subtitleText &&
            a.subtitleStyle == b.subtitleStyle;

@@ -1051,4 +1051,46 @@ TEST_F(CompositorTest, TransitionRenderIsDeterministic) {
     EXPECT_EQ(first->data, second->data);
 }
 
+TEST_F(CompositorTest, MaskLimitsClipAlpha) {
+    Sequence seq;
+    seq.settings.width = 4;
+    seq.settings.height = 2;
+
+    VideoTrack track("V1");
+    Clip clip;
+    clip.id = "c1";
+    clip.source.mediaItemId = "red.mp4";
+    clip.source.sourceIn = frame(0);
+    clip.source.sourceOut = frame(10);
+    clip.timelineStart = frame(0);
+    clip.timelineDuration = dur(10);
+
+    bl::Mask mask;
+    mask.id = "m1";
+    // Left half of the frame.
+    mask.points = {{0.0, 0.0}, {0.5, 0.0}, {0.5, 1.0}, {0.0, 1.0}};
+    clip.masks.push_back(mask);
+    track.addClip(clip);
+    seq.videoTracks.push_back(std::move(track));
+
+    TimelineSnapshot snap(std::move(seq));
+    auto comp = Compositor::create({4, 2});
+    ASSERT_TRUE(comp.ok());
+
+    StubDecodeProvider provider;
+    provider.setColor("red.mp4", 255, 0, 0);
+
+    auto result = comp->renderFrame(snap, frame(5), provider);
+    ASSERT_TRUE(result.ok()) << result.message();
+
+    // Masked-in half keeps the clip colour and opacity.
+    EXPECT_EQ(result->data[2], 255u);  // R of pixel 0
+    EXPECT_EQ(result->data[3], 255u);  // A of pixel 0
+    // Masked-out half falls through to the transparent canvas.
+    const size_t px = static_cast<size_t>(3) * 4;
+    EXPECT_EQ(result->data[px + 0], 0u);
+    EXPECT_EQ(result->data[px + 2], 0u);
+    EXPECT_EQ(result->data[px + 3], 0u);
+}
+
 } // namespace

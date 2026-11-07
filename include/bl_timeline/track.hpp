@@ -396,6 +396,15 @@ public:
         return true;
     }
 
+    // Replaces a clip's rotoscoping masks (mask editing is a whole-list,
+    // one-undo-step operation).
+    bool setClipMasks(const ClipId& id, std::vector<Mask> masks) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        clips_[*idx].masks = std::move(masks);
+        return true;
+    }
+
     // Reassigns a clip's id. Refuses an empty target or one that already
     // exists on this track (ids are track-local in the model). Used when
     // insert/overwrite split a clip: the fragments start id-less so the model

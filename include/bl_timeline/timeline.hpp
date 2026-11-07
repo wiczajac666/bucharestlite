@@ -305,6 +305,19 @@ public:
                                                                    label);
     }
 
+    bool setClipMasksInVideoTrack(size_t trackIndex, const ClipId& clipId,
+                                  std::vector<Mask> masks) {
+        if (trackIndex >= sequence_.videoTracks.size()) return false;
+        return sequence_.videoTracks[trackIndex].setClipMasks(
+            clipId, std::move(masks));
+    }
+    bool setClipMasksInAudioTrack(size_t trackIndex, const ClipId& clipId,
+                                  std::vector<Mask> masks) {
+        if (trackIndex >= sequence_.audioTracks.size()) return false;
+        return sequence_.audioTracks[trackIndex].setClipMasks(
+            clipId, std::move(masks));
+    }
+
     bool setClipSourceRangeInVideoTrack(size_t trackIndex, const ClipId& clipId,
                                         Time sourceIn, Time sourceOut) {
         if (trackIndex >= sequence_.videoTracks.size()) return false;

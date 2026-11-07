@@ -1,10 +1,12 @@
 #include <QApplication>
 #include <QCheckBox>
+#include <QDoubleSpinBox>
 #include <QFile>
 #include <QGroupBox>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
+#include <QPushButton>
 #include <QSlider>
 #include <QSpinBox>
 #include <QTableWidget>
@@ -429,6 +431,95 @@ TEST(InspectorPanel, ToggleEffectBypassGlitch) {
     ASSERT_NE(f.effectEnabled, nullptr);
     // Checkbox reflects the model's enabled state.
     EXPECT_TRUE(f.effectEnabled->isChecked());
+}
+
+TEST(InspectorPanel, AddMaskCreatesEditableDefaultPolygon) {
+    Fixture f;
+    f.selectVideo();
+    auto* list =
+        f.panel.findChild<QListWidget*>(QStringLiteral("inspectorMaskList"));
+    auto* add =
+        f.panel.findChild<QPushButton*>(QStringLiteral("inspectorMaskAdd"));
+    auto* table =
+        f.panel.findChild<QTableWidget*>(QStringLiteral("inspectorMaskPoints"));
+    ASSERT_NE(list, nullptr);
+    ASSERT_NE(add, nullptr);
+    ASSERT_NE(table, nullptr);
+    EXPECT_EQ(list->count(), 0);
+
+    add->click();
+    ASSERT_EQ(f.video()->masks.size(), 1u);
+    EXPECT_EQ(f.video()->masks.front().points.size(), 4u);
+    EXPECT_EQ(list->count(), 1);
+    EXPECT_EQ(table->rowCount(), 4);
+    EXPECT_TRUE(f.controller.canUndo());
+
+    // The whole mask list is one undo step.
+    f.controller.undoStack().undo();
+    EXPECT_TRUE(f.video()->masks.empty());
+}
+
+TEST(InspectorPanel, MaskPointEditsMovePointsAndUndo) {
+    Fixture f;
+    f.selectVideo();
+    auto* add =
+        f.panel.findChild<QPushButton*>(QStringLiteral("inspectorMaskAdd"));
+    auto* table =
+        f.panel.findChild<QTableWidget*>(QStringLiteral("inspectorMaskPoints"));
+    auto* pointAdd =
+        f.panel.findChild<QPushButton*>(QStringLiteral("inspectorMaskPointAdd"));
+    auto* pointRemove = f.panel.findChild<QPushButton*>(
+        QStringLiteral("inspectorMaskPointRemove"));
+    ASSERT_NE(add, nullptr);
+    ASSERT_NE(table, nullptr);
+    ASSERT_NE(pointAdd, nullptr);
+    ASSERT_NE(pointRemove, nullptr);
+    add->click();
+
+    // Move the first point by editing its X cell.
+    table->item(0, 0)->setText(QStringLiteral("0.25"));
+    ASSERT_EQ(f.video()->masks.size(), 1u);
+    EXPECT_NEAR(f.video()->masks.front().points.front().x, 0.25, 1e-9);
+
+    pointAdd->click();
+    EXPECT_EQ(f.video()->masks.front().points.size(), 5u);
+
+    table->setCurrentCell(0, 0);
+    pointRemove->click();
+    EXPECT_EQ(f.video()->masks.front().points.size(), 4u);
+}
+
+TEST(InspectorPanel, MaskFeatherAndFlagsCommitToModel) {
+    Fixture f;
+    f.selectVideo();
+    auto* add =
+        f.panel.findChild<QPushButton*>(QStringLiteral("inspectorMaskAdd"));
+    auto* feather = f.panel.findChild<QDoubleSpinBox*>(
+        QStringLiteral("inspectorMaskFeather"));
+    auto* invert =
+        f.panel.findChild<QCheckBox*>(QStringLiteral("inspectorMaskInvert"));
+    auto* smooth =
+        f.panel.findChild<QCheckBox*>(QStringLiteral("inspectorMaskSmooth"));
+    ASSERT_NE(add, nullptr);
+    ASSERT_NE(feather, nullptr);
+    ASSERT_NE(invert, nullptr);
+    ASSERT_NE(smooth, nullptr);
+    add->click();
+
+    feather->setValue(0.2);
+    ASSERT_EQ(f.video()->masks.size(), 1u);
+    EXPECT_DOUBLE_EQ(f.video()->masks.front().feather, 0.2);
+
+    invert->setChecked(true);
+    EXPECT_TRUE(f.video()->masks.front().invert);
+
+    smooth->setChecked(true);
+    EXPECT_TRUE(f.video()->masks.front().smooth);
+
+    // One undo returns the mask to its freshly-created state.
+    f.controller.undoStack().undo();
+    ASSERT_EQ(f.video()->masks.size(), 1u);
+    EXPECT_FALSE(f.video()->masks.front().smooth);
 }
 
 } // namespace

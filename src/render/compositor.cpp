@@ -1,6 +1,7 @@
 #include <bl_render/compositor.hpp>
 
 #include <bl_render/effect.hpp>
+#include <bl_render/mask_raster.hpp>
 #include <bl_core/logger.hpp>
 #include <bl_timeline/keyframes.hpp>
 
@@ -364,6 +365,17 @@ struct Compositor::Impl {
 
                 applyEffectChain(pixelData, frame.width, frame.height,
                                  frame.width * 4, clip.effects);
+
+                // Masks limit the clip's alpha after effects so they rotoscope
+                // the finished look, not the source frame.
+                if (!clip.masks.empty()) {
+                    const auto coverage = rasteriseMasks(
+                        clip.masks, frame.width, frame.height);
+                    if (!coverage.empty()) {
+                        applyMaskCoverage(pixelData, frame.width, frame.height,
+                                          frame.width * 4, coverage);
+                    }
+                }
 
                 alphaBlend(result.data, outW, outH, outLinesize, pixelData,
                            frame.width, frame.height, frame.width * 4, opacity);

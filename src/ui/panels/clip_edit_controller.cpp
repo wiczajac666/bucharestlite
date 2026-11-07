@@ -116,6 +116,35 @@ bool ClipEditController::setSubtitleText(int flatTrack, const ClipId& id,
     return true;
 }
 
+bool ClipEditController::setMasks(int flatTrack, const ClipId& id,
+                                  std::vector<Mask> masks) {
+    if (!valid()) return false;
+    const Sequence& seq = timeline_->sequence();
+    const Clip* clip = findClip(seq, flatTrack, id);
+    if (!clip) return false;
+    if (clip->masks == masks) return false;
+
+    const bool video = isVideoTrack(seq, flatTrack);
+    const size_t idx = static_cast<size_t>(kindIndex(seq, flatTrack));
+    undoStack_->push(std::make_unique<FunctionCommand>(
+        "Edit masks",
+        [this, video, idx, id, masks] {
+            if (video) {
+                timeline_->setClipMasksInVideoTrack(idx, id, masks);
+            } else {
+                timeline_->setClipMasksInAudioTrack(idx, id, masks);
+            }
+        },
+        [this, video, idx, id, old = clip->masks] {
+            if (video) {
+                timeline_->setClipMasksInVideoTrack(idx, id, old);
+            } else {
+                timeline_->setClipMasksInAudioTrack(idx, id, old);
+            }
+        }));
+    return true;
+}
+
 bool ClipEditController::setSourceRange(int flatTrack, const ClipId& id,
                                         Time sourceIn, Time sourceOut) {
     if (!valid()) return false;
