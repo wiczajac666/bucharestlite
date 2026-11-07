@@ -22,11 +22,11 @@ each item ends with a green `ctest` run and a commit.
 - [x] Unit tests for the reader (seek, resample, channel mapping, EOS)
 - [x] `ctest` green + commit
 
-## 3. 3-point editing UI
-- [ ] Source-monitor panel with mark-in / mark-out
-- [ ] Insert / overwrite edit from source marks onto the timeline
-- [ ] Keyboard actions + View menu entries
-- [ ] Model-level tests already exist: extend with UI-level coverage
+## 3. 3-point editing UI  ✅ done
+- [x] Source-monitor panel with mark-in / mark-out
+- [x] Insert / overwrite edit from source marks onto the timeline
+- [x] Keyboard actions + View menu entries (Ctrl+8, Alt+I/O, `,`/`.`)
+- [x] UI tests for the source monitor and insert/overwrite primitives
 - [x] `ctest` green + commit
 
 ## 4. Masking / roto

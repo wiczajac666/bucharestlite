@@ -120,6 +120,9 @@ signals:
     // The user chose "Edit Title…" on a title row. The receiver (MainWindow)
     // opens the title editor pre-filled with the stored spec.
     void editTitleRequested(const std::string& id);
+    // The selected row changed ("" when nothing is selected). Drives the
+    // source monitor.
+    void selectionChanged(const std::string& id);
 
 public slots:
     void reload();

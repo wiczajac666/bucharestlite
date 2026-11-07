@@ -700,6 +700,7 @@ void MediaBinPanel::requestAddToTimeline(QListWidgetItem* item) {
 
 void MediaBinPanel::onSelectionChanged() {
     removeButton_->setEnabled(list_->currentItem() != nullptr);
+    emit selectionChanged(selectedId());
 }
 
 void MediaBinPanel::onFilterChanged(const QString&) { applyFilter(); }

@@ -190,6 +190,12 @@ void MainWindow::buildDocks() {
     previewPanel_ = new PreviewPanel(controller_, this, pluginDirs);
     preview->setWidget(previewPanel_);
 
+    sourceMonitor = new QDockWidget(tr("Source Monitor"), this);
+    sourceMonitor->setObjectName(QStringLiteral("SourceMonitorDock"));
+    sourceMonitorPanel_ =
+        new SourceMonitorPanel(controller_, sourceMonitor, pluginDirs);
+    sourceMonitor->setWidget(sourceMonitorPanel_);
+
     scopes = new QDockWidget(tr("Scopes"), this);
     scopes->setObjectName(QStringLiteral("ScopesDock"));
     scopesPanel_ = new ScopesPanel(scopes);
@@ -208,7 +214,8 @@ void MainWindow::buildDocks() {
     // Top row: three docks side by side (splitting the top area, so the
     addDockWidget(Qt::TopDockWidgetArea, mediaBin);
     splitDockWidget(mediaBin, preview, Qt::Horizontal);
-    splitDockWidget(preview, scopes, Qt::Horizontal);
+    splitDockWidget(preview, sourceMonitor, Qt::Horizontal);
+    splitDockWidget(sourceMonitor, scopes, Qt::Horizontal);
 
     timeline = new QDockWidget(tr("Timeline"), this);
     timeline->setObjectName(QStringLiteral("TimelineDock"));
@@ -241,7 +248,8 @@ void MainWindow::buildDocks() {
 
     // Give the preview the widest slice of the top row and the timeline a
     // generous strip at the bottom; the user can still drag the splitters.
-    resizeDocks({mediaBin, preview, scopes}, {360, 640, 360}, Qt::Horizontal);
+    resizeDocks({mediaBin, preview, sourceMonitor, scopes},
+                {320, 560, 420, 280}, Qt::Horizontal);
     resizeDocks({timeline}, {420}, Qt::Vertical);
 
     // Keep the preview transport and the timeline playhead in lockstep: a
@@ -269,6 +277,27 @@ void MainWindow::buildDocks() {
     connect(mediaBinPanel_, &MediaBinPanel::addToTimelineRequested,
             timelinePanel_, [this](const std::string& mediaId) {
                 timelinePanel_->addMediaToTimeline(mediaId);
+            });
+
+    // Three-point editing: the media-bin selection loads the source monitor,
+    // and its insert/overwrite buttons place the marked range at the playhead.
+    connect(mediaBinPanel_, &MediaBinPanel::selectionChanged, sourceMonitorPanel_,
+            [this](const std::string& mediaId) {
+                sourceMonitorPanel_->setMedia(mediaId);
+            });
+    connect(sourceMonitorPanel_, &SourceMonitorPanel::insertRequested,
+            timelinePanel_,
+            [this](const std::string& mediaId, bl::Time in, bl::Time out) {
+                timelinePanel_->insertFromSource(mediaId, in, out);
+            });
+    connect(sourceMonitorPanel_, &SourceMonitorPanel::overwriteRequested,
+            timelinePanel_,
+            [this](const std::string& mediaId, bl::Time in, bl::Time out) {
+                timelinePanel_->overwriteFromSource(mediaId, in, out);
+            });
+    connect(sourceMonitorPanel_, &SourceMonitorPanel::statusMessage, this,
+            [this](const QString& message) {
+                statusBar()->showMessage(message, 4000);
             });
 
     // Re-open a title's stored design from the media bin or from the clip it
@@ -862,6 +891,46 @@ void MainWindow::buildActions() {
     registerAction(addMarkerAction_, "timeline.marker_add", tr("Add Marker"),
                    QKeySequence(Qt::Key_M));
 
+    // Three-point editing. Zone in/out already own plain I/O, so the source
+    // marks use Alt+I/Alt+O; insert/overwrite use the NLE-standard , and .
+    // keys.
+    sourceMarkInAction_ = new QAction(tr("Source Mark In"), this);
+    sourceMarkInAction_->setObjectName(QStringLiteral("actionSourceMarkIn"));
+    connect(sourceMarkInAction_, &QAction::triggered, this, [this] {
+        if (sourceMonitorPanel_) sourceMonitorPanel_->markInHere();
+    });
+    registerAction(sourceMarkInAction_, "source.mark_in",
+                   tr("Source Mark In"),
+                   QKeySequence(Qt::ALT | Qt::Key_I));
+
+    sourceMarkOutAction_ = new QAction(tr("Source Mark Out"), this);
+    sourceMarkOutAction_->setObjectName(QStringLiteral("actionSourceMarkOut"));
+    connect(sourceMarkOutAction_, &QAction::triggered, this, [this] {
+        if (sourceMonitorPanel_) sourceMonitorPanel_->markOutHere();
+    });
+    registerAction(sourceMarkOutAction_, "source.mark_out",
+                   tr("Source Mark Out"),
+                   QKeySequence(Qt::ALT | Qt::Key_O));
+
+    sourceInsertAction_ = new QAction(tr("Insert Source"), this);
+    sourceInsertAction_->setObjectName(QStringLiteral("actionSourceInsert"));
+    connect(sourceInsertAction_, &QAction::triggered, this, [this] {
+        if (sourceMonitorPanel_) sourceMonitorPanel_->insertEdit();
+    });
+    registerAction(sourceInsertAction_, "source.insert",
+                   tr("Insert Source Range"),
+                   QKeySequence(Qt::Key_Comma));
+
+    sourceOverwriteAction_ = new QAction(tr("Overwrite Source"), this);
+    sourceOverwriteAction_->setObjectName(
+        QStringLiteral("actionSourceOverwrite"));
+    connect(sourceOverwriteAction_, &QAction::triggered, this, [this] {
+        if (sourceMonitorPanel_) sourceMonitorPanel_->overwriteEdit();
+    });
+    registerAction(sourceOverwriteAction_, "source.overwrite",
+                   tr("Overwrite Source Range"),
+                   QKeySequence(Qt::Key_Period));
+
     compareQualityAction_ = new QAction(tr("Compare Quality..."), this);
     compareQualityAction_->setObjectName(QStringLiteral("actionCompareQuality"));
     connect(compareQualityAction_, &QAction::triggered, this,
@@ -893,6 +962,8 @@ void MainWindow::buildActions() {
     const std::vector<std::pair<QDockWidget*, std::pair<QString, QKeySequence>>> docks = {
         {mediaBin, {"view.toggle.media_bin", QKeySequence(Qt::CTRL | Qt::Key_1)}},
         {preview, {"view.toggle.preview", QKeySequence(Qt::CTRL | Qt::Key_2)}},
+        {sourceMonitor,
+         {"view.toggle.source_monitor", QKeySequence(Qt::CTRL | Qt::Key_8)}},
         {inspector, {"view.toggle.inspector", QKeySequence(Qt::CTRL | Qt::Key_3)}},
         {mixer, {"view.toggle.mixer", QKeySequence(Qt::CTRL | Qt::Key_4)}},
         {timeline, {"view.toggle.timeline", QKeySequence(Qt::CTRL | Qt::Key_5)}},

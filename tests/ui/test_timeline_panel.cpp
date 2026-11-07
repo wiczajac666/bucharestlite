@@ -2055,3 +2055,122 @@ TEST(TimelinePanel, proxyOverrideStoresSignalsAndRestores) {
     ASSERT_TRUE(fx.panel.clipProxyOverride("other").has_value());
     EXPECT_TRUE(*fx.panel.clipProxyOverride("other"));
 }
+
+TEST(TimelinePanel, insertFromSourcePlacesClipAtPlayhead) {
+    Fixture fx;
+    const std::string id = addMediaToBin(fx, "test_video.mp4");
+    fx.panel.setPlayhead(fr(12));
+
+    EXPECT_TRUE(fx.panel.insertFromSource(id, fr(0), fr(24)));
+    QApplication::processEvents();
+
+    ASSERT_EQ(fx.seq().videoTracks[0].clips().size(), 1u);
+    const Clip& placed = fx.seq().videoTracks[0].clips().front();
+    EXPECT_EQ(frameOf(placed.timelineStart), 12);
+    EXPECT_EQ(frameOf(placed.timelineDuration), 24);
+    EXPECT_EQ(placed.source.mediaItemId, id);
+    EXPECT_EQ(frameOf(placed.source.sourceIn), 0);
+    EXPECT_EQ(frameOf(placed.source.sourceOut), 24);
+    EXPECT_EQ(fx.panel.clipItemCount(), 1);
+
+    fx.controller.undoStack().undo();
+    QApplication::processEvents();
+    EXPECT_TRUE(fx.seq().videoTracks[0].clips().empty());
+}
+
+TEST(TimelinePanel, insertFromSourceShiftsLaterMaterial) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 10));
+    const std::string id = addMediaToBin(fx, "test_video.mp4");
+    fx.panel.setPlayhead(fr(5));
+
+    // Insert at frame 5 splits "a" (0..10) into 0..5 and 11..16, with the
+    // placed clip occupying 5..11.
+    ASSERT_TRUE(fx.panel.insertFromSource(id, fr(0), fr(6)));
+    QApplication::processEvents();
+
+    const auto& clips = fx.seq().videoTracks[0].clips();
+    ASSERT_EQ(clips.size(), 3u);
+    EXPECT_EQ(frameOf(clips[0].timelineStart), 0);
+    EXPECT_EQ(frameOf(clips[0].timelineDuration), 5);
+    EXPECT_EQ(clips[1].source.mediaItemId, id);
+    EXPECT_EQ(frameOf(clips[1].timelineStart), 5);
+    EXPECT_EQ(frameOf(clips[1].timelineDuration), 6);
+    EXPECT_EQ(frameOf(clips[2].timelineStart), 11);
+    EXPECT_EQ(frameOf(clips[2].timelineDuration), 5);
+    // Split-off fragments have fresh, non-empty ids.
+    EXPECT_FALSE(clips[0].id.empty());
+    EXPECT_FALSE(clips[2].id.empty());
+
+    fx.controller.undoStack().undo();
+    QApplication::processEvents();
+    ASSERT_EQ(fx.seq().videoTracks[0].clips().size(), 1u);
+    EXPECT_EQ(fx.seq().videoTracks[0].clips().front().id, "a");
+}
+
+TEST(TimelinePanel, insertFromSourceRejectsUnknownMediaAndBadMarks) {
+    Fixture fx;
+    EXPECT_FALSE(fx.panel.insertFromSource("missing", fr(0), fr(5)));
+
+    const std::string id = addMediaToBin(fx, "test_video.mp4");
+    EXPECT_FALSE(fx.panel.insertFromSource(id, fr(5), fr(5)));
+    EXPECT_FALSE(fx.panel.insertFromSource(id, fr(5), fr(2)));
+    EXPECT_TRUE(fx.seq().videoTracks[0].clips().empty());
+}
+
+TEST(TimelinePanel, overwriteFromSourceSplitsExistingClip) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 10));
+    const std::string id = addMediaToBin(fx, "test_video.mp4");
+    fx.panel.setPlayhead(fr(2));
+
+    // Overwrite 2..6 inside "a" (0..10): head 0..2, placed 2..6, tail 6..10.
+    ASSERT_TRUE(fx.panel.overwriteFromSource(id, fr(0), fr(4)));
+    QApplication::processEvents();
+
+    const auto& clips = fx.seq().videoTracks[0].clips();
+    ASSERT_EQ(clips.size(), 3u);
+    EXPECT_EQ(frameOf(clips[0].timelineStart), 0);
+    EXPECT_EQ(frameOf(clips[0].timelineDuration), 2);
+    EXPECT_EQ(clips[1].source.mediaItemId, id);
+    EXPECT_EQ(frameOf(clips[1].timelineStart), 2);
+    EXPECT_EQ(frameOf(clips[1].timelineDuration), 4);
+    EXPECT_EQ(frameOf(clips[2].timelineStart), 6);
+    EXPECT_EQ(frameOf(clips[2].timelineDuration), 4);
+
+    fx.controller.undoStack().undo();
+    QApplication::processEvents();
+    ASSERT_EQ(fx.seq().videoTracks[0].clips().size(), 1u);
+    EXPECT_EQ(frameOf(fx.seq().videoTracks[0].clips().front().timelineDuration),
+              10);
+}
+
+TEST(TimelinePanel, insertFromSourceGroupsLinkedAvHalves) {
+    Fixture fx;
+    const std::string id = addMediaToBin(fx, "test_av.mp4");
+
+    ASSERT_TRUE(fx.panel.insertFromSource(id, fr(0), fr(24)));
+    QApplication::processEvents();
+
+    ASSERT_EQ(fx.seq().videoTracks[0].clips().size(), 1u);
+    ASSERT_EQ(fx.seq().audioTracks[0].clips().size(), 1u);
+    const Clip& videoHalf = fx.seq().videoTracks[0].clips().front();
+    const Clip& audioHalf = fx.seq().audioTracks[0].clips().front();
+    EXPECT_TRUE(videoHalf.hasVideo);
+    EXPECT_FALSE(videoHalf.hasAudio);
+    EXPECT_FALSE(audioHalf.hasVideo);
+    EXPECT_TRUE(audioHalf.hasAudio);
+    EXPECT_EQ(frameOf(videoHalf.timelineStart), 0);
+    EXPECT_EQ(frameOf(audioHalf.timelineStart), 0);
+
+    // Both halves form one group so they select and move together.
+    const auto members = fx.seq().groupMembers(videoHalf.id);
+    ASSERT_EQ(members.size(), 1u);
+    EXPECT_EQ(members.front(), audioHalf.id);
+
+    // A single undo removes both halves.
+    fx.controller.undoStack().undo();
+    QApplication::processEvents();
+    EXPECT_TRUE(fx.seq().videoTracks[0].clips().empty());
+    EXPECT_TRUE(fx.seq().audioTracks[0].clips().empty());
+}

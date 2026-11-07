@@ -2842,6 +2842,117 @@ bool TimelinePanel::addMediaToTimeline(
     return true;
 }
 
+bool TimelinePanel::insertFromSource(const std::string& mediaId,
+                                     bl::Time sourceIn, bl::Time sourceOut) {
+    return placeSourceEdit(mediaId, sourceIn, sourceOut, false);
+}
+
+bool TimelinePanel::overwriteFromSource(const std::string& mediaId,
+                                        bl::Time sourceIn,
+                                        bl::Time sourceOut) {
+    return placeSourceEdit(mediaId, sourceIn, sourceOut, true);
+}
+
+bool TimelinePanel::placeSourceEdit(const std::string& mediaId,
+                                    bl::Time sourceIn, bl::Time sourceOut,
+                                    bool overwrite) {
+    if (!controller_ || mediaId.empty()) return false;
+
+    const MediaBinItem* entry = nullptr;
+    for (const MediaBinItem& item : controller_->mediaBin()) {
+        if (item.id == mediaId) {
+            entry = &item;
+            break;
+        }
+    }
+    if (!entry) {
+        emit controller_->statusMessage(
+            tr("Media is no longer in the project"));
+        return false;
+    }
+
+    auto probe = MediaSource::probe(MediaLocator{entry->path});
+    if (!probe) {
+        emit controller_->statusMessage(
+            tr("Cannot read media: %1")
+                .arg(QString::fromStdString(entry->name)));
+        return false;
+    }
+    const bool hasVideo = !probe->videoStreams.empty();
+    const bool hasAudio = !probe->audioStreams.empty();
+    if (!hasVideo && !hasAudio) {
+        emit controller_->statusMessage(
+            tr("File has no video or audio streams"));
+        return false;
+    }
+    if (!(sourceIn < sourceOut)) {
+        emit controller_->statusMessage(
+            tr("Set an in point before the out point"));
+        return false;
+    }
+
+    auto clipOpt =
+        makeThreePointClip(SourceRef{mediaId, sourceIn, sourceOut}, SpeedRemap{},
+                           entry->name);
+    if (!clipOpt) {
+        emit controller_->statusMessage(tr("Cannot build a clip from those marks"));
+        return false;
+    }
+    Clip clip = *clipOpt;
+    clip.timelineStart = playhead();
+
+    const bl::Sequence& seq = sequence();
+    const int videoCount = static_cast<int>(seq.videoTracks.size());
+    const int audioCount = static_cast<int>(seq.audioTracks.size());
+    const int videoFlat = videoCount > 0 ? 0 : -1;
+    int audioFlat = -1;
+    if (audioCount > 0) {
+        const int aligned = videoFlat >= 0 ? std::min(videoFlat, audioCount - 1) : 0;
+        audioFlat = videoCount + aligned;
+    }
+
+    if (hasVideo && videoFlat < 0) {
+        emit controller_->statusMessage(tr("No video track to place the clip on"));
+        return false;
+    }
+    if (!hasVideo && audioFlat < 0) {
+        emit controller_->statusMessage(tr("No audio track to place the clip on"));
+        return false;
+    }
+
+    const bool linked =
+        hasVideo && hasAudio && autoSplitAv() && videoFlat >= 0 && audioFlat >= 0;
+
+    bool ok = false;
+    if (linked) {
+        Clip videoHalf = clip;
+        videoHalf.hasAudio = false;
+        Clip audioHalf = clip;
+        audioHalf.hasVideo = false;
+        ok = overwrite
+                 ? editor_.overwriteLinkedClip(videoFlat, audioFlat, videoHalf,
+                                               audioHalf)
+                 : editor_.insertLinkedClip(videoFlat, audioFlat, videoHalf,
+                                            audioHalf);
+    } else if (hasVideo) {
+        ok = overwrite ? editor_.overwriteClip(videoFlat, clip)
+                       : editor_.insertClip(videoFlat, clip);
+    } else {
+        ok = overwrite ? editor_.overwriteClip(audioFlat, clip)
+                       : editor_.insertClip(audioFlat, clip);
+    }
+
+    if (!ok) {
+        reportEditorError();
+        return false;
+    }
+
+    emit controller_->statusMessage(
+        (overwrite ? tr("Overwrote with %1") : tr("Inserted %1"))
+            .arg(QString::fromStdString(entry->name)));
+    return true;
+}
+
 void TimelinePanel::rebuildFromModel() {
     if (!scene_) return;
     if (view_) view_->cancelActiveGesture();

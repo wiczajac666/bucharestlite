@@ -12,6 +12,7 @@
 #include "panels/mixer_panel.hpp"
 #include "panels/preview_panel.hpp"
 #include "panels/scopes_panel.hpp"
+#include "panels/source_monitor_panel.hpp"
 #include "panels/timeline_panel.hpp"
 #include "panels/undo_history_panel.hpp"
 #include "shortcuts/action_registry.hpp"
@@ -152,11 +153,13 @@ private:
     QDockWidget* mixer{nullptr};
     QDockWidget* timeline{nullptr};
     QDockWidget* scopes{nullptr};
+    QDockWidget* sourceMonitor{nullptr};
 
     PreviewPanel* previewPanel_{nullptr};
     InspectorPanel* inspectorPanel_{nullptr};
     TimelinePanel* timelinePanel_{nullptr};
     MediaBinPanel* mediaBinPanel_{nullptr};
+    SourceMonitorPanel* sourceMonitorPanel_{nullptr};
     MixerPanel* mixerPanel_{nullptr};
     MasterFaderPanel* masterFaderPanel_{nullptr};
     ScopesPanel* scopesPanel_{nullptr};
@@ -187,6 +190,10 @@ private:
     QAction* addMarkerAction_{nullptr};
     QAction* compareQualityAction_{nullptr};
     QAction* fullScreenPreviewAction_{nullptr};
+    QAction* sourceMarkInAction_{nullptr};
+    QAction* sourceMarkOutAction_{nullptr};
+    QAction* sourceInsertAction_{nullptr};
+    QAction* sourceOverwriteAction_{nullptr};
 
     FullScreenPreviewWindow* fullScreenPreviewWindow_{nullptr};
 

@@ -11,6 +11,7 @@ add_library(bl_ui STATIC
     panels/timeline_edit_controller.cpp
     panels/clip_edit_controller.cpp
     panels/preview_panel.cpp
+    panels/source_monitor_panel.cpp
     panels/scopes_panel.cpp
     transport/transport_controller.cpp
     panels/media_bin_panel.cpp

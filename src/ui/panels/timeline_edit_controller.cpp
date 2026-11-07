@@ -212,6 +212,122 @@ bool TimelineEditController::addClip(int flatTrack, Clip clip) {
     return true;
 }
 
+void TimelineEditController::assignMissingClipIds(TrackT& track) {
+    // Track splits create id-less fragments so the model primitives stay pure.
+    // Give each one a fresh identity without rebuilding the track (that would
+    // drop gain/pan/lock/height and transitions).
+    size_t missing = 0;
+    for (const Clip& clip : track.clips()) {
+        if (clip.id.empty()) ++missing;
+    }
+    for (size_t i = 0; i < missing; ++i) {
+        const ClipId fresh = "ui:" + std::to_string(++idSeed_);
+        if (!track.setClipId(ClipId(), fresh)) break;
+    }
+}
+
+bool TimelineEditController::insertClip(int flatTrack, Clip clip) {
+    lastError_.clear();
+    if (!ensureEditable(flatTrack)) return false;
+    if (clip.timelineDuration <= Duration{}) {
+        lastError_ = "Clip has no duration";
+        return false;
+    }
+    if (clip.id.empty()) clip.id = "ui:" + std::to_string(++idSeed_);
+    const Time at = clip.timelineStart;
+
+    return runSequenceEdit("Insert clip", [&](Sequence& seq) {
+        TrackT& track = mutableTrackAt(seq, flatTrack);
+        if (!track.insertClip(clip, at)) {
+            lastError_ = "Cannot insert here";
+            return false;
+        }
+        assignMissingClipIds(track);
+        return true;
+    });
+}
+
+bool TimelineEditController::overwriteClip(int flatTrack, Clip clip) {
+    lastError_.clear();
+    if (!ensureEditable(flatTrack)) return false;
+    if (clip.timelineDuration <= Duration{}) {
+        lastError_ = "Clip has no duration";
+        return false;
+    }
+    if (clip.id.empty()) clip.id = "ui:" + std::to_string(++idSeed_);
+    const Time at = clip.timelineStart;
+
+    return runSequenceEdit("Overwrite clip", [&](Sequence& seq) {
+        TrackT& track = mutableTrackAt(seq, flatTrack);
+        if (!track.overwriteClip(clip, at)) {
+            lastError_ = "Cannot overwrite here";
+            return false;
+        }
+        assignMissingClipIds(track);
+        return true;
+    });
+}
+
+bool TimelineEditController::placeLinked(int videoFlat, int audioFlat,
+                                         Clip videoClip, Clip audioClip,
+                                         bool overwrite) {
+    lastError_.clear();
+    if (!ensureEditable(videoFlat)) return false;
+    if (!ensureEditable(audioFlat)) return false;
+    if (videoFlat == audioFlat) {
+        lastError_ = "Video and audio need different tracks";
+        return false;
+    }
+    if (videoClip.timelineDuration <= Duration{} ||
+        audioClip.timelineDuration <= Duration{}) {
+        lastError_ = "Clip has no duration";
+        return false;
+    }
+    if (videoClip.id.empty()) videoClip.id = "ui:" + std::to_string(++idSeed_);
+    if (audioClip.id.empty()) audioClip.id = "ui:" + std::to_string(++idSeed_);
+    if (videoClip.id == audioClip.id) {
+        audioClip.id = "ui:" + std::to_string(++idSeed_);
+    }
+    // Both halves carry the same source window and timeline span; only the
+    // stream flags (and their lanes) differ.
+    audioClip.timelineStart = videoClip.timelineStart;
+
+    return runSequenceEdit(
+        overwrite ? "Overwrite A/V clip" : "Insert A/V clip",
+        [&](Sequence& seq) {
+            const auto place = [overwrite](TrackT& track, const Clip& clip) {
+                const Time at = clip.timelineStart;
+                return overwrite ? track.overwriteClip(clip, at).has_value()
+                                 : track.insertClip(clip, at).has_value();
+            };
+
+            TrackT& videoTrack = mutableTrackAt(seq, videoFlat);
+            TrackT& audioTrack = mutableTrackAt(seq, audioFlat);
+            if (!place(videoTrack, videoClip) || !place(audioTrack, audioClip)) {
+                lastError_ = overwrite ? "Cannot overwrite here"
+                                       : "Cannot insert here";
+                return false;
+            }
+            assignMissingClipIds(videoTrack);
+            assignMissingClipIds(audioTrack);
+            (void)seq.formGroup({videoClip.id, audioClip.id});
+            return true;
+        });
+}
+
+bool TimelineEditController::insertLinkedClip(int videoFlat, int audioFlat,
+                                              Clip videoClip, Clip audioClip) {
+    return placeLinked(videoFlat, audioFlat, std::move(videoClip),
+                       std::move(audioClip), false);
+}
+
+bool TimelineEditController::overwriteLinkedClip(int videoFlat, int audioFlat,
+                                                 Clip videoClip,
+                                                 Clip audioClip) {
+    return placeLinked(videoFlat, audioFlat, std::move(videoClip),
+                       std::move(audioClip), true);
+}
+
 bool TimelineEditController::moveClip(int fromTrack, int toTrack,
                                       const ClipId& id, Time newStart) {
     lastError_.clear();

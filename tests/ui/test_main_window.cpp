@@ -56,9 +56,9 @@ struct TempSettings {
 const std::vector<QString>& dockTitles() {
     static const std::vector<QString> titles = {
         QStringLiteral("Media Bin"), QStringLiteral("Preview"),
-        QStringLiteral("Inspector"), QStringLiteral("Mixer"),
-        QStringLiteral("Timeline"), QStringLiteral("Scopes"),
-        QStringLiteral("Undo History")};
+        QStringLiteral("Source Monitor"), QStringLiteral("Inspector"),
+        QStringLiteral("Mixer"), QStringLiteral("Timeline"),
+        QStringLiteral("Scopes"), QStringLiteral("Undo History")};
     return titles;
 }
 
@@ -466,9 +466,9 @@ TEST(MainWindow, registryBindsNewAndExistingShortcuts) {
 
     const std::vector<QKeySequence> toggleShortcuts = {
         QKeySequence(Qt::CTRL | Qt::Key_1), QKeySequence(Qt::CTRL | Qt::Key_2),
-        QKeySequence(Qt::CTRL | Qt::Key_3), QKeySequence(Qt::CTRL | Qt::Key_4),
-        QKeySequence(Qt::CTRL | Qt::Key_5), QKeySequence(Qt::CTRL | Qt::Key_6),
-        QKeySequence(Qt::CTRL | Qt::Key_7)};
+        QKeySequence(Qt::CTRL | Qt::Key_8), QKeySequence(Qt::CTRL | Qt::Key_3),
+        QKeySequence(Qt::CTRL | Qt::Key_4), QKeySequence(Qt::CTRL | Qt::Key_5),
+        QKeySequence(Qt::CTRL | Qt::Key_6), QKeySequence(Qt::CTRL | Qt::Key_7)};
     for (size_t i = 0; i < dockTitles().size(); ++i) {
         EXPECT_EQ(window.dock(dockTitles()[i])->toggleViewAction()->shortcut(),
                   toggleShortcuts[i]);

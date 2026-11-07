@@ -119,6 +119,21 @@ public:
     bool removeSpacer(int flatTrack, Time at, Duration dur);
     // Adds a new clip, generating an id when the caller left it empty.
     bool addClip(int flatTrack, Clip clip);
+    // Three-point editing primitives: place `clip` (whose timelineStart is the
+    // edit point) on `flatTrack` using Kdenlive insert / overwrite semantics.
+    // Insert shifts later material right (splitting a clip that straddles the
+    // edit point); overwrite clears the covered range first, splitting the
+    // head and tail when it lands inside existing clips. Both generate ids for
+    // the placed clip and any split-off fragments, and are one undo step.
+    bool insertClip(int flatTrack, Clip clip);
+    bool overwriteClip(int flatTrack, Clip clip);
+    // Linked A/V variant of the above: places `videoClip` on `videoFlat` and
+    // `audioClip` on `audioFlat` in one undo step and groups the two halves.
+    // Each half should carry the appropriate hasVideo/hasAudio flags.
+    bool insertLinkedClip(int videoFlat, int audioFlat, Clip videoClip,
+                          Clip audioClip);
+    bool overwriteLinkedClip(int videoFlat, int audioFlat, Clip videoClip,
+                             Clip audioClip);
     bool trimLeft(int flatTrack, const ClipId& id, Time newStart, bool ripple);
     bool trimRight(int flatTrack, const ClipId& id, Time newEnd, bool ripple);
     bool splitClip(int flatTrack, const ClipId& id, Time at);
@@ -231,6 +246,13 @@ private:
 
     bool addClipAt(int flatTrack, const Clip& clip);
     void removeClipAt(int flatTrack, const ClipId& id);
+    // Gives every clip on `track` without an id a fresh "ui:N" id. Track
+    // splits create id-less fragments so the model stays pure; the UI needs
+    // stable identities for selection and undo bookkeeping.
+    void assignMissingClipIds(TrackT& track);
+    // Shared body of the linked A/V three-point primitives.
+    bool placeLinked(int videoFlat, int audioFlat, Clip videoClip,
+                     Clip audioClip, bool overwrite);
 
     // Flat index of the live clip `id`, or -1 when it is not on any track.
     int flatTrackOf(const Sequence& seq, const ClipId& id) const;

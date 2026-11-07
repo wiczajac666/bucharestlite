@@ -396,6 +396,19 @@ public:
         return true;
     }
 
+    // Reassigns a clip's id. Refuses an empty target or one that already
+    // exists on this track (ids are track-local in the model). Used when
+    // insert/overwrite split a clip: the fragments start id-less so the model
+    // primitives stay pure, and the editing layer gives them identities.
+    bool setClipId(const ClipId& id, ClipId newId) {
+        if (newId.empty()) return false;
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        if (findClipById(newId)) return false;
+        clips_[*idx].id = std::move(newId);
+        return true;
+    }
+
     bool setClipColorLabel(const ClipId& id, uint32_t label) {
         auto idx = findClipById(id);
         if (!idx) return false;

@@ -14,6 +14,7 @@ add_executable(bl_ui_tests
     test_preview_panel.cpp
     test_scopes_panel.cpp
     test_media_bin_panel.cpp
+    test_source_monitor_panel.cpp
     test_inspector_panel.cpp
     test_mixer_controller.cpp
     test_mixer_panel.cpp

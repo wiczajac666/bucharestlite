@@ -494,6 +494,17 @@ public:
         const std::string& mediaId,
         std::optional<bl::Duration> durationOverride = std::nullopt);
 
+    // --- Three-point editing ------------------------------------------------
+    // Places the [sourceIn, sourceOut) window of `mediaId` at the playhead on
+    // the first compatible lane. Insert shifts later material right; overwrite
+    // clears the covered range. A/V media with auto-split enabled occupies the
+    // aligned video/audio lanes and the two halves are grouped. Each call is
+    // one undo step; refusals are reported through statusMessage.
+    bool insertFromSource(const std::string& mediaId, bl::Time sourceIn,
+                          bl::Time sourceOut);
+    bool overwriteFromSource(const std::string& mediaId, bl::Time sourceIn,
+                             bl::Time sourceOut);
+
     // --- Subtitle import ----------------------------------------------------
     // Turns parsed subtitle cues into soft-subtitle clips on a dedicated
     // "Subtitles" video track (one undo step). Returns the number of cues
@@ -589,6 +600,9 @@ private:
     // aligned with `videoFlat`), or -1 when none fits. Used by A/V auto-split.
     int audioLaneFor(int videoFlat, const bl::Clip& clip,
                      const bl::Time& start) const;
+    // Shared body of insertFromSource()/overwriteFromSource().
+    bool placeSourceEdit(const std::string& mediaId, bl::Time sourceIn,
+                         bl::Time sourceOut, bool overwrite);
 
     ProjectController* controller_{nullptr};
     TimelineEditController editor_;
