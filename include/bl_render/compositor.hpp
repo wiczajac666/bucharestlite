@@ -3,10 +3,12 @@
 #include <bl_core/decoder_bridge.hpp>
 #include <bl_core/result.hpp>
 #include <bl_core/time.hpp>
+#include <bl_render/compositor_backend.hpp>
 #include <bl_timeline/timeline.hpp>
 
 #include <cstdint>
 #include <memory>
+#include <string_view>
 #include <vector>
 
 namespace bl {
@@ -34,6 +36,12 @@ struct CompositorResult {
 class Compositor {
 public:
     static Result<Compositor> create(const CompositorConfig& config);
+    // Creates a compositor that delegates layer blending to `backend`. A null
+    // backend selects the portable CPU implementation; the UI injects an
+    // OpenGL backend when the user opts into GPU compositing.
+    static Result<Compositor> create(
+        const CompositorConfig& config,
+        std::unique_ptr<ICompositorBackend> backend);
 
     Compositor(Compositor&&) noexcept;
     Compositor& operator=(Compositor&&) noexcept;
@@ -45,6 +53,11 @@ public:
                                          IDecodeProvider& provider);
 
     const CompositorConfig& config() const noexcept;
+
+    // Name of the active backend ("cpu", "opengl", ...) and whether it runs on
+    // the GPU. Used by the status bar and by tests.
+    std::string_view backendName() const noexcept;
+    bool usingGpu() const noexcept;
 
 private:
     Compositor() = default;

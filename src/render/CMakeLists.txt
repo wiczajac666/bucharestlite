@@ -3,6 +3,7 @@ add_library(bl_render STATIC
     cube_lut.cpp
     frame_cache.cpp
     compositor.cpp
+    compositor_backend.cpp
     mask_raster.cpp
     scopes.cpp
     media_decode_source.cpp

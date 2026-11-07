@@ -21,8 +21,9 @@ PreviewEngine::PreviewEngine(PreviewEngine&&) noexcept = default;
 PreviewEngine& PreviewEngine::operator=(PreviewEngine&&) noexcept = default;
 PreviewEngine::~PreviewEngine() = default;
 
-Result<PreviewEngine> PreviewEngine::create(Config config,
-                                            std::vector<MediaBinItem> mediaBin) {
+Result<PreviewEngine> PreviewEngine::create(
+    Config config, std::vector<MediaBinItem> mediaBin,
+    std::unique_ptr<ICompositorBackend> backend) {
     if (config.outputWidth == 0 || config.outputHeight == 0) {
         return Result<PreviewEngine>::err(Err::InvalidArgument,
                                           "preview size must be non-zero");
@@ -33,7 +34,7 @@ Result<PreviewEngine> PreviewEngine::create(Config config,
     }
 
     CompositorConfig compConfig{config.outputWidth, config.outputHeight};
-    auto compositor = Compositor::create(compConfig);
+    auto compositor = Compositor::create(compConfig, std::move(backend));
     if (!compositor.ok()) {
         return Result<PreviewEngine>::err(compositor.code(), compositor.message());
     }
@@ -97,6 +98,14 @@ std::optional<bool> PreviewEngine::mediaProxyOverride(const std::string& mediaIt
 const CompositorConfig& PreviewEngine::config() const noexcept {
     static const CompositorConfig kEmpty;
     return impl_ ? impl_->compositor.config() : kEmpty;
+}
+
+std::string_view PreviewEngine::backendName() const noexcept {
+    return impl_ ? impl_->compositor.backendName() : "none";
+}
+
+bool PreviewEngine::usingGpu() const noexcept {
+    return impl_ && impl_->compositor.usingGpu();
 }
 
 } // namespace bl

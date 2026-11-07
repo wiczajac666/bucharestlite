@@ -1,6 +1,7 @@
 #include "panels/preview_panel.hpp"
 
 #include "app/project_controller.hpp"
+#include "render/gl_compositor_backend.hpp"
 
 #include <bl_audio/audio_engine.hpp>
 #include <bl_core/builtin_plugins.hpp>
@@ -221,8 +222,22 @@ void PreviewPanel::rebuildEngine() {
     const auto& seq = controller_->timeline().sequence();
     MediaDecodeSource::Spec spec;
     spec.pluginDirs = pluginDirs_;
+
+    // GPU compositing is opt-in: BL_COMPOSITOR=gpu or auto picks the OpenGL
+    // backend when a context is available, and any failure quietly keeps the
+    // portable CPU path. CPU remains the default so behaviour is unchanged on
+    // hosts without a usable GL driver.
+    std::unique_ptr<bl::ICompositorBackend> backend;
+    const char* compositorMode = std::getenv("BL_COMPOSITOR");
+    if (compositorMode != nullptr &&
+        (std::string(compositorMode) == "gpu" ||
+         std::string(compositorMode) == "auto")) {
+        backend = makeGlCompositorBackend();
+    }
+
     auto engine = PreviewEngine::create(previewConfig(seq.settings, spec),
-                                        controller_->mediaBin());
+                                        controller_->mediaBin(),
+                                        std::move(backend));
     if (!engine.ok()) {
         BL_LOG_WARN("preview", "preview engine create failed: " + engine.message());
         surface_->clearFrame();
@@ -383,6 +398,12 @@ std::optional<bool> PreviewPanel::mediaProxyOverride(const std::string& mediaIte
     }
     return std::nullopt;
 }
+
+std::string_view PreviewPanel::compositorBackendName() const {
+    return engine_ ? engine_->backendName() : "none";
+}
+
+bool PreviewPanel::usingGpu() const { return engine_ && engine_->usingGpu(); }
 
 void PreviewPanel::startAudio() {
     if (!audioEngine_ || audioPlaying_.load()) return;

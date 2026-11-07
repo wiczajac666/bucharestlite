@@ -24,6 +24,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -77,6 +78,12 @@ public:
 
     // Whether the preview decoder is currently allowed to use proxy files.
     bool useProxies() const { return useProxies_; }
+
+    // Compositor backend of the current preview engine ("cpu", "opengl", or
+    // "none" before the first engine build). GPU compositing is opt-in through
+    // BL_COMPOSITOR=gpu|auto.
+    std::string_view compositorBackendName() const;
+    bool usingGpu() const;
 
     PreviewSurface* surface() { return surface_; }
     const PreviewSurface* surface() const { return surface_; }

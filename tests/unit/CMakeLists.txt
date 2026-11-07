@@ -36,6 +36,7 @@ add_executable(bl_core_tests
     test_effects.cpp
     test_frame_cache.cpp
     test_compositor.cpp
+    test_compositor_backend.cpp
     test_mask.cpp
     test_scopes.cpp
     test_audio_mixer.cpp

@@ -12,6 +12,7 @@ add_executable(bl_ui_tests
     test_template_picker.cpp
     test_transport_controller.cpp
     test_preview_panel.cpp
+    test_gl_compositor_backend.cpp
     test_scopes_panel.cpp
     test_media_bin_panel.cpp
     test_source_monitor_panel.cpp

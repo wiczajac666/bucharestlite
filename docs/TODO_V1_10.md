@@ -37,13 +37,14 @@ each item ends with a green `ctest` run and a commit.
 - [x] Tests (model round-trip, rasteriser, compositor/render path)
 - [x] `ctest` green + commit
 
-## 5. GPU compositor
-- [ ] Decide backend (OpenGL 3.3 core, Qt `QOpenGLWidget` surface)
-- [ ] Extract the CPU compositor into a backend interface
-- [ ] Implement shader-based layer blend + effects subset
-- [ ] CPU fallback when no GL context is available
-- [ ] Benchmark against CPU path; keep both selectable
-- [ ] Tests (offscreen GL where available, CPU fallback everywhere)
+## 5. GPU compositor  ✅ done
+- [x] Extract the CPU compositor into an `ICompositorBackend` interface
+- [x] Cache processed clip layers and hand the whole stack to one backend call
+- [x] OpenGL 3.3 core offscreen backend (Qt context, GLSL ping-pong blend)
+- [x] CPU fallback when no GL context is available (headless hosts)
+- [x] Keep both selectable: CPU default, `BL_COMPOSITOR=gpu|auto` opts in
+- [x] Benchmark against the CPU path; effects/masks stay CPU-side
+- [x] Tests (offscreen GL where available, CPU fallback everywhere)
 - [x] `ctest` green + commit
 
 ## Cross-cutting

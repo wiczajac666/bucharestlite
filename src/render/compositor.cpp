@@ -1,5 +1,6 @@
 #include <bl_render/compositor.hpp>
 
+#include <bl_render/composite_layer.hpp>
 #include <bl_render/effect.hpp>
 #include <bl_render/mask_raster.hpp>
 #include <bl_core/logger.hpp>
@@ -9,8 +10,10 @@
 #include <cmath>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace bl {
 
@@ -24,43 +27,6 @@ static inline uint8_t* pixelAt(std::vector<uint8_t>& data, uint32_t linesize,
 static inline const uint8_t* pixelAt(const std::vector<uint8_t>& data,
                                       uint32_t linesize, uint32_t x, uint32_t y) {
     return data.data() + y * linesize + x * 4;
-}
-
-static void alphaBlend(std::vector<uint8_t>& dst, uint32_t dstW, uint32_t dstH,
-                        uint32_t dstLinesize, const std::vector<uint8_t>& src,
-                        uint32_t srcW, uint32_t srcH, uint32_t srcLinesize,
-                        double opacity) {
-    if (opacity <= 0.0) return;
-    if (opacity > 1.0) opacity = 1.0;
-
-    const uint32_t copyW = std::min(dstW, srcW);
-    const uint32_t copyH = std::min(dstH, srcH);
-
-    for (uint32_t y = 0; y < copyH; ++y) {
-        uint8_t* dstRow = pixelAt(dst, dstLinesize, 0, y);
-        const uint8_t* srcRow = pixelAt(src, srcLinesize, 0, y);
-        for (uint32_t x = 0; x < copyW; ++x) {
-            uint32_t i = x * 4;
-            uint8_t* dstP = dstRow + i;
-            const uint8_t* srcP = srcRow + i;
-            // Premultiplied accumulation on the output canvas (in-app output is
-            // alpha-less RGB, so coverage scales RGB directly). Per-pixel alpha
-            // from the source frame participates: for opaque frames this is
-            // byte-identical to the previous opacity-only blend, and keyed-out
-            // (alpha 0) pixels fall through to whatever is already on the canvas.
-            const double op = static_cast<double>(srcP[3]) / 255.0 * opacity;
-            if (op <= 0.0) continue;
-            const double invOp = 1.0 - op;
-            for (int c = 0; c < 3; ++c) {
-                dstP[c] = static_cast<uint8_t>(
-                    static_cast<double>(srcP[c]) * op +
-                    static_cast<double>(dstP[c]) * invOp);
-            }
-            dstP[3] = static_cast<uint8_t>(
-                static_cast<double>(srcP[3]) * op +
-                static_cast<double>(dstP[3]) * invOp);
-        }
-    }
 }
 
 // --- Transition parameter helpers ---
@@ -273,6 +239,7 @@ static void blendTransition(std::vector<uint8_t>& dst, uint32_t W, uint32_t H,
 
 struct Compositor::Impl {
     CompositorConfig config;
+    std::unique_ptr<ICompositorBackend> backend;
 
     static bool isClipActive(const Clip& clip, Time t) {
         Time end = clip.timelineStart + clip.effectiveDuration();
@@ -317,6 +284,11 @@ struct Compositor::Impl {
         result.presentationTime = t;
         result.data.resize(outLinesize * outH, 0);
 
+        // Collect every visible layer bottom-to-top, then hand the whole stack
+        // to the backend in one call. The CPU backend blends on the spot; a GPU
+        // backend uploads each layer and blends in a shader.
+        std::vector<CompositeLayer> layers;
+
         for (size_t ti = 0; ti < seq.videoTracks.size(); ++ti) {
             const auto& track = seq.videoTracks[ti];
             if (track.muted()) continue;
@@ -332,8 +304,9 @@ struct Compositor::Impl {
             // per-clip pass. When it owns the whole track at this instant we
             // composite it and move on; otherwise the normal per-clip loop
             // renders the track exactly as it did before.
-            if (renderTransitionForTrack(track, t, provider, outW, outH,
-                                         outLinesize, result.data)) {
+            if (auto transition = renderTransitionForTrack(
+                    track, t, provider, outW, outH)) {
+                layers.push_back(std::move(*transition));
                 continue;
             }
 
@@ -377,10 +350,17 @@ struct Compositor::Impl {
                     }
                 }
 
-                alphaBlend(result.data, outW, outH, outLinesize, pixelData,
-                           frame.width, frame.height, frame.width * 4, opacity);
+                CompositeLayer layer;
+                layer.width = frame.width;
+                layer.height = frame.height;
+                layer.linesize = frame.width * 4;
+                layer.opacity = opacity;
+                layer.data = std::move(pixelData);
+                layers.push_back(std::move(layer));
             }
         }
+
+        backend->composite(result.data, outW, outH, outLinesize, layers);
 
         return Result<CompositorResult>::ok(std::move(result));
     }
@@ -390,11 +370,9 @@ struct Compositor::Impl {
     // `out`. Returns true when a transition was rendered (the caller must then
     // skip the normal per-clip pass for this track at this instant) and false
     // to fall back to it.
-    static bool renderTransitionForTrack(const VideoTrack& track, Time t,
-                                         IDecodeProvider& provider,
-                                         uint32_t outW, uint32_t outH,
-                                         uint32_t outLinesize,
-                                         std::vector<uint8_t>& out) {
+    static std::optional<CompositeLayer> renderTransitionForTrack(
+        const VideoTrack& track, Time t, IDecodeProvider& provider,
+        uint32_t outW, uint32_t outH) {
         const auto& clips = track.clips();
         for (size_t i = 0; i + 1 < clips.size(); ++i) {
             const Clip& a = clips[i];
@@ -461,7 +439,7 @@ struct Compositor::Impl {
                 BL_LOG_WARN("render",
                             "failed to get transition frame for clip '" +
                                 a.name + "': " + aFrameResult.message());
-                return false;
+                return std::nullopt;
             }
             auto bFrameResult =
                 provider.getFrame(b.source.mediaItemId, b.sourceTimeAt(bOffset),
@@ -470,7 +448,7 @@ struct Compositor::Impl {
                 BL_LOG_WARN("render",
                             "failed to get transition frame for clip '" +
                                 b.name + "': " + bFrameResult.message());
-                return false;
+                return std::nullopt;
             }
 
             Frame aFrame = std::move(aFrameResult.value());
@@ -490,17 +468,27 @@ struct Compositor::Impl {
             blendTransition(blended, outW, outH, aPixels, bPixels, progress,
                             spec);
 
-            alphaBlend(out, outW, outH, outLinesize, blended, outW, outH,
-                       outW * 4, 1.0);
-            return true;
+            CompositeLayer layer;
+            layer.width = outW;
+            layer.height = outH;
+            layer.linesize = outW * 4;
+            layer.opacity = 1.0;
+            layer.data = std::move(blended);
+            return layer;
         }
-        return false;
+        return std::nullopt;
     }
 };
 
 // --- Compositor public API ---
 
 Result<Compositor> Compositor::create(const CompositorConfig& config) {
+    return create(config, nullptr);
+}
+
+Result<Compositor> Compositor::create(
+    const CompositorConfig& config,
+    std::unique_ptr<ICompositorBackend> backend) {
     if (config.outputWidth == 0 || config.outputHeight == 0) {
         return Result<Compositor>::err(Err::InvalidArgument,
                                        "output dimensions must be non-zero");
@@ -509,10 +497,13 @@ Result<Compositor> Compositor::create(const CompositorConfig& config) {
     Compositor comp;
     comp.impl_ = std::make_unique<Impl>();
     comp.impl_->config = config;
+    comp.impl_->backend =
+        backend ? std::move(backend) : makeCpuCompositorBackend();
 
     BL_LOG_INFO("render",
                 "compositor created " + std::to_string(config.outputWidth) + "x" +
-                    std::to_string(config.outputHeight));
+                    std::to_string(config.outputHeight) + " backend=" +
+                    std::string(comp.impl_->backend->name()));
     return Result<Compositor>::ok(std::move(comp));
 }
 
@@ -531,6 +522,14 @@ Result<CompositorResult> Compositor::renderFrame(
 
 const CompositorConfig& Compositor::config() const noexcept {
     return impl_->config;
+}
+
+std::string_view Compositor::backendName() const noexcept {
+    return impl_ && impl_->backend ? impl_->backend->name() : "none";
+}
+
+bool Compositor::usingGpu() const noexcept {
+    return impl_ && impl_->backend && impl_->backend->gpu();
 }
 
 } // namespace bl

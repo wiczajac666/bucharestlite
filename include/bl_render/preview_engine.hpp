@@ -7,15 +7,18 @@
 #include <bl_render/media_decode_source.hpp>
 
 #include <memory>
+#include <string_view>
 #include <vector>
 
 namespace bl {
 
 // Drives full-pipeline preview: renders the current timeline snapshot at a
-// requested time through the CPU compositor, decoding source frames on demand
-// via MediaDecodeSource (cached in FrameCache).
+// requested time through the compositor, decoding source frames on demand via
+// MediaDecodeSource (cached in FrameCache). The compositor uses the CPU
+// backend unless an optional GPU backend is supplied by the caller.
 //
-// Single-threaded: call runAt() from one thread only (the UI thread).
+// Single-threaded: call runAt() from one thread only (the UI thread). A GPU
+// backend's OpenGL context is therefore created and used on the same thread.
 class PreviewEngine {
 public:
     struct Config {
@@ -26,7 +29,9 @@ public:
     };
 
     static Result<PreviewEngine> create(Config config,
-                                        std::vector<MediaBinItem> mediaBin);
+                                        std::vector<MediaBinItem> mediaBin,
+                                        std::unique_ptr<ICompositorBackend>
+                                            backend = nullptr);
 
     PreviewEngine(PreviewEngine&&) noexcept;
     PreviewEngine& operator=(PreviewEngine&&) noexcept;
@@ -50,6 +55,11 @@ public:
     std::optional<bool> mediaProxyOverride(const std::string& mediaItemId) const;
 
     const CompositorConfig& config() const noexcept;
+
+    // Active compositor backend ("cpu", "opengl", ...) and whether it runs on
+    // the GPU.
+    std::string_view backendName() const noexcept;
+    bool usingGpu() const noexcept;
 
 private:
     PreviewEngine() = default;

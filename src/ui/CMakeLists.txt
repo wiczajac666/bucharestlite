@@ -1,4 +1,4 @@
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets OpenGL)
 
 add_library(bl_ui STATIC
     app/theme_manager.cpp
@@ -13,6 +13,7 @@ add_library(bl_ui STATIC
     panels/preview_panel.cpp
     panels/source_monitor_panel.cpp
     panels/scopes_panel.cpp
+    render/gl_compositor_backend.cpp
     transport/transport_controller.cpp
     panels/media_bin_panel.cpp
     panels/inspector_panel.cpp
@@ -56,7 +57,7 @@ set_target_properties(bl_ui PROPERTIES AUTOMOC ON)
 
 target_compile_features(bl_ui PUBLIC cxx_std_17)
 
-target_link_libraries(bl_ui PUBLIC Qt6::Widgets bl::core bl_timeline bl::render bl::audio)
+target_link_libraries(bl_ui PUBLIC Qt6::Widgets Qt6::OpenGL bl::core bl_timeline bl::render bl::audio)
 
 bl_enable_warnings(bl_ui)
 
