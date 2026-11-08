@@ -55,7 +55,7 @@ public:
     const CompositorConfig& config() const noexcept;
 
     // Name of the active backend ("cpu", "opengl", ...) and whether it runs on
-    // the GPU. Used by the status bar and by tests.
+    // the GPU. Exposed for diagnostics and tests.
     std::string_view backendName() const noexcept;
     bool usingGpu() const noexcept;
 

@@ -1,5 +1,55 @@
 # Bucharest Lite Changelog
 
+## v1.10.0 — 2026-11-07
+
+### Added
+- **Linux audio output.** Preview playback is now audible on Linux through an
+  ALSA sink loaded at runtime (`libasound.so.2` via `dlopen`, no build-time
+  dependency). `BL_AUDIO_DEVICE` selects the PCM device (default `default`;
+  tests use `null`), and hosts without a usable device fall back to a null
+  sink. The Windows WinMM sink moved to its own file and now interleaves the
+  planar mix before `waveOutWrite` instead of feeding planar data to an
+  interleaved device.
+- **Audio playback polish.** Each active clip keeps one demuxer/decoder open
+  across chunks instead of reopening and seeking every ~40 ms.
+  `PlaybackAudioSource` resamples any source rate to the engine rate (48 kHz),
+  upmixes mono / downmixes >2 channels to stereo, and seeks sample-accurately
+  while reusing the open decoder. The preview feeder applies clip and track
+  gain, the constant-power pan law, mute/solo, speed remapping and reversed
+  playback; the engine flushes queued audio when the playhead jumps.
+- **Source Monitor and three-point editing.** A new **Source Monitor** dock
+  follows the media-bin selection, shows the source frame and holds in/out
+  marks. **Insert** (`,`) and **Overwrite** (`.`) place the marked range at the
+  timeline playhead through new `TimelineEditController::insertClip` /
+  `overwriteClip` primitives, which shift or clear timeline material and give
+  split-off fragments fresh ids. Linked A/V variants place both halves in one
+  undo step and group them; `Alt+I` / `Alt+O` mark in/out from the timeline.
+- **Rotoscoping masks.** Clips accept polygon masks with optional Catmull-Rom
+  smoothing, feather, opacity, invert and enabled flags. Coordinates are
+  normalised, so masks survive resolution changes, and the model serialises
+  with the clip document. The rasteriser fills with 4x supersampled scanlines,
+  feathers with a separable box blur, and multiplies the clip's alpha after its
+  effect chain. The Inspector gained a **Masks** section (add/remove masks and
+  points, edit coordinates and feather/opacity/invert/smooth); every edit is
+  one undoable command. Preview and export composite through the same path.
+- **Pluggable GPU compositor.** Layer blending now sits behind an
+  `ICompositorBackend` interface. The compositor collects each visible clip as
+  an already decoded, masked and effect-processed `CompositeLayer` and hands
+  the whole bottom-to-top stack to the backend in one call. An optional
+  OpenGL 3.3 core backend in the UI blends with a GLSL ping-pong shader that
+  reproduces the CPU arithmetic exactly, including per-pixel alpha. GPU
+  compositing is opt-in via `BL_COMPOSITOR=gpu|auto`; the CPU backend remains
+  the default and every failure — headless host, missing driver, incomplete
+  framebuffer, mid-frame error — falls back to it, so preview never shows a
+  partial frame. Export keeps the CPU backend on its worker thread.
+
+### Notes
+- **962/962** tests green (`linux-release`; GPU tests skip gracefully when no
+  GL context is available).
+- GPU compositing requires OpenGL 3.3; effects and masks still run CPU-side,
+  only layer blending moves to the GPU.
+- Version bumped to **1.10.0**.
+
 ## v1.9.15 — 2026-10-24
 
 ### Added

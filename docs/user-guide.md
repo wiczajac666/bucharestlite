@@ -4,17 +4,17 @@
 
 Bucharest Lite opens with a compact two-row workspace:
 
-- **Top row** — the **Media Bin**, **Preview** and **Scopes** docks, side by
-  side.
+- **Top row** — the **Media Bin**, **Preview**, **Source Monitor** and
+  **Scopes** docks, side by side.
 - **Bottom row** — the **Timeline**, spanning the full window width.
 
-Two more docks, the **Inspector** (clip properties, keyframes and effects) and
-the **Mixer** (per-track and master levels), start hidden to keep the workspace
-uncluttered. Show them — and toggle any panel — from the **View** menu, or with
-their shortcuts: Ctrl+1 Media Bin, Ctrl+2 Preview, Ctrl+3 Inspector, Ctrl+4
-Mixer, Ctrl+5 Timeline, Ctrl+6 Scopes, Ctrl+7 Undo History. Drag dock title
-bars to rearrange the workspace; your layout and which panels are visible are
-remembered between sessions.
+Two more docks, the **Inspector** (clip properties, keyframes, effects and
+masks) and the **Mixer** (per-track and master levels), start hidden to keep
+the workspace uncluttered. Show them — and toggle any panel — from the **View**
+menu, or with their shortcuts: Ctrl+1 Media Bin, Ctrl+2 Preview, Ctrl+3
+Inspector, Ctrl+4 Mixer, Ctrl+5 Timeline, Ctrl+6 Scopes, Ctrl+7 Undo History,
+Ctrl+8 Source Monitor. Drag dock title bars to rearrange the workspace; your
+layout and which panels are visible are remembered between sessions.
 
 ## New from a template
 
@@ -185,6 +185,24 @@ video underneath shows through). Titles are created from `File → Add Title…`
   Rename or delete a marker from its own right-click menu. Markers are undoable
   and take part in snapping.
 
+### Three-point editing
+
+The **Source Monitor** dock sits next to the preview and follows the Media Bin
+selection, showing that item's source frame and holding its in/out marks.
+
+- **Mark the source.** Use **In (Alt+I)**, **Out (Alt+O)** and **Clear** in the
+  monitor, or the same shortcuts from anywhere in the main window. Marks are
+  clamped to the source duration; with no marks the whole source is used.
+- **Insert** (`,` or the monitor button) places the marked range at the
+  timeline playhead and pushes later material on the destination track to the
+  right. **Overwrite** (`.`) places it at the playhead and replaces whatever it
+  covers.
+- **Destination.** The current track decides where the edit lands: audio-only
+  sources go to an audio track, video or A/V sources to a video track.
+- **Linked A/V.** An A/V source splits into video and audio halves that are
+  grouped and count as a single undo step; split-off timeline fragments get
+  fresh clip ids so their track settings stay independent.
+
 ## Undo History
 
 Every edit is pushed onto the undo stack, and the **Undo History** dock lets
@@ -216,6 +234,45 @@ JSON field when it has no numeric sliders).
   gain grade (nine sliders). Defaults are identity; use it for shadow lift,
   highlight roll-off and midtone gamma. **Levels / Curves** handles tonal
   curves via its black/white/gamma plus five control points.
+
+## Masks (roto)
+
+Select a clip and use the Inspector's **Masks** group to limit where that clip
+is visible. Masks are polygon shapes: each one multiplies the clip's alpha
+after its effect chain, so the masked-out area shows the tracks below instead
+of the clip.
+
+- **Add / remove.** **Add** creates a mask with a default rectangle; **Remove**
+  deletes the selected mask. Every change is one undo step.
+- **Shape.** The point table lists the polygon's vertices as normalised
+  coordinates (0–1 across the frame), so a mask follows the project resolution
+  rather than baking in preview pixels. Edit x/y cells in place, **Add point**
+  to append a vertex, or remove the selected point. A polygon needs at least
+  three points; while it has fewer it covers the whole frame so an in-progress
+  mask never blanks the clip.
+- **Smooth.** Replaces straight edges with a closed Catmull-Rom spline through
+  every point, giving curved roto shapes without bezier handles.
+- **Feather.** Softens the mask edge by a fraction of the shorter frame side
+  (0 is a hard edge).
+- **Opacity / invert / enabled.** Opacity scales coverage inside the mask,
+  invert flips inside and outside, and enabled toggles a mask without deleting
+  it. Several masks on one clip combine by union (the highest coverage wins).
+- Masks are saved with the project and applied identically in preview and
+  export.
+
+## GPU compositing
+
+Layer blending can run on the GPU through an OpenGL 3.3 backend. It is
+**opt-in**; the portable CPU compositor remains the default.
+
+- Set `BL_COMPOSITOR=gpu` (or `auto`) before launching. Decoding, effects and
+  masks still run on the CPU; only the per-layer blend moves to the GPU, using a
+  GLSL shader that matches the CPU arithmetic pixel for pixel.
+- If an OpenGL 3.3 context cannot be created — headless host, missing driver,
+  framebuffer failure — Bucharest Lite quietly keeps the CPU backend. A
+  mid-frame GPU failure also re-composites that frame on the CPU, so the
+  preview never shows a partial image.
+- Export always composites on the CPU on its worker thread.
 
 ## Transitions
 
@@ -325,6 +382,13 @@ main window.
 
 ## Audio
 
+- **Audible preview playback.** Pressing play is audible: on Linux the preview
+  opens an ALSA device at 48 kHz (`BL_AUDIO_DEVICE` selects the PCM device;
+  unset or `default` uses the system default, and a missing device falls back to
+  a silent null sink), on Windows it uses WinMM waveOut. Clips are resampled to
+  48 kHz, mono and >2-channel sources are mapped to stereo, and clip/track gain,
+  pan, mute/solo, speed and reverse playback are applied by the feeder. Seeking
+  flushes queued audio so playback does not lag the playhead.
 - **Waveform display.** Every audio clip draws its waveform inside the clip
   body on the timeline, so you can read the shape of a take and cut on
   transients at a glance. The shape is reduced from the same background
@@ -335,8 +399,8 @@ main window.
   split A/V pair does not.
 - **Mixer.** The **Mixer** dock has one strip per audio track (gain, pan, mute,
   solo) plus a master bus. Its live L/R meters follow the playhead, so they are
-  snapshots of the mix *at that instant* rather than a real-time output
-  reading (see *Known UI limitations (v1)*).
+  snapshots of the mix *at that instant* rather than a tap on the device output
+  (see *Known UI limitations (v1)*).
 
 ## Proxy workflow (v1.9.15)
 
@@ -455,7 +519,11 @@ Two things to know:
 
 ### Known UI limitations (v1)
 
-- Live meters reflect the playhead position, so they are snapshots rather than
-  a real-time audio-path reading: volume follows the clip/track/master settings
-  but no audible playback is tied to them in v1 (further per-clip or
+- Live meters reflect the playhead position, so they are snapshots of the mix
+  at that instant rather than a tap on the device output (further per-clip or
   time-ranged metering is deferred).
+- GPU compositing is opt-in and blends layers only; decoding, effects and masks
+  stay on the CPU. There is no preferences UI for it — set `BL_COMPOSITOR`
+  before launching.
+- Masks are polygonal (optionally smoothed). Bezier handle editing and mask
+  animation/keyframing are not implemented yet.

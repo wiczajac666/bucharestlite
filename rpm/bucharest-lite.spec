@@ -1,5 +1,5 @@
 Name:           bucharest-lite
-Version:        1.9.15
+Version:        1.10.0
 Release:        1%{?dist}
 Summary:        Bucharest Lite - open-source non-linear video editor (NLE)
 
@@ -66,6 +66,16 @@ gtk-update-icon-cache %{_datadir}/icons/hicolor &> /dev/null || :
 %doc README.md FEATURES.md CHANGELOG.md PROJECT_STATUS.md
 
 %changelog
+* Sat Nov 07 2026 Wictoria Zajac <wiczajac666@github.com> - 1.10.0-1
+- Release 1.10.0: Linux audio output via ALSA (runtime-loaded, BL_AUDIO_DEVICE,
+  null fallback) and a corrected interleaving WinMM sink; persistent preview
+  audio readers with resampling, channel mapping, gain/pan/mute/solo and
+  speed/reverse playback; Source Monitor dock plus insert/overwrite three-point
+  editing with linked A/V in one undo step; polygon rotoscoping masks with
+  Catmull-Rom smoothing, feather, opacity, invert and an Inspector editor;
+  pluggable compositor with an opt-in OpenGL 3.3 backend (BL_COMPOSITOR) and
+  transparent CPU fallback.
+
 * Thu Oct 29 2026 Wictoria Zajac <wiczajac666@github.com> - 1.9.15-1
 - Release 1.9.15: proxy editing infrastructure (global "Use Proxies" toggle,
   per-clip overrides, status badges, preferences dialog, automatic generation

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(BucharestLite
-    VERSION 1.9.15
+    VERSION 1.10.0
     DESCRIPTION "Bucharest Lite - open-source non-linear video editor"
     LANGUAGES C CXX
 )

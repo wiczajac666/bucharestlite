@@ -75,12 +75,12 @@ SourceMonitorPanel::SourceMonitorPanel(
         setPositionSeconds(durationSeconds_ * static_cast<double>(value) / 1000.0);
     });
 
-    markInButton_ = new QPushButton(tr("In (I)"), this);
+    markInButton_ = new QPushButton(tr("In (Alt+I)"), this);
     markInButton_->setObjectName(QStringLiteral("sourceMarkInButton"));
     connect(markInButton_, &QPushButton::clicked, this,
             &SourceMonitorPanel::markInHere);
 
-    markOutButton_ = new QPushButton(tr("Out (O)"), this);
+    markOutButton_ = new QPushButton(tr("Out (Alt+O)"), this);
     markOutButton_->setObjectName(QStringLiteral("sourceMarkOutButton"));
     connect(markOutButton_, &QPushButton::clicked, this,
             &SourceMonitorPanel::markOutHere);

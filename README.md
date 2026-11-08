@@ -2,7 +2,7 @@
 
 ![Bucharest Lite Logo](https://raw.githubusercontent.com/your-repo/bucharest-lite/main/docs/images/logo.png 200x200)
 
-A cross-platform, open-source (GPL-3.0) non-linear video editor built with **Qt6/C++17** and **FFmpeg** (CPU compositor; GPU-accelerated rendering is planned, not yet shipped).
+A cross-platform, open-source (GPL-3.0) non-linear video editor built with **Qt6/C++17** and **FFmpeg**, with a portable CPU compositor and an optional OpenGL layer-blending backend.
 
 ## 🚀 Features
 
@@ -10,13 +10,13 @@ Bucharest Lite implements the features below. Items marked **planned** are
 documented gaps, not shipped functionality (see `docs/user-guide.md` →
 "Known limitations").
 
-| Category | Features (unreleased) |
+| Category | Features (v1.10.0) |
 |---|---|
-| **Core Editing** | Multi-track timeline ✅, drag-and-drop import (file manager → media bin / timeline, and media bin → timeline) ✅, trimming/splitting/ripple editing ✅, 3-point editing ⚠️ (in/out points at the model level; source-monitor UI pending — see `KDENLINE_TIMELINE.MD` §10.3), snapping ✅, zoom ✅, frame-accurate step editing ✅, speed/time remapping + reverse ✅, keyframeable properties ✅ |
+| **Core Editing** | Multi-track timeline ✅, drag-and-drop import (file manager → media bin / timeline, and media bin → timeline) ✅, trimming/splitting/ripple editing ✅, 3-point editing ✅ (Source Monitor with in/out marks; insert/overwrite, linked A/V in one undo step), snapping ✅, zoom ✅, frame-accurate step editing ✅, speed/time remapping + reverse ✅, keyframeable properties ✅ |
 | **Transitions & Effects** | Keyframeable video effects — color correction, color wheels (lift/gamma/gain), box blur, chroma key, sharpen, hue/saturation, levels/curves, greyscale, transform ✅; `.cube` LUT import (1D/3D) ✅; effect params as sliders ✅; transition *model* (fade/wipe/dissolve edge-metadata) ✅, transition rendering (crossfade, dissolve, fade-through-black, wipe, slide with alignment) in preview/export ✅ |
-| **Compositing** | Layer-based alpha blending (premultiplied) ✅, chroma key ✅, picture-in-picture via opacity/position keyframes ✅; masking/roto *planned* |
+| **Compositing** | Layer-based alpha blending ✅, chroma key ✅, picture-in-picture via opacity/position keyframes ✅; polygon rotoscoping masks with Catmull-Rom smoothing, feather, opacity and invert ✅ (v1.10.0); optional OpenGL 3.3 layer blending with CPU fallback ✅ (v1.10.0, `BL_COMPOSITOR=gpu\|auto`) |
 | **Titles & Text** | Per-clip soft subtitles (Inspector text → MOV_TEXT/subrip/WebVTT stream) ✅; SRT/ASS/WebVTT import (File → Import Subtitles…) ✅; text title editor (File → Add Title…, rendered to a transparent PNG still with font/colour/outline/background/position controls) ✅; re-edit a title in place (Edit Title… on the bin row or a clip) ✅; scrolling credits, lower thirds, SVG/animated titles *planned* |
-| **Audio** | Multi-track mixer with gain/pan/M/S ✅, live L/R peak-dB meters ✅, audio export mixdown (AAC/FLAC/Opus/Vorbis) ✅, timeline waveform display on audio clips ✅; audio syncing tools *planned* |
+| **Audio** | Multi-track mixer with gain/pan/M/S ✅, live L/R peak-dB meters ✅, audible preview playback (ALSA on Linux, WinMM on Windows) ✅ (v1.10.0), audio export mixdown (AAC/FLAC/Opus/Vorbis) ✅, timeline waveform display on audio clips ✅; audio syncing tools *planned* |
 | **Color Grading** | Brightness/contrast/gamma color correction ✅; color wheels (lift/gamma/gain) ✅; levels/curves ✅; 3D LUT (`.cube`) import ✅; video scopes (Scopes dock: luma/RGB histogram, luma waveform, chroma vectorscope) ✅ plus playhead-driven audio meters ✅ |
 | **Media & Codecs** | 9 FFmpeg-backed codec plugins (H.264, VP9, AV1, Theora, MPEG-4, AAC, FLAC, Vorbis, Opus) ✅, format detection + metadata probe ✅, media-bin thumbnails + metadata ✅, image-sequence import (PNG/JPG/EXR/DPX… via `%04d` patterns) ✅, batch export ✅, Matroska import ✅, Matroska export ✅; proxy editing ✅ (v1.9.15) |
 | **Export & Rendering** | Custom export settings, MP4 + WebM + Matroska, render presets (YouTube/Vimeo/WebM/DVD/Blu-ray/mobile) ✅, per-range (timeline zone) + per-clip export ✅, batch queue with persistence ✅, stream to IP (RTMP → FLV / UDP → MPEG-TS, H.264 + AAC, no SRT) ✅, PSNR/SSIM comparison (Tools → Compare Quality…) ✅ |
@@ -63,7 +63,7 @@ Bucharest Lite uses a **layered architecture** with a stable plugin ABI as the c
 │   Main window, timeline, preview, bins, inspector, panels  │
 ├──────────────┬────────────────────┬────────────────────────┤
 │ bl_timeline  │    bl_render       │      bl_audio          │
-│ domain model │  compositor (CPU)  │  mixer, FX, meters     │
+│ domain model │  CPU/GL compositor │  mixer, FX, meters    │
 │ edit ops     │  cache, preview    │  clocks, analysis      │
 ├──────────────┴─────────┬──────────┴────────────────────────┤
 │      bl_export         │            bl_core                │
@@ -109,28 +109,33 @@ Each plugin is ABI v2, dynamically loaded via `dlopen`, and follows the `BlCodec
 - [User Guide](docs/user-guide.md) — Export workflow & troubleshooting
 - [CHANGELOG.md](CHANGELOG.md) — Release history
 
-## ✨ What's New in 1.1.1
+## ✨ What's New in 1.10.0
 
-- **Correct alpha compositing** — per-pixel premultiplied alpha blending so
-  faded clips, opacity keyframes, and stacked layers combine over track content
-  beneath them.
-- **Five new video effects** — Chroma Key, Sharpen, Hue/Saturation,
-  Levels/Curves, and Crop (built-in catalog grows from 4 to 9), each with
-  slider-driven parameters.
-- **Speed editing & reverse playback** — per-clip fractional speed plus a
-  *Reverse* toggle; the compositor and the audio mixdown share one source-time
-  mapping so reversed clips play sample-truthfully, and changes are undoable.
-- **Soft subtitles** — subtitle text per clip edited in the Inspector and
-  exported as a real MOV_TEXT subtitle stream in MP4 (never burned in).
+- **Linux audio output** — ALSA playback loaded at runtime, with
+  `BL_AUDIO_DEVICE` device selection and a null-sink fallback; the WinMM sink
+  now interleaves correctly.
+- **Audio playback polish** — persistent per-clip readers, linear resampling to
+  48 kHz, channel up/downmix, clip/track gain, pan law, mute/solo, speed and
+  reversed playback, and a flush when the playhead jumps.
+- **Source Monitor and three-point editing** — mark in/out in the source and
+  insert (`,`) or overwrite (`.`) at the playhead; linked A/V edits are one
+  undo step.
+- **Rotoscoping masks** — polygon masks per clip with Catmull-Rom smoothing,
+  feather, opacity and invert, edited in the Inspector and applied in preview
+  and export.
+- **Optional GPU compositor** — layer blending can run in OpenGL 3.3
+  (`BL_COMPOSITOR=gpu|auto`) with a pixel-accurate GLSL blend and automatic CPU
+  fallback; CPU remains the default.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full history.
 
 ## 🧪 Testing
 
-**553 tests passing across debug and release builds (371 core + 182 UI):**
+**962 tests passing (557 core + 405 UI) in the release suite:**
 
-- **Debug**: 553 tests green
-- **Release**: 553 tests green
+- **Release**: 962/962 green (`linux-release`)
+- **GPU suites**: run where an OpenGL context is available and skip gracefully
+  headlessly, so the suite stays green on CI hosts without GL
 - **TSAN (ThreadSanitizer)**: core tests green; UI TSAN tests excluded from the
   preset due to Qt6-internal allocator races
 
@@ -147,7 +152,8 @@ cmake --preset linux-tsan && cmake --build --preset linux-tsan && ctest --preset
 |---|---|---|---|
 | Plugin suffix | `.so` | `.dll` | `.dylib` |
 | Plugin dir | `/usr/share/...` + `~/.local/share/...` | `%APPDATA%\BucharestLite\plugins` | `~/Library/Application Support/...` |
-| Rendering | CPU compositor (OpenGL planned) | CPU compositor (OpenGL planned) | — (packaging out of scope) |
+| Rendering | CPU compositor + optional OpenGL 3.3 (`BL_COMPOSITOR=gpu\|auto`) | CPU compositor + optional OpenGL 3.3 (`BL_COMPOSITOR=gpu\|auto`) | — (packaging out of scope) |
+| Audio output | ALSA (runtime-loaded), null fallback | WinMM waveOut | — |
 | FFmpeg | distro packages | vendored shared builds | — |
 | CI | GitHub Actions ubuntu ✓ | GitHub Actions windows-latest ✓ | — |
 | Packaging | deb + Flatpak | NSIS + portable zip | — |
@@ -197,6 +203,6 @@ See [Developer Guide](docs/developer-guide.md) for full plugin development tutor
 
 ---
 
-**Version 1.9.14** — October 2026
+**Version 1.10.0** — November 2026
 
 *Built with passion by the open-source community.*

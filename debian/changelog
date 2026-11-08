@@ -1,3 +1,20 @@
+bucharest-lite (1.10.0-1) unstable; urgency=medium
+
+  * Release 1.10.0: Linux audio, three-point editing, masks, GPU compositor
+    - ALSA output backend (dlopen, BL_AUDIO_DEVICE, null-sink fallback) and a
+      fixed WinMM sink that interleaves planar frames
+    - Persistent preview audio readers with resampling, channel mapping,
+      gain/pan/mute/solo, speed and reverse playback
+    - Source Monitor dock with in/out marks and insert/overwrite three-point
+      edits (',' '.' Alt+I Alt+O), linked A/V in one undo step
+    - Polygon rotoscoping masks with Catmull-Rom smoothing, feather, opacity,
+      invert and an Inspector Masks editor; serialised and applied in preview
+      and export
+    - Pluggable compositor with an optional OpenGL 3.3 backend
+      (BL_COMPOSITOR=gpu|auto) and CPU fallback; CPU remains the default
+
+ -- L Hustla <harlemi@example.com>  Sat, 07 Nov 2026 12:00:00 +0200
+
 bucharest-lite (1.9.15-1) unstable; urgency=medium
 
   * Release 1.9.15: proxy editing infrastructure — auto-generate low-res proxies for smooth 4K+ editing

@@ -23,7 +23,7 @@
 - video track and audio track editing in the same timeline
 - Drag-and-drop media import
 - Timeline trimming, splitting, ripple editing
-- 3-point editing (in/out points)
+- 3-point editing (in/out points; shipped in v1.10.0 as the Source Monitor with insert/overwrite)
 - Snapping / magnetic alignment
 - Zoom & pan timeline
 - Frame-accurate editing (step through frames)
@@ -46,7 +46,11 @@
 - Layer-based compositing (alpha blending)
 - Chroma key (green/blue screen)
 - Picture-in-picture
-- Masking / roto-scoping
+- Masking / roto-scoping (shipped in v1.10.0: polygon masks with Catmull-Rom
+  smoothing, feather, opacity, invert and enabled flags, edited in the
+  Inspector and serialised with the project)
+- GPU-accelerated layer blending (optional in v1.10.0: OpenGL 3.3 backend with
+  CPU fallback, opt in with `BL_COMPOSITOR=gpu|auto`)
 - Overlay / watermark support
 
 **Titles & Text:**
@@ -144,7 +148,9 @@ These are the **must-have** features — the baseline for any functional NLE:
 
 1. **Multi-track timeline** (unlimited video + audio tracks with snap/align)
 2. **Timeline editing** — trim, split, ripple, drag-and-drop, zoom/pan
-3. **3-point editing** (in/out point workflow)
+3. **3-point editing** (in/out point workflow; shipped in v1.10.0 through the
+   Source Monitor: mark in/out on the selected bin item, then Insert (`,`) or
+   Overwrite (`.`) at the timeline playhead, linked A/V in one undo step)
 4. **Frame-accurate playback** (step through frames)
 5. **Speed/time remapping** (slow-mo, fast, reverse)
 6. **Keyframeable clip properties** (scale, rotate, position, opacity, volume)

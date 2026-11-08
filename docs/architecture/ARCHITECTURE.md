@@ -54,8 +54,8 @@ Bucharest Lite is an open-source (GPL-3.0) cross-platform non-linear video edito
 - Node-based color grading, OCIO color management (v1 = sRGB + 3D LUT `.cube` import).
 - Online resource marketplace integration.
 - Nested compositions — deferred to v2 by decision D2 (§18).
-- **GPU-accelerated preview/rendering** — v1 ships a CPU compositor (`src/render/compositor.cpp`, §19.3); the OpenGL 3.3 backend in §2/§19 is planned, not shipped.
-- **Proxy-based editing** (goal G4) — unimplemented in v1; high-res media plays directly via demand decode.
+- **GPU-accelerated compositing** — v1 ships a portable CPU compositor (`src/render/compositor.cpp`, `compositor_backend.cpp`, §19.3) behind an `ICompositorBackend` interface, plus an optional OpenGL 3.3 offscreen backend in `src/ui/render/gl_compositor_backend.cpp` (opt in with `BL_COMPOSITOR=gpu|auto`, automatic CPU fallback).
+- **Proxy-based editing** (goal G4) — shipped in v1.9.15: global toggle, auto-generation above a configurable source width, per-clip overrides, and full-res relinking on export (see §12).
 
 ---
 
@@ -216,7 +216,7 @@ Effects have two implementations behind one interface: GPU (fragment shader) pre
 Snapshot discipline (the critical rule):
 
 - Every playback session and every export pins a `SequenceSnapshot` — a cheap persistent (copy-on-write) immutable view of the timeline. Edits during playback apply to the next snapshot boundary (next cut/frame), never tear the current frame.
-- GPU contexts: one shared OpenGL context; compositor owns resources; textures cross threads only via `QOpenGLBuffer`/PBO with fence sync.
+- GPU contexts: the optional OpenGL backend owns a private offscreen context created and used on the preview (UI) thread, because `PreviewEngine` is single-threaded. Export runs on its worker thread with the CPU backend, so no GL objects cross threads; layers are handed to the backend as plain BGRA buffers.
 
 Thread-safety contract per component (verified under ThreadSanitizer via `linux-tsan` preset):
 
@@ -437,11 +437,27 @@ class ScopeTap { public: HistogramData histogram(TargetHandle);
 
 Render order per frame: iterate video tracks **bottom-up**, composite into accumulation FBO with alpha blending; chroma key runs before transform; LUT/color-correction run after transform (display-referred chain, sRGB in/out v1).
 
+**Shipped implementation (v1.10.0).** The concrete interface is
+`bl::ICompositorBackend` (`include/bl_render/compositor_backend.hpp`). The
+compositor decodes and processes each visible clip into a `CompositeLayer`
+(BGRA bytes, size, linesize, opacity), applying effects and any polygon masks
+(`bl_render/mask_raster`) before handing the whole bottom-to-top stack to the
+backend. `makeCpuCompositorBackend()` is the always-available default and
+reproduces the original in-line blend exactly; `makeGlCompositorBackend()`
+(`src/ui/render/`) uploads the layers as textures and blends them in GLSL
+ping-pong framebuffers that mirror the CPU arithmetic, including per-pixel
+alpha. GPU use is opt-in through `BL_COMPOSITOR=gpu|auto`; construction or
+mid-frame failures fall back to the CPU backend. Preview and export still call
+the same `Compositor::renderFrame()`; export keeps the CPU backend because its
+engine runs on a worker thread.
+
 ### 8.4 bl_audio — Engine
 
 ```cpp
 namespace bl {
-class AudioEngine {                       // device IO via QtMultimedia QAudioSink
+class AudioEngine {                       // device IO via IDeviceOutput
+                                          // (ALSA on Linux, WinMM on Windows,
+                                          // null sink fallback)
 public: Result<void> start(SequenceSnapshot, DeviceId); void stop();
         signal<void(Meters)> metersUpdated;
 };
@@ -454,6 +470,13 @@ class AudioFxRegistry {                  // biquad EQ (4-band), compressor (feed
 class WaveformGenerator { public: PeaksMipMap compute(MediaSource, ch count); };  // cached
 }
 ```
+
+Preview playback uses one `PlaybackAudioSource` per active clip: the demuxer
+and decoder stay open across chunks, source audio is linearly resampled to the
+engine rate (48 kHz), mono/extra channels map to stereo, and seeks reuse the
+decoder instead of reopening the file. The preview feeder applies clip/track
+gain, the constant-power pan law, mute/solo, speed and reverse playback;
+`AudioEngine::flush()` drops queued audio when the playhead jumps.
 
 Mixing runs in float32 planar; the RT thread consumes pre-mixed segment buffers produced off-thread (double-buffered), so the callback itself only sums and converts. Sync policy: audio clock is master; if video falls >40 ms behind, repeat last frame; if >40 ms ahead, drop next frame.
 
