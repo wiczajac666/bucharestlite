@@ -26,7 +26,7 @@ param(
     [string]$VcVarsBat = ''
 )
 
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 
 $Ps1Dir = Split-Path -Parent $MyInvocation.MyCommand.Path

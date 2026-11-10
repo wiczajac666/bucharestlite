@@ -228,10 +228,8 @@ void PreviewPanel::rebuildEngine() {
     // portable CPU path. CPU remains the default so behaviour is unchanged on
     // hosts without a usable GL driver.
     std::unique_ptr<bl::ICompositorBackend> backend;
-    const char* compositorMode = std::getenv("BL_COMPOSITOR");
-    if (compositorMode != nullptr &&
-        (std::string(compositorMode) == "gpu" ||
-         std::string(compositorMode) == "auto")) {
+    const QByteArray compositorMode = qgetenv("BL_COMPOSITOR");
+    if (compositorMode == "gpu" || compositorMode == "auto") {
         backend = makeGlCompositorBackend();
     }
 
