@@ -1,5 +1,13 @@
 # Bucharest Lite Changelog
 
+## Unreleased
+
+### Added
+- **Loop playback.** `Playback → Loop Playback` (`Ctrl+Shift+Space`) loops
+  transport playback over the current timeline zone, or over the full sequence
+  when no zone is set. The loop range follows zone changes and the loop state
+  is persisted in layout settings.
+
 ## v1.10.0 — 2026-11-07
 
 ### Added

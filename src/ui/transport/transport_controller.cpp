@@ -24,6 +24,57 @@ void TransportController::setDuration(bl::Time duration) {
     }
 }
 
+void TransportController::setLoop(bool loop) {
+    loop_ = loop;
+}
+
+void TransportController::setLoopRange(bl::Time in, bl::Time out) {
+    if (in.ticks < 0) in = bl::Time{};
+    if (out < in) out = in;
+    loopIn_ = in;
+    loopOut_ = out;
+    hasLoopRange_ = out > in;
+    if (hasLoopRange_ && loop_ && (playhead_ < loopIn_ || playhead_ > loopOut_)) {
+        setPlayhead(loopIn_);
+    }
+}
+
+void TransportController::clearLoopRange() {
+    hasLoopRange_ = false;
+    loopIn_ = bl::Time{};
+    loopOut_ = bl::Time{};
+}
+
+bool TransportController::hasLoopRange() const {
+    return hasLoopRange_ && loopOut_ > loopIn_;
+}
+
+bl::Time TransportController::effectiveLoopIn() const {
+    if (!hasLoopRange()) return bl::Time{};
+    bl::Time in = loopIn_;
+    if (in < bl::Time{}) in = bl::Time{};
+    if (in > duration_) in = duration_;
+    return in;
+}
+
+bl::Time TransportController::effectiveLoopOut() const {
+    if (!hasLoopRange()) return duration_;
+    bl::Time out = loopOut_;
+    if (out < bl::Time{}) out = bl::Time{};
+    if (out > duration_) out = duration_;
+    if (out < effectiveLoopIn()) out = effectiveLoopIn();
+    return out;
+}
+
+void TransportController::clampPlayheadToRange() {
+    if (playhead_.ticks < 0) {
+        playhead_ = bl::Time{};
+    }
+    if (playhead_ > duration_) {
+        playhead_ = duration_;
+    }
+}
+
 void TransportController::setRate(double rate) {
     rate_ = rate > 0.0 ? rate : 1.0;
 }
@@ -31,8 +82,16 @@ void TransportController::setRate(double rate) {
 void TransportController::play() {
     if (playing_) return;
     if (duration_.ticks == 0) return;
-    if (playhead_ >= duration_) {
-        setPlayhead(bl::Time::fromTicks(0, kMicros));
+    if (loop_) {
+        const bl::Time in = effectiveLoopIn();
+        const bl::Time out = effectiveLoopOut();
+        if (out > in && playhead_ >= out) {
+            setPlayhead(in);
+        } else if (playhead_ >= duration_) {
+            setPlayhead(in);
+        }
+    } else if (playhead_ >= duration_) {
+        setPlayhead(bl::Time{});
     }
     playing_ = true;
     notifyState();
@@ -92,6 +151,30 @@ void TransportController::tick(bl::Duration dt) {
     if (!playing_ || dt.ticks == 0) return;
     const double seconds = dt.toSeconds() * rate_;
     bl::Time next = playhead_ + bl::Duration::fromSeconds(seconds, kMicros);
+
+    if (loop_) {
+        const bl::Time in = effectiveLoopIn();
+        const bl::Time out = effectiveLoopOut();
+        if (out > in) {
+            if (next < in) {
+                next = in;
+            } else if (next >= out) {
+                const int64_t span = out.ticks - in.ticks;
+                int64_t offset = next.ticks - in.ticks;
+                if (span > 0) {
+                    offset %= span;
+                } else {
+                    offset = 0;
+                }
+                next = bl::Time{in.ticks + offset};
+            }
+            if (next == playhead_) return;
+            playhead_ = next;
+            notifyPlayhead();
+            return;
+        }
+    }
+
     if (next >= duration_) {
         next = duration_;
         playhead_ = next;

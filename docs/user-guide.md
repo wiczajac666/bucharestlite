@@ -389,6 +389,11 @@ main window.
   48 kHz, mono and >2-channel sources are mapped to stereo, and clip/track gain,
   pan, mute/solo, speed and reverse playback are applied by the feeder. Seeking
   flushes queued audio so playback does not lag the playhead.
+- **Loop playback.** Toggle **Playback → Loop Playback** (`Ctrl+Shift+Space`,
+  also in the Edit/Timeline menus and toolbar) to loop playback over the
+  current timeline zone. When no zone is set, playback loops over the full
+  sequence. The loop range updates when the zone changes, and the loop state is
+  remembered between sessions.
 - **Waveform display.** Every audio clip draws its waveform inside the clip
   body on the timeline, so you can read the shape of a take and cut on
   transients at a glance. The shape is reduced from the same background

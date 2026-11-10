@@ -185,5 +185,62 @@ TEST_F(TransportControllerTest, SetRateClampsPositive) {
     EXPECT_EQ(transport.playhead(), Time::fromSeconds(1.0, kMicros));
 }
 
+TEST_F(TransportControllerTest, LoopWrapsAtDurationWhenEnabled) {
+    TransportController transport;
+    transport.setDuration(Time::fromSeconds(2.0, kMicros));
+    transport.setLoop(true);
+    transport.play();
+
+    int stateNotifications = 0;
+    transport.setStateHandler([&] { ++stateNotifications; });
+
+    transport.tick(Duration::fromSeconds(2.5, kMicros));
+    EXPECT_TRUE(transport.playing());
+    EXPECT_NEAR(transport.playhead().toSeconds(), 0.5, 1e-6);
+    EXPECT_EQ(stateNotifications, 0);
+}
+
+TEST_F(TransportControllerTest, LoopUsesExplicitRange) {
+    TransportController transport;
+    transport.setDuration(Time::fromSeconds(5.0, kMicros));
+    transport.setLoop(true);
+    transport.setLoopRange(Time::fromSeconds(1.0, kMicros),
+                           Time::fromSeconds(3.0, kMicros));
+    transport.setPlayhead(Time::fromSeconds(2.5, kMicros));
+    transport.play();
+
+    transport.tick(Duration::fromSeconds(1.0, kMicros));
+    EXPECT_TRUE(transport.playing());
+    EXPECT_NEAR(transport.playhead().toSeconds(), 1.5, 1e-6);
+}
+
+TEST_F(TransportControllerTest, PlayAtEndRestartsFromLoopStart) {
+    TransportController transport;
+    transport.setDuration(Time::fromSeconds(5.0, kMicros));
+    transport.setLoop(true);
+    transport.setLoopRange(Time::fromSeconds(1.0, kMicros),
+                           Time::fromSeconds(3.0, kMicros));
+    transport.setPlayhead(Time::fromSeconds(3.0, kMicros));
+
+    transport.play();
+    EXPECT_TRUE(transport.playing());
+    EXPECT_EQ(transport.playhead(), Time::fromSeconds(1.0, kMicros));
+}
+
+TEST_F(TransportControllerTest, ClearingLoopRangeFallsBackToFullDuration) {
+    TransportController transport;
+    transport.setDuration(Time::fromSeconds(2.0, kMicros));
+    transport.setLoop(true);
+    transport.setLoopRange(Time::fromSeconds(0.5, kMicros),
+                           Time::fromSeconds(1.0, kMicros));
+    transport.clearLoopRange();
+    transport.setPlayhead(Time::fromSeconds(1.8, kMicros));
+    transport.play();
+
+    transport.tick(Duration::fromSeconds(0.5, kMicros));
+    EXPECT_TRUE(transport.playing());
+    EXPECT_NEAR(transport.playhead().toSeconds(), 0.3, 1e-6);
+}
+
 } // namespace
 } // namespace bl::ui

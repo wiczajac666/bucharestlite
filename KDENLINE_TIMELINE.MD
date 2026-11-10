@@ -400,6 +400,7 @@ Kdenlive. None of them are regressions — they are the remaining parity backlog
 | Group / ungroup clips (across tracks) | ✅ |
 | A/V auto-split + linking, split linked clips | ✅ |
 | Timeline zone — in / out / clear / **extract** / **lift** | ✅ |
+| Loop playback / loop zone (Ctrl+Shift+Space) | ✅ (post-1.10.0) |
 | Markers (add / rename / delete / snap-to) | ✅ |
 | Waveform ("audio thumbnails") on audio clips | ✅ |
 | Zoom slider + fit-to-project + wheel + horizontal scrollbar | ✅ |
@@ -412,7 +413,6 @@ Kdenlive. None of them are regressions — they are the remaining parity backlog
 | Kdenlive timeline feature | Notes |
 |---|---|
 | **Timeline Preview Render** (pre-render zones, Start/Stop, automatic preview, manage cached data) | Entirely absent |
-| **Loop playback / loop zone** (Ctrl+Shift+Space) | Absent |
 | **Multicam tool** + multitrack view | Absent (documented non-goal) |
 | **Nested sequences** (nested timeline) | Absent (model only) |
 | **Per-track height resize + collapse** (individually / all) | Absent (`Track::height` exists in the model but no UI) |
@@ -446,7 +446,7 @@ Kdenlive. None of them are regressions — they are the remaining parity backlog
 ### 10.3.1 Prioritized shortlist
 
 1. **Timeline Preview Render** — the largest missing *feature* (pre-render for smooth playback).
-2. **Loop playback + loop zone** — small, high-value, user-visible.
+2. ~~**Loop playback + loop zone**~~ — shipped post-1.10.0.
 3. **Per-track height + collapse** and **timeline video thumbnails** — the most visible "this doesn't feel like Kdenlive" gaps.
 4. **Razor tool mode** + **slide trim** + **ripple-trim-to-playhead** — round out the edit-tool set.
 5. **Source monitor + bin in/out** — make the 3-point claim genuinely true.

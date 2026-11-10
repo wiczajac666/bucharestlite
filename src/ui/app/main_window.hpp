@@ -106,6 +106,8 @@ private:
     void syncThumbnailJobs();
     void applyThumbnail(const std::string& mediaItemId);
 
+    void syncLoopRangeFromTimeline();
+
     void setupProxyGenerator();
     void loadProxyConfig();
     void syncProxyJobs();
@@ -175,6 +177,7 @@ private:
     QAction* titleEditorAction_{nullptr};
     QAction* newFromTemplateAction_{nullptr};
     QAction* playPauseAction_{nullptr};
+    QAction* loopPlaybackAction_{nullptr};
     QAction* fitTimelineAction_{nullptr};
     QAction* zoneInAction_{nullptr};
     QAction* zoneOutAction_{nullptr};

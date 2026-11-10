@@ -327,6 +327,9 @@ void MainWindow::buildDocks() {
         settings_->setValue("timeline/useProxies", state.useProxies);
     });
 
+    connect(timelinePanel_, &TimelinePanel::zoneChanged, this,
+            &MainWindow::syncLoopRangeFromTimeline);
+
     // Forward proxy toggle and per-clip overrides to the preview decoder. The
     // decoder resolves proxies per media item, so translate the clip id first.
     if (timelinePanel_ && previewPanel_) {
@@ -769,6 +772,18 @@ void MainWindow::buildActions() {
     registerAction(playPauseAction_, "playback.toggle", tr("Play/Pause"),
                    QKeySequence(Qt::Key_Space));
 
+    loopPlaybackAction_ = new QAction(tr("Loop Playback"), this);
+    loopPlaybackAction_->setObjectName(QStringLiteral("actionLoopPlayback"));
+    loopPlaybackAction_->setCheckable(true);
+    connect(loopPlaybackAction_, &QAction::toggled, this, [this](bool checked) {
+        if (previewPanel_) {
+            previewPanel_->setLoop(checked);
+        }
+        syncLoopRangeFromTimeline();
+    });
+    registerAction(loopPlaybackAction_, "playback.loop", tr("Loop Playback"),
+                   QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Space));
+
     fitTimelineAction_ = new QAction(tr("Fit Timeline to View"), this);
     fitTimelineAction_->setObjectName(QStringLiteral("actionFitTimeline"));
     connect(fitTimelineAction_, &QAction::triggered, this, [this] {
@@ -1010,6 +1025,7 @@ void MainWindow::buildMenuAndToolbar() {
     editMenu->addAction(pasteAction_);
     editMenu->addSeparator();
     editMenu->addAction(playPauseAction_);
+    editMenu->addAction(loopPlaybackAction_);
 
     auto* viewMenu = menuBar()->addMenu(tr("&View"));
     viewMenu->addAction(mediaBin->toggleViewAction());
@@ -1039,6 +1055,8 @@ void MainWindow::buildMenuAndToolbar() {
     timelineMenu->addSeparator();
     timelineMenu->addAction(liftZoneAction_);
     timelineMenu->addAction(extractZoneAction_);
+    timelineMenu->addSeparator();
+    timelineMenu->addAction(loopPlaybackAction_);
 
     auto* toolsMenu = menuBar()->addMenu(tr("&Tools"));
     toolsMenu->addAction(compareQualityAction_);
@@ -1066,6 +1084,7 @@ void MainWindow::buildMenuAndToolbar() {
     toolbar->addAction(undoAction_);
     toolbar->addAction(redoAction_);
     toolbar->addAction(playPauseAction_);
+    toolbar->addAction(loopPlaybackAction_);
 
     undoAction_->setEnabled(false);
     redoAction_->setEnabled(false);
@@ -1534,6 +1553,19 @@ void MainWindow::toggleTheme() {
     applyTheme(theme_ == Theme::Dark ? Theme::Light : Theme::Dark);
 }
 
+void MainWindow::syncLoopRangeFromTimeline() {
+    if (!previewPanel_) return;
+    const bool loopEnabled =
+        loopPlaybackAction_ && loopPlaybackAction_->isChecked();
+    previewPanel_->setLoop(loopEnabled);
+    if (!loopEnabled || !timelinePanel_ || !timelinePanel_->hasZone()) {
+        previewPanel_->clearLoopRange();
+        return;
+    }
+    previewPanel_->setLoopRange(timelinePanel_->zoneIn(),
+                                timelinePanel_->zoneOut());
+}
+
 void MainWindow::applyTheme(Theme theme) {
     theme_ = theme;
     if (darkThemeAction_) {
@@ -1558,6 +1590,10 @@ void MainWindow::persistLayout() {
         settings_->setValue(kInsertModeKey, state.insertMode);
         settings_->setValue(kRippleKey, state.ripple);
         settings_->setValue(kSnapKey, state.snap);
+    }
+    if (loopPlaybackAction_) {
+        settings_->setValue(QStringLiteral("timeline/loopPlayback"),
+                            loopPlaybackAction_->isChecked());
     }
     actionRegistry_.saveOverrides(*settings_, QStringLiteral("shortcuts"));
 }
@@ -1600,6 +1636,13 @@ void MainWindow::maybeRestoreLayout() {
         timelineState.useProxies = settings_->value("timeline/useProxies", false).toBool();
         timelinePanel_->setTimelineState(timelineState);
     }
+
+    if (loopPlaybackAction_) {
+        const bool loop = settings_->value(
+            QStringLiteral("timeline/loopPlayback"), false).toBool();
+        loopPlaybackAction_->setChecked(loop);
+    }
+    syncLoopRangeFromTimeline();
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {

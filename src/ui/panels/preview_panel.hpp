@@ -110,6 +110,13 @@ public slots:
     // duration and refreshes the current frame.
     void onTimelineChanged();
 
+    // Playback loop (zone-aware when a loop range is set, otherwise full
+    // sequence).
+    void setLoop(bool enabled);
+    bool loop() const;
+    void setLoopRange(bl::Time in, bl::Time out);
+    void clearLoopRange();
+
     // Per-media-item proxy override for the preview decoder.
     void setUseProxies(bool use);
     void setMediaProxyOverride(const std::string& mediaItemId, std::optional<bool> useProxy);

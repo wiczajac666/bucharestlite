@@ -397,6 +397,16 @@ std::optional<bool> PreviewPanel::mediaProxyOverride(const std::string& mediaIte
     return std::nullopt;
 }
 
+void PreviewPanel::setLoop(bool enabled) { transport_.setLoop(enabled); }
+
+bool PreviewPanel::loop() const { return transport_.loop(); }
+
+void PreviewPanel::setLoopRange(bl::Time in, bl::Time out) {
+    transport_.setLoopRange(in, out);
+}
+
+void PreviewPanel::clearLoopRange() { transport_.clearLoopRange(); }
+
 std::string_view PreviewPanel::compositorBackendName() const {
     return engine_ ? engine_->backendName() : "none";
 }
