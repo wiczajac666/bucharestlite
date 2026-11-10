@@ -837,6 +837,34 @@ void MainWindow::buildActions() {
     registerAction(extractZoneAction_, "timeline.extract", tr("Extract Zone"),
                    QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_X));
 
+    removeSpaceAction_ = new QAction(tr("Remove Space at Playhead"), this);
+    removeSpaceAction_->setObjectName(QStringLiteral("actionRemoveSpace"));
+    connect(removeSpaceAction_, &QAction::triggered, this, [this] {
+        if (timelinePanel_) timelinePanel_->removeSpaceAtPlayhead();
+    });
+    registerAction(removeSpaceAction_, "timeline.remove_space",
+                   tr("Remove Space at Playhead"), QKeySequence());
+
+    removeAllSpacesAction_ = new QAction(tr("Remove All Spaces After Playhead"), this);
+    removeAllSpacesAction_->setObjectName(QStringLiteral("actionRemoveAllSpaces"));
+    connect(removeAllSpacesAction_, &QAction::triggered, this, [this] {
+        if (timelinePanel_) timelinePanel_->removeAllSpacesAfterPlayhead();
+    });
+    registerAction(removeAllSpacesAction_, "timeline.remove_all_spaces",
+                   tr("Remove All Spaces After Playhead"), QKeySequence());
+
+    removeAllSpacesSequenceAction_ =
+        new QAction(tr("Remove All Spaces in Sequence After Playhead"), this);
+    removeAllSpacesSequenceAction_->setObjectName(
+        QStringLiteral("actionRemoveAllSpacesSequence"));
+    connect(removeAllSpacesSequenceAction_, &QAction::triggered, this, [this] {
+        if (timelinePanel_) timelinePanel_->removeAllSpacesInSequenceAfterPlayhead();
+    });
+    registerAction(removeAllSpacesSequenceAction_,
+                   "timeline.remove_all_spaces_sequence",
+                   tr("Remove All Spaces in Sequence After Playhead"),
+                   QKeySequence());
+
     // Timeline edit modes (Phase 4+).
     razorAction_ = new QAction(tr("Razor Tool"), this);
     razorAction_->setObjectName(QStringLiteral("actionRazorTool"));
@@ -1055,6 +1083,10 @@ void MainWindow::buildMenuAndToolbar() {
     timelineMenu->addSeparator();
     timelineMenu->addAction(liftZoneAction_);
     timelineMenu->addAction(extractZoneAction_);
+    timelineMenu->addSeparator();
+    timelineMenu->addAction(removeSpaceAction_);
+    timelineMenu->addAction(removeAllSpacesAction_);
+    timelineMenu->addAction(removeAllSpacesSequenceAction_);
     timelineMenu->addSeparator();
     timelineMenu->addAction(loopPlaybackAction_);
 

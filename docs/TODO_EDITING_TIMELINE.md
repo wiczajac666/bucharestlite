@@ -58,12 +58,12 @@ parity audit.
         document)
   - [ ] Tests: resize/collapse updates layout and model, survives rebuild/undo
         where applicable
-- [ ] **Remove space / remove all spaces**
-  - [ ] `Remove Space` at playhead/gap selection on a track (ripple-close gap)
-  - [ ] `Remove All Spaces After Cursor` / sequence-wide gap cleanup variant
+- [x] **Remove space / remove all spaces**
+  - [x] `Remove Space` at playhead/gap selection on a track (ripple-close gap)
+  - [x] `Remove All Spaces After Cursor` / sequence-wide gap cleanup variant
         (scoped, undoable)
-  - [ ] Menu/shortcut/context-menu entries with clear refusal messages
-  - [ ] Tests: single gap, multiple gaps, locked tracks, empty/no-op cases
+  - [x] Menu/shortcut/context-menu entries with clear refusal messages
+  - [x] Tests: single gap, multiple gaps, locked tracks, empty/no-op cases
 - [ ] **Ripple trim to playhead**
   - [ ] Actions to ripple-trim selected/hovered edge to playhead (left/right
         equivalents, e.g. `(` / `)` style bindings via `ActionRegistry`)

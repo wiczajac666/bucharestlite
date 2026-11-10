@@ -1648,6 +1648,143 @@ bool TimelineEditController::setTrackCollapsed(int flatTrack, bool collapsed) {
     return setTrackHeight(flatTrack, targetHeight);
 }
 
+namespace {
+
+// Returns true if the track has a removable gap containing `at`: a gap before
+// the first clip, or between adjacent clips. A playhead inside a clip or after
+// the last clip (with nothing to pull left) is not a removable gap.
+bool hasGapContaining(const std::vector<Clip>& clips, Time at) {
+    if (clips.empty()) return false;
+    if (at < clips.front().timelineStart) return true;
+    for (size_t i = 0; i < clips.size(); ++i) {
+        const Time start = clips[i].timelineStart;
+        const Time end = start + clips[i].timelineDuration;
+        if (at >= start && at < end) return false;
+        if (i + 1 < clips.size()) {
+            const Time nextStart = clips[i + 1].timelineStart;
+            if (at >= end && at < nextStart) return true;
+        }
+    }
+    return false;
+}
+
+// Returns true if the track has any gap whose start is >= `at`.
+bool hasGapsAfter(const std::vector<Clip>& clips, Time at) {
+    if (clips.empty()) return false;
+    if (clips.front().timelineStart > Time{} && clips.front().timelineStart >= at) {
+        return true;
+    }
+    for (size_t i = 0; i + 1 < clips.size(); ++i) {
+        const Time end = clips[i].timelineStart + clips[i].timelineDuration;
+        const Time nextStart = clips[i + 1].timelineStart;
+        if (nextStart > end && end >= at) return true;
+    }
+    return false;
+}
+
+} // namespace
+
+int TimelineEditController::removeSpaceAt(int flatTrack, Time at) {
+    lastError_.clear();
+    if (!ensureEditable(flatTrack)) return 0;
+    if (at < Time{}) {
+        lastError_ = "Invalid position";
+        return 0;
+    }
+
+    // Pre-check so we can refuse without pushing an undo step.
+    const Sequence& seq = timeline_->sequence();
+    const TrackT& track = trackAt(seq, flatTrack);
+    if (!hasGapContaining(track.clips(), at)) {
+        lastError_ = "No gap at playhead";
+        return 0;
+    }
+
+    int removed = 0;
+    const bool ok = runSequenceEdit("Remove space", [&](Sequence& s) {
+        removed = mutableTrackAt(s, flatTrack).removeGaps(at, true);
+        return removed > 0;
+    });
+    if (!ok) {
+        if (lastError_.empty()) lastError_ = "No gap at playhead";
+        return 0;
+    }
+    return removed;
+}
+
+int TimelineEditController::removeAllSpacesAfter(int flatTrack, Time at) {
+    lastError_.clear();
+    if (!ensureEditable(flatTrack)) return 0;
+    if (at < Time{}) {
+        lastError_ = "Invalid position";
+        return 0;
+    }
+
+    const Sequence& seq = timeline_->sequence();
+    const TrackT& track = trackAt(seq, flatTrack);
+    if (!hasGapsAfter(track.clips(), at)) {
+        lastError_ = "No gaps to remove";
+        return 0;
+    }
+
+    int removed = 0;
+    const bool ok = runSequenceEdit("Remove all spaces", [&](Sequence& s) {
+        removed = mutableTrackAt(s, flatTrack).removeGaps(at, false);
+        return removed > 0;
+    });
+    if (!ok) {
+        if (lastError_.empty()) lastError_ = "No gaps to remove";
+        return 0;
+    }
+    return removed;
+}
+
+int TimelineEditController::removeAllSpacesInSequenceAfter(Time at) {
+    lastError_.clear();
+    if (!valid()) {
+        lastError_ = "No timeline";
+        return 0;
+    }
+    if (at < Time{}) {
+        lastError_ = "Invalid position";
+        return 0;
+    }
+
+    const Sequence& seq = timeline_->sequence();
+    bool any = false;
+    for (const auto& t : seq.videoTracks) {
+        if (!t.locked() && hasGapsAfter(t.clips(), at)) { any = true; break; }
+    }
+    if (!any) {
+        for (const auto& t : seq.audioTracks) {
+            if (!t.locked() && hasGapsAfter(t.clips(), at)) { any = true; break; }
+        }
+    }
+    if (!any) {
+        lastError_ = "No gaps to remove";
+        return 0;
+    }
+
+    int removed = 0;
+    const bool ok = runSequenceEdit("Remove all spaces", [&](Sequence& s) {
+        removed = 0;
+        for (auto& t : s.videoTracks) {
+            if (t.locked()) continue;
+            removed += t.removeGaps(at, false);
+        }
+        for (auto& t : s.audioTracks) {
+            if (t.locked()) continue;
+            removed += t.removeGaps(at, false);
+        }
+        return removed > 0;
+    });
+    if (!ok) {
+        if (lastError_.empty()) lastError_ = "No gaps to remove";
+        return 0;
+    }
+    return removed;
+}
+
 bool TimelineEditController::liftZone(Time start, Duration dur) {
     return zoneEdit(start, dur, /*extract=*/false);
 }

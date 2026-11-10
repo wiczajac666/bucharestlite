@@ -232,6 +232,17 @@ public:
     bool setTrackHeight(int flatTrack, int height);
     bool setTrackCollapsed(int flatTrack, bool collapsed);
 
+    // Gap removal (undoable, one step per call). `removeSpaceAt` closes the
+    // gap that contains `at` on `flatTrack` (the empty span between adjacent
+    // clips, or before the first / after a clip when `at` falls in empty
+    // space). `removeAllSpacesAfter` closes every gap whose start is at or
+    // after `at` on `flatTrack`. `removeAllSpacesInSequenceAfter` closes every
+    // such gap on every unlocked track (locked tracks are skipped). Returns
+    // the number of gaps removed, or 0 on refusal (lastError() explains).
+    int removeSpaceAt(int flatTrack, Time at);
+    int removeAllSpacesAfter(int flatTrack, Time at);
+    int removeAllSpacesInSequenceAfter(Time at);
+
     // Zone edits over [start, start + dur): lift clears the range keeping
     // everything outside it; extract additionally closes the gap on every
     // unlocked track. Locked tracks are skipped, not refused.

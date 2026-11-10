@@ -1907,12 +1907,24 @@ void TimelineView::contextMenuEvent(QContextMenuEvent* event) {
     pasteAct->setEnabled(host_->editor().hasClipboard());
     QAction* addMarker = menu.addAction(tr("Add Marker Here"));
     menu.addSeparator();
+    QAction* removeSpaceAct = menu.addAction(tr("Remove Space at Playhead"));
+    QAction* removeAllSpacesAct =
+        menu.addAction(tr("Remove All Spaces After Playhead"));
+    QAction* removeAllSpacesSeqAct =
+        menu.addAction(tr("Remove All Spaces in Sequence After Playhead"));
+    menu.addSeparator();
     QAction* selectAllAct = menu.addAction(tr("Select All"));
     QAction* picked = menu.exec(event->globalPos());
     if (picked == pasteAct) {
         host_->pasteAt(at);
     } else if (picked == addMarker) {
         host_->addMarkerAt(at);
+    } else if (picked == removeSpaceAct) {
+        host_->removeSpaceAtPlayhead();
+    } else if (picked == removeAllSpacesAct) {
+        host_->removeAllSpacesAfterPlayhead();
+    } else if (picked == removeAllSpacesSeqAct) {
+        host_->removeAllSpacesInSequenceAfterPlayhead();
     } else if (picked == selectAllAct) {
         performSelectAll();
     }
@@ -2475,6 +2487,38 @@ bool TimelinePanel::liftZone() {
 
 bool TimelinePanel::extractZone() {
     return applyZoneEdit(/*extract=*/true);
+}
+
+bool TimelinePanel::removeSpaceAtPlayhead() {
+    if (activeTrack_ < 0) {
+        if (controller_) emit controller_->statusMessage(tr("No active track"));
+        return false;
+    }
+    if (editor_.removeSpaceAt(activeTrack_, playhead()) <= 0) {
+        reportEditorError();
+        return false;
+    }
+    return true;
+}
+
+bool TimelinePanel::removeAllSpacesAfterPlayhead() {
+    if (activeTrack_ < 0) {
+        if (controller_) emit controller_->statusMessage(tr("No active track"));
+        return false;
+    }
+    if (editor_.removeAllSpacesAfter(activeTrack_, playhead()) <= 0) {
+        reportEditorError();
+        return false;
+    }
+    return true;
+}
+
+bool TimelinePanel::removeAllSpacesInSequenceAfterPlayhead() {
+    if (editor_.removeAllSpacesInSequenceAfter(playhead()) <= 0) {
+        reportEditorError();
+        return false;
+    }
+    return true;
 }
 
 void TimelinePanel::updateZoneItem() {

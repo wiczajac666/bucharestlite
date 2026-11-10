@@ -1162,3 +1162,98 @@ TEST(TimelineEditController, importSubtitleCuesEmptyIsRefused) {
     EXPECT_EQ(f.editor.lastError(), "No subtitles found");
     EXPECT_FALSE(f.undoStack.canUndo());
 }
+
+TEST(TimelineEditController, removeSpaceAtClosesGapAtPlayhead) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("b", 20, 10)));
+
+    EXPECT_EQ(f.editor.removeSpaceAt(kVideo0, frames(15)), 1);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "a")->timelineStart, 0);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->timelineStart, 10);
+
+    f.undoStack.undo();
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->timelineStart, 20);
+    f.undoStack.redo();
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->timelineStart, 10);
+}
+
+TEST(TimelineEditController, removeSpaceAtRefusesWhenInsideClipOrNoGap) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("b", 20, 10)));
+
+    EXPECT_EQ(f.editor.removeSpaceAt(kVideo0, frames(5)), 0);
+    EXPECT_EQ(f.editor.lastError(), "No gap at playhead");
+    EXPECT_FALSE(f.undoStack.canUndo());
+
+    EXPECT_EQ(f.editor.removeSpaceAt(kVideo0, frames(35)), 0);
+    EXPECT_EQ(f.editor.lastError(), "No gap at playhead");
+}
+
+TEST(TimelineEditController, removeSpaceAtClosesLeadingGap) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 10, 10)));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("b", 30, 10)));
+
+    EXPECT_EQ(f.editor.removeSpaceAt(kVideo0, frames(5)), 1);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "a")->timelineStart, 0);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->timelineStart, 20);
+}
+
+TEST(TimelineEditController, removeAllSpacesAfterOnTrack) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("b", 20, 10)));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("c", 40, 10)));
+
+    // Only the gap starting at frame 30 is at/after frame 15; the gap
+    // starting at frame 10 is before the cursor.
+    EXPECT_EQ(f.editor.removeAllSpacesAfter(kVideo0, frames(15)), 1);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "a")->timelineStart, 0);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->timelineStart, 20);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "c")->timelineStart, 30);
+
+    f.undoStack.undo();
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->timelineStart, 20);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "c")->timelineStart, 40);
+}
+
+TEST(TimelineEditController, removeAllSpacesAfterRemovesMultipleGaps) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("b", 20, 10)));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("c", 40, 10)));
+
+    EXPECT_EQ(f.editor.removeAllSpacesAfter(kVideo0, frames(0)), 2);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "a")->timelineStart, 0);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->timelineStart, 10);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "c")->timelineStart, 20);
+}
+
+TEST(TimelineEditController, removeAllSpacesInSequenceAfterSkipsLockedTracks) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("v1", 0, 10)));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("v2", 20, 10)));
+    ASSERT_TRUE(f.timeline.addClipToAudioTrack(0, makeClip("a1", 0, 10)));
+    ASSERT_TRUE(f.timeline.addClipToAudioTrack(0, makeClip("a2", 30, 10)));
+
+    f.timeline.sequence().videoTracks[0].setLocked(true);
+
+    EXPECT_EQ(f.editor.removeAllSpacesInSequenceAfter(frames(0)), 1);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "v2")->timelineStart, 20);
+    EXPECT_TIME_EQ(f.clip(kAudio0, "a2")->timelineStart, 10);
+
+    f.undoStack.undo();
+    EXPECT_TIME_EQ(f.clip(kAudio0, "a2")->timelineStart, 30);
+}
+
+TEST(TimelineEditController, removeAllSpacesRefusesWhenNone) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("b", 10, 10)));
+
+    EXPECT_EQ(f.editor.removeAllSpacesAfter(kVideo0, frames(0)), 0);
+    EXPECT_EQ(f.editor.lastError(), "No gaps to remove");
+    EXPECT_FALSE(f.undoStack.canUndo());
+}

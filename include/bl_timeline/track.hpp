@@ -627,6 +627,74 @@ public:
         return evaluateChannel(*clips_[*idx].keyframes, channel, t);
     }
 
+    // Closes empty gaps between clips. When `onlyContainingAt` is true, closes
+    // the single gap that contains `at` (returns 0 if `at` is inside a clip or
+    // no gap exists). Otherwise closes every gap whose start is >= `at`.
+    // Returns the number of gaps removed.
+    int removeGaps(Time at, bool onlyContainingAt) {
+        if (at < Time{}) return 0;
+        if (clips_.empty()) return 0;
+
+        struct GapSpan { Time start; Time end; };
+        std::vector<GapSpan> toClose;
+
+        if (onlyContainingAt) {
+            if (at < clips_.front().timelineStart) {
+                toClose.push_back({Time{}, clips_.front().timelineStart});
+            } else {
+                bool found = false;
+                for (size_t i = 0; i < clips_.size(); ++i) {
+                    const Time start = clips_[i].timelineStart;
+                    const Time end = start + clips_[i].timelineDuration;
+                    if (at >= start && at < end) { found = true; break; }
+                    if (i + 1 < clips_.size()) {
+                        const Time nextStart = clips_[i + 1].timelineStart;
+                        if (at >= end && at < nextStart) {
+                            toClose.push_back({end, nextStart});
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                if (found && toClose.empty()) return 0; // inside a clip
+                if (!found) return 0; // after last clip
+            }
+        } else {
+            if (clips_.front().timelineStart > Time{} &&
+                clips_.front().timelineStart >= at) {
+                toClose.push_back({Time{}, clips_.front().timelineStart});
+            }
+            for (size_t i = 0; i + 1 < clips_.size(); ++i) {
+                const Time end = clips_[i].timelineStart + clips_[i].timelineDuration;
+                const Time nextStart = clips_[i + 1].timelineStart;
+                if (nextStart > end && end >= at) {
+                    toClose.push_back({end, nextStart});
+                }
+            }
+        }
+        if (toClose.empty()) return 0;
+
+        std::sort(toClose.begin(), toClose.end(),
+                  [](const GapSpan& a, const GapSpan& b) { return a.start < b.start; });
+
+        Duration removed{};
+        size_t gapIdx = 0;
+        for (auto& clip : clips_) {
+            while (gapIdx < toClose.size() && clip.timelineStart >= toClose[gapIdx].end) {
+                removed = removed + (toClose[gapIdx].end - toClose[gapIdx].start);
+                ++gapIdx;
+            }
+            if (removed > Duration{}) {
+                clip.timelineStart = clip.timelineStart - removed;
+            }
+        }
+        while (gapIdx < toClose.size()) {
+            ++gapIdx;
+        }
+        pruneInvalidTransitions();
+        return static_cast<int>(toClose.size());
+    }
+
 private:
     bool overlapsExisting(const ClipType& clip) const {
         Time clipEnd = clip.timelineStart + clip.timelineDuration;

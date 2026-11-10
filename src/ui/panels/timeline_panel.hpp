@@ -434,6 +434,13 @@ public:
     bool liftZone();
     bool extractZone();
 
+    // --- Gap removal (Phase 1) -----------------------------------------------
+    // Closes gaps relative to the playhead on the active track / sequence.
+    // Each is a single undo step and reports refusals through statusMessage.
+    bool removeSpaceAtPlayhead();
+    bool removeAllSpacesAfterPlayhead();
+    bool removeAllSpacesInSequenceAfterPlayhead();
+
     // Playhead.
     bl::Time playhead() const { return playhead_; }
     void setPlayhead(const bl::Time& t);

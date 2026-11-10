@@ -7,6 +7,11 @@
   transport playback over the current timeline zone, or over the full sequence
   when no zone is set. The loop range follows zone changes and the loop state
   is persisted in layout settings.
+- **Remove space.** `Timeline → Remove Space at Playhead` closes the gap at the
+  playhead on the active track; `Remove All Spaces After Playhead` and
+  `Remove All Spaces in Sequence After Playhead` clean up gaps (skipping locked
+  tracks for the sequence-wide variant). Available from the Timeline menu and
+  empty-lane context menu; each edit is one undo step with clear refusals.
 
 ## v1.10.0 — 2026-11-07
 
