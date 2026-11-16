@@ -207,6 +207,8 @@ private:
     QAction* sourceMarkOutAction_{nullptr};
     QAction* sourceInsertAction_{nullptr};
     QAction* sourceOverwriteAction_{nullptr};
+    QAction* sourceInsertAtZoneAction_{nullptr};
+    QAction* sourceOverwriteAtZoneAction_{nullptr};
 
     FullScreenPreviewWindow* fullScreenPreviewWindow_{nullptr};
 

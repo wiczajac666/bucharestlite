@@ -535,6 +535,10 @@ public:
                           bl::Time sourceOut);
     bool overwriteFromSource(const std::string& mediaId, bl::Time sourceIn,
                              bl::Time sourceOut);
+    bool insertFromSourceAtZone(const std::string& mediaId, bl::Time sourceIn,
+                                bl::Time sourceOut);
+    bool overwriteFromSourceAtZone(const std::string& mediaId,
+                                   bl::Time sourceIn, bl::Time sourceOut);
 
     // --- Subtitle import ----------------------------------------------------
     // Turns parsed subtitle cues into soft-subtitle clips on a dedicated
@@ -636,9 +640,9 @@ private:
     // aligned with `videoFlat`), or -1 when none fits. Used by A/V auto-split.
     int audioLaneFor(int videoFlat, const bl::Clip& clip,
                      const bl::Time& start) const;
-    // Shared body of insertFromSource()/overwriteFromSource().
+    // Shared body of insert/overwrite-from-source actions.
     bool placeSourceEdit(const std::string& mediaId, bl::Time sourceIn,
-                         bl::Time sourceOut, bool overwrite);
+                         bl::Time sourceOut, bool overwrite, bl::Time at);
 
     ProjectController* controller_{nullptr};
     TimelineEditController editor_;

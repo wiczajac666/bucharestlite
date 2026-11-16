@@ -196,7 +196,8 @@ selection, showing that item's source frame and holding its in/out marks.
 - **Insert** (`,` or the monitor button) places the marked range at the
   timeline playhead and pushes later material on the destination track to the
   right. **Overwrite** (`.`) places it at the playhead and replaces whatever it
-  covers.
+  covers. **Insert/Overwrite at Zone** places the marked range at the timeline
+  zone-in instead (requires a set timeline zone).
 - **Destination.** The current track decides where the edit lands: audio-only
   sources go to an audio track, video or A/V sources to a video track.
 - **Linked A/V.** An A/V source splits into video and audio halves that are

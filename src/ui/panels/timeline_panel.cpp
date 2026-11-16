@@ -3087,18 +3087,42 @@ bool TimelinePanel::addMediaToTimeline(
 
 bool TimelinePanel::insertFromSource(const std::string& mediaId,
                                      bl::Time sourceIn, bl::Time sourceOut) {
-    return placeSourceEdit(mediaId, sourceIn, sourceOut, false);
+    return placeSourceEdit(mediaId, sourceIn, sourceOut, false, playhead());
 }
 
 bool TimelinePanel::overwriteFromSource(const std::string& mediaId,
                                         bl::Time sourceIn,
                                         bl::Time sourceOut) {
-    return placeSourceEdit(mediaId, sourceIn, sourceOut, true);
+    return placeSourceEdit(mediaId, sourceIn, sourceOut, true, playhead());
+}
+
+bool TimelinePanel::insertFromSourceAtZone(const std::string& mediaId,
+                                           bl::Time sourceIn,
+                                           bl::Time sourceOut) {
+    if (!hasZone()) {
+        if (controller_) {
+            controller_->statusMessage(tr("Set a timeline zone first"));
+        }
+        return false;
+    }
+    return placeSourceEdit(mediaId, sourceIn, sourceOut, false, zoneIn());
+}
+
+bool TimelinePanel::overwriteFromSourceAtZone(const std::string& mediaId,
+                                              bl::Time sourceIn,
+                                              bl::Time sourceOut) {
+    if (!hasZone()) {
+        if (controller_) {
+            controller_->statusMessage(tr("Set a timeline zone first"));
+        }
+        return false;
+    }
+    return placeSourceEdit(mediaId, sourceIn, sourceOut, true, zoneIn());
 }
 
 bool TimelinePanel::placeSourceEdit(const std::string& mediaId,
                                     bl::Time sourceIn, bl::Time sourceOut,
-                                    bool overwrite) {
+                                    bool overwrite, bl::Time at) {
     if (!controller_ || mediaId.empty()) return false;
 
     const MediaBinItem* entry = nullptr;
@@ -3142,7 +3166,7 @@ bool TimelinePanel::placeSourceEdit(const std::string& mediaId,
         return false;
     }
     Clip clip = *clipOpt;
-    clip.timelineStart = playhead();
+    clip.timelineStart = at;
 
     const bl::Sequence& seq = sequence();
     const int videoCount = static_cast<int>(seq.videoTracks.size());

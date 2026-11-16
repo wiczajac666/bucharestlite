@@ -129,11 +129,11 @@ parity audit.
         active-track hint
   - [x] Routing/refusal behavior covered by existing and new offscreen tests
   - [ ] Optional: separate explicit target tracks (deferred)
-- [ ] **Insert/overwrite zone from source**
-  - [ ] "Insert/Overwrite clip/zone in timeline" actions leveraging Source
-        Monitor marks and timeline zone/playhead (complement existing 3-point
-        insert/overwrite)
-  - [ ] Tests: marked/unmarked cases, linked A/V, undo grouping
+- [x] **Insert/overwrite zone from source**
+  - [x] `source.insert_at_zone` / `source.overwrite_at_zone` place the Source
+        Monitor marked range at the timeline zone-in (refuses if no zone),
+        reusing 3-point insert/overwrite semantics (linked A/V, one undo step)
+  - [x] Offscreen panel tests for placement, overwrite, and refusal without zone
 - [x] **Spacer & ripple interactions audit**
   - [x] Verified spacer drag tool (`addSpacer`/`removeSpacer`), remove-space
         actions (at playhead / after cursor / sequence scope), and ripple

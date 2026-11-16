@@ -1067,6 +1067,34 @@ void MainWindow::buildActions() {
                    tr("Overwrite Source Range"),
                    QKeySequence(Qt::Key_Period));
 
+    sourceInsertAtZoneAction_ =
+        new QAction(tr("Insert Source at Zone"), this);
+    sourceInsertAtZoneAction_->setObjectName(
+        QStringLiteral("actionSourceInsertAtZone"));
+    connect(sourceInsertAtZoneAction_, &QAction::triggered, this, [this] {
+        if (!timelinePanel_ || !sourceMonitorPanel_) return;
+        timelinePanel_->insertFromSourceAtZone(
+            sourceMonitorPanel_->mediaId(),
+            sourceMonitorPanel_->markIn(),
+            sourceMonitorPanel_->markOut());
+    });
+    registerAction(sourceInsertAtZoneAction_, "source.insert_at_zone",
+                   tr("Insert Source at Zone"), QKeySequence());
+
+    sourceOverwriteAtZoneAction_ =
+        new QAction(tr("Overwrite Source at Zone"), this);
+    sourceOverwriteAtZoneAction_->setObjectName(
+        QStringLiteral("actionSourceOverwriteAtZone"));
+    connect(sourceOverwriteAtZoneAction_, &QAction::triggered, this, [this] {
+        if (!timelinePanel_ || !sourceMonitorPanel_) return;
+        timelinePanel_->overwriteFromSourceAtZone(
+            sourceMonitorPanel_->mediaId(),
+            sourceMonitorPanel_->markIn(),
+            sourceMonitorPanel_->markOut());
+    });
+    registerAction(sourceOverwriteAtZoneAction_, "source.overwrite_at_zone",
+                   tr("Overwrite Source at Zone"), QKeySequence());
+
     compareQualityAction_ = new QAction(tr("Compare Quality..."), this);
     compareQualityAction_->setObjectName(QStringLiteral("actionCompareQuality"));
     connect(compareQualityAction_, &QAction::triggered, this,
@@ -1179,6 +1207,9 @@ void MainWindow::buildMenuAndToolbar() {
     timelineMenu->addSeparator();
     timelineMenu->addAction(liftZoneAction_);
     timelineMenu->addAction(extractZoneAction_);
+    timelineMenu->addSeparator();
+    timelineMenu->addAction(sourceInsertAtZoneAction_);
+    timelineMenu->addAction(sourceOverwriteAtZoneAction_);
     timelineMenu->addSeparator();
     timelineMenu->addAction(removeSpaceAction_);
     timelineMenu->addAction(removeAllSpacesAction_);

@@ -33,6 +33,9 @@
   (with fallback to the first compatible lane).
 - **Expand clip to fill gaps.** Extends selected clips into adjacent track gaps
   (bounded by neighbors/source limits) as one undo step.
+- **Insert/overwrite source at zone.** New actions place the Source Monitor
+  marked range at the timeline zone-in (insert or overwrite), with refusal when
+  no timeline zone is set.
 
 ## v1.10.0 — 2026-11-07
 

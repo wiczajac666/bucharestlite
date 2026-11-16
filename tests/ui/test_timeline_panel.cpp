@@ -2315,3 +2315,46 @@ TEST(TimelinePanel, expandSelectionFillsAdjacentGaps) {
     EXPECT_EQ(frameOf(restored->timelineStart), 15);
     EXPECT_EQ(frameOf(restored->timelineDuration), 10);
 }
+
+TEST(TimelinePanel, insertFromSourceAtZonePlacesClipAtZoneIn) {
+    Fixture fx;
+    const std::string id = addMediaToBin(fx, "test_video.mp4");
+    fx.panel.setPlayhead(fr(2));
+    fx.panel.setZone(fr(20), fr(30));
+
+    ASSERT_TRUE(fx.panel.insertFromSourceAtZone(id, fr(0), fr(6)));
+    QApplication::processEvents();
+
+    ASSERT_EQ(fx.seq().videoTracks[0].clips().size(), 1u);
+    const Clip& placed = fx.seq().videoTracks[0].clips().front();
+    EXPECT_EQ(frameOf(placed.timelineStart), 20);
+    EXPECT_EQ(frameOf(placed.timelineDuration), 6);
+
+    fx.controller.undoStack().undo();
+    QApplication::processEvents();
+    EXPECT_TRUE(fx.seq().videoTracks[0].clips().empty());
+}
+
+TEST(TimelinePanel, overwriteFromSourceAtZonePlacesClipAtZoneIn) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 40));
+    const std::string id = addMediaToBin(fx, "test_video.mp4");
+    fx.panel.setZone(fr(10), fr(15));
+
+    ASSERT_TRUE(fx.panel.overwriteFromSourceAtZone(id, fr(0), fr(4)));
+    QApplication::processEvents();
+
+    const auto& clips = fx.seq().videoTracks[0].clips();
+    ASSERT_EQ(clips.size(), 3u);
+    EXPECT_EQ(clips[1].source.mediaItemId, id);
+    EXPECT_EQ(frameOf(clips[1].timelineStart), 10);
+    EXPECT_EQ(frameOf(clips[1].timelineDuration), 4);
+}
+
+TEST(TimelinePanel, insertFromSourceAtZoneRefusesWithoutZone) {
+    Fixture fx;
+    const std::string id = addMediaToBin(fx, "test_video.mp4");
+
+    EXPECT_FALSE(fx.panel.insertFromSourceAtZone(id, fr(0), fr(6)));
+    EXPECT_TRUE(fx.seq().videoTracks[0].clips().empty());
+}
