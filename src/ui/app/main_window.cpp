@@ -261,6 +261,8 @@ void MainWindow::buildDocks() {
             &PreviewPanel::setPlayheadFromTimeline);
     connect(timelinePanel_, &TimelinePanel::timelineChanged, previewPanel_,
             &PreviewPanel::onTimelineChanged);
+    connect(previewPanel_, &PreviewPanel::transportStateChanged, timelinePanel_,
+            &TimelinePanel::setPlaybackActive);
 
     // Scopes sit on the post-composite preview frame.
     connect(previewPanel_, &PreviewPanel::frameRendered, scopesPanel_,
@@ -325,6 +327,7 @@ void MainWindow::buildDocks() {
         settings_->setValue(kSnapKey, state.snap);
         settings_->setValue("timeline/autoSplitAv", state.autoSplitAv);
         settings_->setValue("timeline/useProxies", state.useProxies);
+        settings_->setValue("timeline/centerPlayhead", state.centerPlayhead);
     });
 
     connect(timelinePanel_, &TimelinePanel::zoneChanged, this,
@@ -881,6 +884,18 @@ void MainWindow::buildActions() {
     registerAction(rippleTrimOutAction_, "timeline.ripple_trim_out",
                    tr("Ripple Trim Out to Playhead"), QKeySequence());
 
+    centerPlayheadAction_ = new QAction(tr("Center Playhead During Playback"), this);
+    centerPlayheadAction_->setObjectName(QStringLiteral("actionCenterPlayhead"));
+    centerPlayheadAction_->setCheckable(true);
+    connect(centerPlayheadAction_, &QAction::toggled, this, [this](bool on) {
+        if (!timelinePanel_) return;
+        TimelineState state = timelinePanel_->timelineState();
+        state.centerPlayhead = on;
+        timelinePanel_->setTimelineState(state);
+    });
+    registerAction(centerPlayheadAction_, "timeline.center_playhead",
+                   tr("Center Playhead During Playback"), QKeySequence());
+
     // Timeline edit modes (Phase 4+).
     razorAction_ = new QAction(tr("Razor Tool"), this);
     razorAction_->setObjectName(QStringLiteral("actionRazorTool"));
@@ -1081,6 +1096,7 @@ void MainWindow::buildMenuAndToolbar() {
     viewMenu->addAction(undoHistoryPanel_->toggleViewAction());
     viewMenu->addSeparator();
     viewMenu->addAction(fitTimelineAction_);
+    viewMenu->addAction(centerPlayheadAction_);
     viewMenu->addAction(fullScreenPreviewAction_);
     viewMenu->addSeparator();
     viewMenu->addAction(darkThemeAction_);
@@ -1685,7 +1701,12 @@ void MainWindow::maybeRestoreLayout() {
         timelineState.snap = settings_->value(kSnapKey, true).toBool();
         timelineState.autoSplitAv = settings_->value("timeline/autoSplitAv", true).toBool();
         timelineState.useProxies = settings_->value("timeline/useProxies", false).toBool();
+        timelineState.centerPlayhead =
+            settings_->value("timeline/centerPlayhead", false).toBool();
         timelinePanel_->setTimelineState(timelineState);
+        if (centerPlayheadAction_) {
+            centerPlayheadAction_->setChecked(timelineState.centerPlayhead);
+        }
     }
 
     if (loopPlaybackAction_) {

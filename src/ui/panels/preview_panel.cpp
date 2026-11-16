@@ -298,8 +298,9 @@ void PreviewPanel::onTransportPlayhead() {
 }
 
 void PreviewPanel::onTransportState() {
-    playButton_->setText(transport_.playing() ? tr(kPauseGlyph) : tr(kPlayGlyph));
-    if (transport_.playing()) {
+    const bool playing = transport_.playing();
+    playButton_->setText(playing ? tr(kPauseGlyph) : tr(kPlayGlyph));
+    if (playing) {
         if (!timer_->isActive()) {
             clock_.restart();
             timer_->start();
@@ -310,6 +311,7 @@ void PreviewPanel::onTransportState() {
         stopAudio();
     }
     updateTimecode();
+    emit transportStateChanged(playing);
 }
 
 void PreviewPanel::setPlayheadFromTimeline(const bl::Time& t) {

@@ -15,6 +15,9 @@
 - **Ripple trim to playhead.** `Timeline → Ripple Trim In/Out to Playhead`
   ripple-trims the selected clip edge (or the clip at the playhead on the
   active track) to the playhead as one undo step, with clear refusals.
+- **Centered playhead during playback.** `View → Center Playhead During
+  Playback` keeps the playhead centered in the timeline while playing; the
+  setting is persisted.
 
 ## v1.10.0 — 2026-11-07
 

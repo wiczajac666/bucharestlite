@@ -2363,7 +2363,17 @@ void TimelinePanel::setPlayhead(const bl::Time& t) {
     if (t == playhead_) return;
     playhead_ = t;
     updatePlayheadItem();
+    if (state_.centerPlayhead && playbackActive_ && view_) {
+        const qreal x = xForTime(playhead_);
+        const QPointF center = view_->mapToScene(
+            QPoint(view_->viewport()->width() / 2, view_->viewport()->height() / 2));
+        view_->centerOn(x, center.y());
+    }
     emit playheadChanged(playhead_);
+}
+
+void TimelinePanel::setPlaybackActive(bool active) {
+    playbackActive_ = active;
 }
 
 void TimelinePanel::setSnapEnabled(bool on) {
@@ -2380,6 +2390,7 @@ void TimelinePanel::setTimelineState(const TimelineState& state) {
     setRippleEnabled(state.ripple);
     setAutoSplitAv(state.autoSplitAv);
     setUseProxies(state.useProxies);
+    state_.centerPlayhead = state.centerPlayhead;
     setSnapEnabled(state.snap);
 }
 

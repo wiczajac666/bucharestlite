@@ -74,8 +74,8 @@ parity audit.
         awareness (timecode/frames consistent with UI)
   - [ ] Apply to all selected clips where valid; report partial refusals
   - [ ] Tests: single/multi selection, invalid/overlap refusals, undo
-- [ ] **Playback/view polish**
-  - [ ] Optional fixed/centered playhead during playback (toggle, persisted)
+- [x] **Playback/view polish**
+  - [x] Optional fixed/centered playhead during playback (toggle, persisted)
   - [ ] Ensure zoom-to-fit, lane order, and scroll behavior remain correct with
         variable track heights (from above)
 - [ ] **Docs/tests:** update `docs/user-guide.md`, `CHANGELOG.md`,

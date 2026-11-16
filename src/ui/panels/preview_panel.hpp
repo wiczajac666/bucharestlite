@@ -98,6 +98,7 @@ public:
 
 signals:
     void playheadChanged(const bl::Time& current);
+    void transportStateChanged(bool playing);
     // Emitted after each render with the composited frame (an empty frame when
     // none is available) so scope views can tap the post-composite image.
     void frameRendered(const bl::CompositorResult& frame);

@@ -316,6 +316,7 @@ struct TimelineState {
     bool snap{true};
     bool autoSplitAv{true};  // drop an A/V clip as a linked video+audio pair
     bool useProxies{false};  // global "Use Proxies" toggle
+    bool centerPlayhead{false}; // keep playhead centered during playback
     timeline_geometry::LaneOrder laneOrder{timeline_geometry::LaneOrder::Split};
 };
 
@@ -446,6 +447,10 @@ public:
     // Prefers the current selection; falls back to the clip at the playhead on
     // the active track. One undo step; refusals reported via statusMessage.
     bool rippleTrimToPlayhead(bool leftEdge);
+
+    // Playback-driven view behavior (center playhead while playing).
+    void setPlaybackActive(bool active);
+    bool playbackActive() const { return playbackActive_; }
 
     // Playhead.
     bl::Time playhead() const { return playhead_; }
@@ -647,6 +652,7 @@ private:
     bl::Time playhead_{0, {1'000'000, 1}};
     qreal pxPerFrame_{6.0};
     TimelineState state_;
+    bool playbackActive_{false};
     int activeTrack_{0};
     bl::Time zoneIn_{0, {1'000'000, 1}};
     bl::Time zoneOut_{0, {1'000'000, 1}};
