@@ -929,6 +929,22 @@ void MainWindow::buildActions() {
     registerAction(setClipDurationAction_, "timeline.set_clip_duration",
                    tr("Set Clip Duration..."), QKeySequence());
 
+    collapseAllTracksAction_ = new QAction(tr("Collapse All Tracks"), this);
+    collapseAllTracksAction_->setObjectName(QStringLiteral("actionCollapseAllTracks"));
+    connect(collapseAllTracksAction_, &QAction::triggered, this, [this] {
+        if (timelinePanel_) timelinePanel_->collapseAllTracks();
+    });
+    registerAction(collapseAllTracksAction_, "timeline.collapse_all_tracks",
+                   tr("Collapse All Tracks"), QKeySequence());
+
+    expandAllTracksAction_ = new QAction(tr("Expand All Tracks"), this);
+    expandAllTracksAction_->setObjectName(QStringLiteral("actionExpandAllTracks"));
+    connect(expandAllTracksAction_, &QAction::triggered, this, [this] {
+        if (timelinePanel_) timelinePanel_->expandAllTracks();
+    });
+    registerAction(expandAllTracksAction_, "timeline.expand_all_tracks",
+                   tr("Expand All Tracks"), QKeySequence());
+
     // Timeline edit modes (Phase 4+).
     razorAction_ = new QAction(tr("Razor Tool"), this);
     razorAction_->setObjectName(QStringLiteral("actionRazorTool"));
@@ -1130,6 +1146,8 @@ void MainWindow::buildMenuAndToolbar() {
     viewMenu->addSeparator();
     viewMenu->addAction(fitTimelineAction_);
     viewMenu->addAction(centerPlayheadAction_);
+    viewMenu->addAction(collapseAllTracksAction_);
+    viewMenu->addAction(expandAllTracksAction_);
     viewMenu->addAction(fullScreenPreviewAction_);
     viewMenu->addSeparator();
     viewMenu->addAction(darkThemeAction_);

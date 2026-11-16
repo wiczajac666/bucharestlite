@@ -190,6 +190,8 @@ private:
     QAction* rippleTrimInAction_{nullptr};
     QAction* rippleTrimOutAction_{nullptr};
     QAction* setClipDurationAction_{nullptr};
+    QAction* collapseAllTracksAction_{nullptr};
+    QAction* expandAllTracksAction_{nullptr};
     QAction* centerPlayheadAction_{nullptr};
     QAction* razorAction_{nullptr};
     QAction* cycleEditModeAction_{nullptr};

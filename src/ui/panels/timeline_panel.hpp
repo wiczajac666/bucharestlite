@@ -579,7 +579,12 @@ public:
     bool setTrackSoloed(int flat, bool soloed);
     bool setTrackHeight(int flat, int height);
     bool setTrackCollapsed(int flat, bool collapsed);
+    // Non-undoable preview during a header drag; commit once on release.
+    void previewTrackHeight(int flat, int height);
+    void commitTrackHeightResize(int flat, int startHeight);
     void resetActiveTrackHeight();
+    void collapseAllTracks();
+    void expandAllTracks();
     bool renameTrack(int flat, const QString& name);
 
     // Adds an empty video/audio track at the end of its kind.

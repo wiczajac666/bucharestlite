@@ -48,14 +48,13 @@ parity audit.
   - [x] Status/toolbar affordance showing loop state (checkable menu/toolbar action)
   - [x] Tests: loop wraps at zone/sequence bounds, respects zone edits, single
         undo step not required (playback state) but state persists as designed
-- [ ] **Per-track height resize and collapse**
-  - [ ] Drag-to-resize lane height in track headers (honor `Track::height`,
-        clamp min/max, per-track not just per-kind)
-  - [ ] Collapse/expand track (and "collapse/expand all" convenience)
-  - [ ] Update `timeline_geometry`/layout (`contentHeight`, hit-testing,
-        scroll) and keep header/view scroll in sync
-  - [ ] Persist heights/collapsed state (project and/or QSettings, decide and
-        document)
+- [x] **Per-track height resize and collapse**
+  - [x] Drag-to-resize lane height in track headers (honor `Track::height`,
+        clamp min/max, per-track; single undo step on commit)
+  - [x] Collapse/expand track and collapse/expand all convenience
+  - [x] Update `timeline_geometry`/layout (`contentHeight`, hit-testing,
+        scroll) and keep header/view scroll in sync (per-track lane geometry)
+  - [x] Persist heights/collapsed state in project track data (`height`/custom)
   - [ ] Tests: resize/collapse updates layout and model, survives rebuild/undo
         where applicable
 - [x] **Remove space / remove all spaces**
@@ -77,8 +76,8 @@ parity audit.
   - [ ] Tests: single/multi selection, invalid/overlap refusals, undo
 - [x] **Playback/view polish**
   - [x] Optional fixed/centered playhead during playback (toggle, persisted)
-  - [ ] Ensure zoom-to-fit, lane order, and scroll behavior remain correct with
-        variable track heights (from above)
+  - [x] Zoom-to-fit, lane order, and scroll behavior use per-track lane
+        geometry (`contentHeight`/`laneTop`/`laneHeight`) with variable heights
 - [ ] **Docs/tests:** update `docs/user-guide.md`, `CHANGELOG.md`,
       `PROJECT_STATUS.md`, `KDENLINE_TIMELINE.MD` (§10 status), shortcuts
   - [x] loop playback documented (user guide, changelog, timeline parity)

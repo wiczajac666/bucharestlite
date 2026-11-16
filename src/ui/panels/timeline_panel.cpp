@@ -286,15 +286,18 @@ void TrackHeaderRow::mousePressEvent(QMouseEvent* event) {
     constexpr int kResizeHandleHeight = 4;
     if (event->button() == Qt::LeftButton) {
         if (pos().y() >= height() - kResizeHandleHeight) {
-            // Start height resize.
+            // Start height resize. Preview during drag; commit as one undo step
+            // on release.
             heightResizeActive_ = true;
             heightResizeStartY_ = event->globalPosition().toPoint().y();
             const bl::Sequence& seq = host_->sequence();
             if (video_) {
-                heightResizeStartHeight_ = seq.videoTracks[static_cast<size_t>(flat_)].height();
+                heightResizeStartHeight_ =
+                    seq.videoTracks[static_cast<size_t>(flat_)].height();
             } else {
                 const int ai = flat_ - static_cast<int>(seq.videoTracks.size());
-                heightResizeStartHeight_ = seq.audioTracks[static_cast<size_t>(ai)].height();
+                heightResizeStartHeight_ =
+                    seq.audioTracks[static_cast<size_t>(ai)].height();
             }
             setCursor(Qt::SizeVerCursor);
             event->accept();
@@ -314,10 +317,9 @@ void TrackHeaderRow::mouseMoveEvent(QMouseEvent* event) {
     if (heightResizeActive_ && (event->buttons() & Qt::LeftButton)) {
         const int deltaY = heightResizeStartY_ - event->globalPosition().toPoint().y();
         int newHeight = heightResizeStartHeight_ + deltaY;
-        // Clamp to valid range.
         newHeight = std::clamp(newHeight, 18, 200);
         if (host_) {
-            host_->setTrackHeight(flat_, newHeight);
+            host_->previewTrackHeight(flat_, newHeight);
         }
         event->accept();
         return;
@@ -342,6 +344,9 @@ void TrackHeaderRow::mouseReleaseEvent(QMouseEvent* event) {
         heightResizeActive_ = false;
         unsetCursor();
         updateHeightHandleCursor(event->pos());
+        if (host_) {
+            host_->commitTrackHeightResize(flat_, heightResizeStartHeight_);
+        }
         event->accept();
         return;
     }
@@ -3312,11 +3317,83 @@ bool TimelinePanel::setTrackCollapsed(int flat, bool collapsed) {
     return editor_.setTrackCollapsed(flat, collapsed);
 }
 
+void TimelinePanel::previewTrackHeight(int flat, int height) {
+    if (!controller_ || flat < 0) return;
+    height = std::clamp(height, 18, 200);
+    bl::Sequence& seq = controller_->timeline().sequence();
+    if (flat >= editor_.trackCount(seq)) return;
+    if (editor_.isVideoTrack(seq, flat)) {
+        seq.videoTracks[static_cast<size_t>(flat)].setHeight(height);
+    } else {
+        const int ai = editor_.kindIndex(seq, flat);
+        if (ai >= 0 && ai < static_cast<int>(seq.audioTracks.size())) {
+            seq.audioTracks[static_cast<size_t>(ai)].setHeight(height);
+        }
+    }
+    rebuildFromModel();
+}
+
+void TimelinePanel::commitTrackHeightResize(int flat, int startHeight) {
+    if (!controller_ || flat < 0) return;
+    bl::Sequence& seq = controller_->timeline().sequence();
+    if (flat >= editor_.trackCount(seq)) return;
+
+    int finalHeight = startHeight;
+    if (editor_.isVideoTrack(seq, flat)) {
+        finalHeight = seq.videoTracks[static_cast<size_t>(flat)].height();
+    } else {
+        const int ai = editor_.kindIndex(seq, flat);
+        if (ai >= 0 && ai < static_cast<int>(seq.audioTracks.size())) {
+            finalHeight = seq.audioTracks[static_cast<size_t>(ai)].height();
+        }
+    }
+    if (finalHeight == startHeight) {
+        return;
+    }
+
+    // Restore start height, then commit as one undoable edit.
+    if (editor_.isVideoTrack(seq, flat)) {
+        seq.videoTracks[static_cast<size_t>(flat)].setHeight(startHeight);
+    } else {
+        const int ai = editor_.kindIndex(seq, flat);
+        seq.audioTracks[static_cast<size_t>(ai)].setHeight(startHeight);
+    }
+    if (!editor_.setTrackHeight(flat, finalHeight)) {
+        // If commit fails (e.g. locked), keep the previewed height visible.
+        previewTrackHeight(flat, finalHeight);
+        reportEditorError();
+    }
+}
+
 void TimelinePanel::resetActiveTrackHeight() {
     const int flat = activeTrack_;
     if (flat < 0 || flat >= trackCount()) return;
     const int defaultHeight = editor_.isVideoTrack(sequence(), flat) ? 44 : 36;
     setTrackHeight(flat, defaultHeight);
+}
+
+void TimelinePanel::collapseAllTracks() {
+    if (!editor_.valid() || !controller_) return;
+    const int n = trackCount();
+    if (n <= 0) return;
+    bl::UndoStack& undoStack = controller_->undoStack();
+    undoStack.beginMacro("Collapse all tracks");
+    for (int i = 0; i < n; ++i) {
+        editor_.setTrackCollapsed(i, true);
+    }
+    undoStack.endMacro();
+}
+
+void TimelinePanel::expandAllTracks() {
+    if (!editor_.valid() || !controller_) return;
+    const int n = trackCount();
+    if (n <= 0) return;
+    bl::UndoStack& undoStack = controller_->undoStack();
+    undoStack.beginMacro("Expand all tracks");
+    for (int i = 0; i < n; ++i) {
+        editor_.setTrackCollapsed(i, false);
+    }
+    undoStack.endMacro();
 }
 
 bool TimelinePanel::addTrack(bool video) {

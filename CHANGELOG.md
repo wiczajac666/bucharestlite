@@ -18,9 +18,10 @@
 - **Centered playhead during playback.** `View → Center Playhead During
   Playback` keeps the playhead centered in the timeline while playing; the
   setting is persisted.
-- **Set clip duration.** `Timeline → Set Clip Duration...` sets the duration of
-  selected clips numerically (timecode/frames), applying valid clips as one
-  undo step and reporting partial refusals.
+- **Track height resize and collapse.** Drag track header edges to resize lane
+  heights (committed as one undo step), collapse/expand individual tracks, and
+  collapse/expand all tracks from the View menu; heights persist in project
+  track data.
 
 ## v1.10.0 — 2026-11-07
 
