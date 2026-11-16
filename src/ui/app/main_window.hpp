@@ -187,6 +187,8 @@ private:
     QAction* removeSpaceAction_{nullptr};
     QAction* removeAllSpacesAction_{nullptr};
     QAction* removeAllSpacesSequenceAction_{nullptr};
+    QAction* rippleTrimInAction_{nullptr};
+    QAction* rippleTrimOutAction_{nullptr};
     QAction* razorAction_{nullptr};
     QAction* cycleEditModeAction_{nullptr};
     QAction* resetTrackHeightAction_{nullptr};

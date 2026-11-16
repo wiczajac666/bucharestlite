@@ -441,6 +441,12 @@ public:
     bool removeAllSpacesAfterPlayhead();
     bool removeAllSpacesInSequenceAfterPlayhead();
 
+    // --- Ripple trim to playhead (Phase 1) -----------------------------------
+    // Ripple-trims the left or right edge of a target clip to the playhead.
+    // Prefers the current selection; falls back to the clip at the playhead on
+    // the active track. One undo step; refusals reported via statusMessage.
+    bool rippleTrimToPlayhead(bool leftEdge);
+
     // Playhead.
     bl::Time playhead() const { return playhead_; }
     void setPlayhead(const bl::Time& t);

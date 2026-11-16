@@ -12,6 +12,9 @@
   `Remove All Spaces in Sequence After Playhead` clean up gaps (skipping locked
   tracks for the sequence-wide variant). Available from the Timeline menu and
   empty-lane context menu; each edit is one undo step with clear refusals.
+- **Ripple trim to playhead.** `Timeline → Ripple Trim In/Out to Playhead`
+  ripple-trims the selected clip edge (or the clip at the playhead on the
+  active track) to the playhead as one undo step, with clear refusals.
 
 ## v1.10.0 — 2026-11-07
 

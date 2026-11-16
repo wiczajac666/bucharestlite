@@ -2521,6 +2521,59 @@ bool TimelinePanel::removeAllSpacesInSequenceAfterPlayhead() {
     return true;
 }
 
+bool TimelinePanel::rippleTrimToPlayhead(bool leftEdge) {
+    if (!controller_) return false;
+
+    // Prefer a selected clip; fall back to the clip at the playhead on the
+    // active track.
+    int targetFlat = -1;
+    bl::ClipId targetId;
+    const bl::Time ph = playhead();
+
+    if (!selection_.isEmpty()) {
+        for (const auto& entry : clipItems_) {
+            if (!selection_.contains(entry.first)) continue;
+            targetFlat = entry.second->flatTrack();
+            targetId = entry.first;
+            break;
+        }
+    }
+
+    if (targetFlat < 0) {
+        const bl::Sequence& seq = sequence();
+        if (activeTrack_ >= 0 && activeTrack_ < editor_.trackCount(seq)) {
+            const bool isVideo = editor_.isVideoTrack(seq, activeTrack_);
+            const int ki = editor_.kindIndex(seq, activeTrack_);
+            const auto& track = isVideo ? seq.videoTracks[static_cast<size_t>(ki)]
+                                        : seq.audioTracks[static_cast<size_t>(ki)];
+            for (const auto& c : track.clips()) {
+                const bl::Time start = c.timelineStart;
+                const bl::Time end = c.timelineStart + c.timelineDuration;
+                if (ph >= start && ph <= end) {
+                    targetFlat = activeTrack_;
+                    targetId = c.id;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (targetFlat < 0 || targetId.empty()) {
+        emit controller_->statusMessage(
+            tr("No clip at playhead to trim"));
+        return false;
+    }
+
+    const bool ok = leftEdge
+                        ? editor_.trimLeft(targetFlat, targetId, ph, /*ripple=*/true)
+                        : editor_.trimRight(targetFlat, targetId, ph, /*ripple=*/true);
+    if (!ok) {
+        reportEditorError();
+        return false;
+    }
+    return true;
+}
+
 void TimelinePanel::updateZoneItem() {
     if (!zoneItem_) return;
     if (!hasZone_) {

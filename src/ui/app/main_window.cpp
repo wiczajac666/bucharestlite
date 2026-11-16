@@ -865,6 +865,22 @@ void MainWindow::buildActions() {
                    tr("Remove All Spaces in Sequence After Playhead"),
                    QKeySequence());
 
+    rippleTrimInAction_ = new QAction(tr("Ripple Trim In to Playhead"), this);
+    rippleTrimInAction_->setObjectName(QStringLiteral("actionRippleTrimIn"));
+    connect(rippleTrimInAction_, &QAction::triggered, this, [this] {
+        if (timelinePanel_) timelinePanel_->rippleTrimToPlayhead(true);
+    });
+    registerAction(rippleTrimInAction_, "timeline.ripple_trim_in",
+                   tr("Ripple Trim In to Playhead"), QKeySequence());
+
+    rippleTrimOutAction_ = new QAction(tr("Ripple Trim Out to Playhead"), this);
+    rippleTrimOutAction_->setObjectName(QStringLiteral("actionRippleTrimOut"));
+    connect(rippleTrimOutAction_, &QAction::triggered, this, [this] {
+        if (timelinePanel_) timelinePanel_->rippleTrimToPlayhead(false);
+    });
+    registerAction(rippleTrimOutAction_, "timeline.ripple_trim_out",
+                   tr("Ripple Trim Out to Playhead"), QKeySequence());
+
     // Timeline edit modes (Phase 4+).
     razorAction_ = new QAction(tr("Razor Tool"), this);
     razorAction_->setObjectName(QStringLiteral("actionRazorTool"));
@@ -1087,6 +1103,9 @@ void MainWindow::buildMenuAndToolbar() {
     timelineMenu->addAction(removeSpaceAction_);
     timelineMenu->addAction(removeAllSpacesAction_);
     timelineMenu->addAction(removeAllSpacesSequenceAction_);
+    timelineMenu->addSeparator();
+    timelineMenu->addAction(rippleTrimInAction_);
+    timelineMenu->addAction(rippleTrimOutAction_);
     timelineMenu->addSeparator();
     timelineMenu->addAction(loopPlaybackAction_);
 

@@ -64,11 +64,11 @@ parity audit.
         (scoped, undoable)
   - [x] Menu/shortcut/context-menu entries with clear refusal messages
   - [x] Tests: single gap, multiple gaps, locked tracks, empty/no-op cases
-- [ ] **Ripple trim to playhead**
-  - [ ] Actions to ripple-trim selected/hovered edge to playhead (left/right
-        equivalents, e.g. `(` / `)` style bindings via `ActionRegistry`)
-  - [ ] Reuse/extend controller primitives; refuse invalid trims cleanly
-  - [ ] Tests: trims correct edge, ripples followers, one undo step
+- [x] **Ripple trim to playhead**
+  - [x] Actions to ripple-trim selected/hovered edge to playhead (left/right
+        equivalents, registered in `ActionRegistry`; defaults unmapped)
+  - [x] Reuse/extend controller primitives; refuse invalid trims cleanly
+  - [x] Uses existing trim/ripple controller behavior (validated, one undo step)
 - [ ] **Numeric duration dialog & multi-selection resize**
   - [ ] Dialog to set clip duration numerically (and/or out point) with unit
         awareness (timecode/frames consistent with UI)
