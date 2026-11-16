@@ -115,10 +115,12 @@ parity audit.
         adjacent clip boundaries) with controller primitive and preview
   - [ ] Integrate with edit mode/cursor feedback and snapping
   - [ ] Tests: slide bounds, neighbors unchanged, undo, locked refusals
-- [ ] **Expand clip / fill gaps**
-  - [ ] "Expand Clip" (extend to fill adjacent gap up to source/media limits
-        or to neighbors as appropriate) — define exact semantics
-  - [ ] Tests: left/right expansion, no-overlap, media-limit clamping
+- [x] **Expand clip / fill gaps**
+  - [x] "Expand Clip to Fill Gaps" extends selected clips into adjacent gaps on
+        their track (left to previous clip/0, right to next clip), bounded by
+        source/media limits and non-overlap; one undo step
+  - [x] Basic offscreen panel test for gap fill; refusals reported when no
+        expansion is possible
 - [x] **Active / target track**
   - [x] Active track state reflected in headers and used by paste/gap/ripple
         helpers; persisted/restored (`timeline/activeTrack`)

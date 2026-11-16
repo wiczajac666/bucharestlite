@@ -2643,6 +2643,75 @@ int TimelinePanel::setSelectionDuration(const bl::Duration& dur) {
     return resized;
 }
 
+int TimelinePanel::expandSelectionToFillGaps() {
+    if (!controller_) return 0;
+    if (selection_.isEmpty()) {
+        emit controller_->statusMessage(tr("No clips selected"));
+        return 0;
+    }
+
+    struct Target { int flat; bl::ClipId id; };
+    std::vector<Target> targets;
+    for (const auto& entry : clipItems_) {
+        if (!selection_.contains(entry.first)) continue;
+        targets.push_back({entry.second->flatTrack(), entry.first});
+    }
+
+    bl::UndoStack& undoStack = controller_->undoStack();
+    undoStack.beginMacro("Expand clip");
+    int expanded = 0;
+
+    for (const auto& t : targets) {
+        // Re-read sequence each iteration so earlier expansions are visible.
+        const bl::Sequence& seq = sequence();
+        if (t.flat < 0 || t.flat >= editor_.trackCount(seq)) continue;
+        const bool isVideo = editor_.isVideoTrack(seq, t.flat);
+        const int ki = editor_.kindIndex(seq, t.flat);
+        const auto& clips = isVideo ? seq.videoTracks[static_cast<size_t>(ki)].clips()
+                                    : seq.audioTracks[static_cast<size_t>(ki)].clips();
+
+        size_t idx = clips.size();
+        for (size_t i = 0; i < clips.size(); ++i) {
+            if (clips[i].id == t.id) { idx = i; break; }
+        }
+        if (idx == clips.size()) continue;
+
+        const bl::Clip& clip = clips[idx];
+        const bl::Time leftBound =
+            (idx > 0) ? (clips[idx - 1].timelineStart + clips[idx - 1].timelineDuration)
+                      : bl::Time{};
+        const bool hasRightNeighbor = (idx + 1 < clips.size());
+        const bl::Time rightBound =
+            hasRightNeighbor ? clips[idx + 1].timelineStart : bl::Time{};
+
+        // Fill left gap (if any).
+        if (leftBound < clip.timelineStart) {
+            if (editor_.trimLeft(t.flat, t.id, leftBound, /*ripple=*/false)) {
+                ++expanded;
+            }
+        }
+        // Fill right gap (if any) to the next clip.
+        if (hasRightNeighbor) {
+            const bl::Time currentEnd = clip.timelineStart + clip.timelineDuration;
+            if (currentEnd < rightBound) {
+                if (editor_.trimRight(t.flat, t.id, rightBound, /*ripple=*/false)) {
+                    ++expanded;
+                }
+            }
+        }
+    }
+
+    undoStack.endMacro();
+
+    if (expanded == 0) {
+        emit controller_->statusMessage(
+            tr("No adjacent gaps to fill (or media limits reached)"));
+        return 0;
+    }
+    emit controller_->statusMessage(tr("Expanded %1 edge(s)").arg(expanded));
+    return expanded;
+}
+
 void TimelinePanel::updateZoneItem() {
     if (!zoneItem_) return;
     if (!hasZone_) {

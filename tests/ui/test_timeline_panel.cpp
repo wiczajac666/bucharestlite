@@ -2285,3 +2285,33 @@ TEST(TimelinePanel, addMediaToTimelinePrefersActiveCompatibleTrack) {
     EXPECT_TRUE(fx.seq().videoTracks[0].clips().empty());
     ASSERT_EQ(fx.seq().videoTracks[1].clips().size(), 1u);
 }
+
+TEST(TimelinePanel, expandSelectionFillsAdjacentGaps) {
+    Fixture fx;
+    // "b" has gaps on both sides: after "a" (ends 10) and before "c" (starts 30).
+    Clip a = makeClip("a", 0, 10);
+    Clip b = makeClip("b", 15, 10);
+    // Give "b" source headroom so left/right trims are valid.
+    b.source.sourceIn = fr(0);
+    b.source.sourceOut = fr(40);
+    Clip c = makeClip("c", 30, 10);
+    fx.addClip(0, a);
+    fx.addClip(0, b);
+    fx.addClip(0, c);
+    fx.panel.setSelection(QSet<bl::ClipId>{"b"});
+
+    EXPECT_GT(fx.panel.expandSelectionToFillGaps(), 0);
+    QApplication::processEvents();
+
+    const Clip* expanded = fx.find("b");
+    ASSERT_NE(expanded, nullptr);
+    EXPECT_EQ(frameOf(expanded->timelineStart), 10);
+    EXPECT_EQ(frameOf(expanded->timelineStart + expanded->timelineDuration), 30);
+
+    fx.controller.undoStack().undo();
+    QApplication::processEvents();
+    const Clip* restored = fx.find("b");
+    ASSERT_NE(restored, nullptr);
+    EXPECT_EQ(frameOf(restored->timelineStart), 15);
+    EXPECT_EQ(frameOf(restored->timelineDuration), 10);
+}

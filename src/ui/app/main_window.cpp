@@ -934,6 +934,14 @@ void MainWindow::buildActions() {
     registerAction(setClipDurationAction_, "timeline.set_clip_duration",
                    tr("Set Clip Duration..."), QKeySequence());
 
+    expandClipAction_ = new QAction(tr("Expand Clip to Fill Gaps"), this);
+    expandClipAction_->setObjectName(QStringLiteral("actionExpandClip"));
+    connect(expandClipAction_, &QAction::triggered, this, [this] {
+        if (timelinePanel_) timelinePanel_->expandSelectionToFillGaps();
+    });
+    registerAction(expandClipAction_, "timeline.expand_clip",
+                   tr("Expand Clip to Fill Gaps"), QKeySequence());
+
     collapseAllTracksAction_ = new QAction(tr("Collapse All Tracks"), this);
     collapseAllTracksAction_->setObjectName(QStringLiteral("actionCollapseAllTracks"));
     connect(collapseAllTracksAction_, &QAction::triggered, this, [this] {
@@ -1179,6 +1187,7 @@ void MainWindow::buildMenuAndToolbar() {
     timelineMenu->addAction(rippleTrimInAction_);
     timelineMenu->addAction(rippleTrimOutAction_);
     timelineMenu->addAction(setClipDurationAction_);
+    timelineMenu->addAction(expandClipAction_);
     timelineMenu->addSeparator();
     timelineMenu->addAction(loopPlaybackAction_);
 

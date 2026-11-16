@@ -31,6 +31,8 @@
 - **Active track routing.** The active timeline track is persisted and preferred
   for insert/overwrite-from-source and add-to-timeline actions when compatible
   (with fallback to the first compatible lane).
+- **Expand clip to fill gaps.** Extends selected clips into adjacent track gaps
+  (bounded by neighbors/source limits) as one undo step.
 
 ## v1.10.0 — 2026-11-07
 

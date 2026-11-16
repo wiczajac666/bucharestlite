@@ -455,6 +455,12 @@ public:
     // number of clips resized (0 = refused/no valid targets).
     int setSelectionDuration(const bl::Duration& dur);
 
+    // --- Expand clip / fill gaps (Phase 2) -----------------------------------
+    // Extends selected clips to fill adjacent gaps on their tracks (left and/or
+    // right), bounded by neighboring clips and source/media limits. Applied as
+    // one undo step; returns the number of edge expansions performed.
+    int expandSelectionToFillGaps();
+
     // Playback-driven view behavior (center playhead while playing).
     void setPlaybackActive(bool active);
     bool playbackActive() const { return playbackActive_; }
