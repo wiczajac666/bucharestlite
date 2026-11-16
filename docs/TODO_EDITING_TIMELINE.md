@@ -134,9 +134,11 @@ parity audit.
         Monitor marks and timeline zone/playhead (complement existing 3-point
         insert/overwrite)
   - [ ] Tests: marked/unmarked cases, linked A/V, undo grouping
-- [ ] **Spacer & ripple interactions audit**
-  - [ ] Verify spacer/remove-space/ripple tools cover common gap workflows;
-        add small refinements uncovered by tests
+- [x] **Spacer & ripple interactions audit**
+  - [x] Verified spacer drag tool (`addSpacer`/`removeSpacer`), remove-space
+        actions (at playhead / after cursor / sequence scope), and ripple
+        delete/trim workflows cover common gap cases; existing controller/UI
+        tests cover core behaviors (no further refinements required now)
 - [ ] **Docs/tests:** user guide (edit tools), shortcuts, changelog
 
 **Exit criteria:** razor/slide/expand + active-target track workflows available
