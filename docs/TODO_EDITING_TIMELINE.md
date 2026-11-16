@@ -119,12 +119,14 @@ parity audit.
   - [ ] "Expand Clip" (extend to fill adjacent gap up to source/media limits
         or to neighbors as appropriate) — define exact semantics
   - [ ] Tests: left/right expansion, no-overlap, media-limit clamping
-- [~] **Active / target track** (in progress)
+- [x] **Active / target track**
   - [x] Active track state reflected in headers and used by paste/gap/ripple
         helpers; persisted/restored (`timeline/activeTrack`)
   - [x] Route insert/overwrite-from-source and add-to-timeline to the active
-        track when compatible (fallback to first compatible lane)
-  - [ ] Optional explicit target tracks and broader edit-routing coverage/tests
+        track when compatible (fallback to first compatible lane); paste honors
+        active-track hint
+  - [x] Routing/refusal behavior covered by existing and new offscreen tests
+  - [ ] Optional: separate explicit target tracks (deferred)
 - [ ] **Insert/overwrite zone from source**
   - [ ] "Insert/Overwrite clip/zone in timeline" actions leveraging Source
         Monitor marks and timeline zone/playhead (complement existing 3-point

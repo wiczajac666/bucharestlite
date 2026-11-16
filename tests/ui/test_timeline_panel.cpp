@@ -2243,3 +2243,45 @@ TEST(TimelinePanel, setSelectionDurationRefusesInvalidRequests) {
     ASSERT_NE(fx.find("a"), nullptr);
     EXPECT_EQ(frameOf(fx.find("a")->timelineDuration), 10);
 }
+
+TEST(TimelinePanel, insertFromSourcePrefersActiveCompatibleTrack) {
+    Fixture fx;
+    fx.controller.timeline().sequence().addVideoTrack("V2");
+    fx.panel.rebuildFromModel();
+    const std::string id = addMediaToBin(fx, "test_video.mp4");
+
+    fx.panel.setActiveTrack(1); // V2
+    ASSERT_TRUE(fx.panel.insertFromSource(id, fr(0), fr(24)));
+    QApplication::processEvents();
+
+    EXPECT_TRUE(fx.seq().videoTracks[0].clips().empty());
+    ASSERT_EQ(fx.seq().videoTracks[1].clips().size(), 1u);
+}
+
+TEST(TimelinePanel, insertFromSourceFallsBackWhenActiveTrackIncompatible) {
+    Fixture fx;
+    fx.controller.timeline().sequence().addAudioTrack("A2");
+    fx.panel.rebuildFromModel();
+    const std::string id = addMediaToBin(fx, "test_video.mp4");
+
+    fx.panel.setActiveTrack(2); // A2 (V1, A1, A2)
+    ASSERT_TRUE(fx.panel.insertFromSource(id, fr(0), fr(24)));
+    QApplication::processEvents();
+
+    ASSERT_EQ(fx.seq().videoTracks[0].clips().size(), 1u);
+    EXPECT_TRUE(fx.seq().audioTracks[1].clips().empty());
+}
+
+TEST(TimelinePanel, addMediaToTimelinePrefersActiveCompatibleTrack) {
+    Fixture fx;
+    fx.controller.timeline().sequence().addVideoTrack("V2");
+    fx.panel.rebuildFromModel();
+    const std::string id = addMediaToBin(fx, "test_video.mp4");
+
+    fx.panel.setActiveTrack(1); // V2
+    ASSERT_TRUE(fx.panel.addMediaToTimeline(id));
+    QApplication::processEvents();
+
+    EXPECT_TRUE(fx.seq().videoTracks[0].clips().empty());
+    ASSERT_EQ(fx.seq().videoTracks[1].clips().size(), 1u);
+}

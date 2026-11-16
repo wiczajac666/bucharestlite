@@ -28,6 +28,9 @@
 - **Razor tool.** Razor edit mode (`timeline.razor`, `R`) splits a clip at the
   clicked position with a crosshair cursor and reports refusals (e.g. locked
   tracks).
+- **Active track routing.** The active timeline track is persisted and preferred
+  for insert/overwrite-from-source and add-to-timeline actions when compatible
+  (with fallback to the first compatible lane).
 
 ## v1.10.0 — 2026-11-07
 
