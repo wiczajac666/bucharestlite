@@ -2585,6 +2585,56 @@ bool TimelinePanel::rippleTrimToPlayhead(bool leftEdge) {
     return true;
 }
 
+int TimelinePanel::setSelectionDuration(const bl::Duration& dur) {
+    if (!controller_) return 0;
+    if (dur.ticks <= 0) {
+        emit controller_->statusMessage(tr("Duration must be greater than zero"));
+        return 0;
+    }
+
+    struct Target { int flat; bl::ClipId id; bl::Time start; };
+    std::vector<Target> targets;
+    for (const auto& entry : clipItems_) {
+        if (!selection_.contains(entry.first)) continue;
+        targets.push_back({entry.second->flatTrack(), entry.first,
+                           entry.second->clip().timelineStart});
+    }
+    if (targets.empty()) {
+        emit controller_->statusMessage(tr("No clips selected"));
+        return 0;
+    }
+
+    bl::UndoStack& undoStack = controller_->undoStack();
+    const bool macro = targets.size() > 1;
+    if (macro) undoStack.beginMacro("Set clip duration");
+
+    int resized = 0;
+    int failed = 0;
+    for (const auto& t : targets) {
+        const bl::Time newEnd = t.start + dur;
+        if (editor_.trimRight(t.flat, t.id, newEnd, /*ripple=*/false)) {
+            ++resized;
+        } else {
+            ++failed;
+        }
+    }
+
+    if (macro) undoStack.endMacro();
+
+    if (resized == 0) {
+        emit controller_->statusMessage(
+            failed > 0 ? tr("Cannot resize selected clip(s) to that duration")
+                       : tr("No clips resized"));
+        return 0;
+    }
+    if (failed > 0) {
+        emit controller_->statusMessage(
+            tr("Resized %1 clip(s); %2 could not be resized")
+                .arg(resized).arg(failed));
+    }
+    return resized;
+}
+
 void TimelinePanel::updateZoneItem() {
     if (!zoneItem_) return;
     if (!hasZone_) {

@@ -69,10 +69,11 @@ parity audit.
         equivalents, registered in `ActionRegistry`; defaults unmapped)
   - [x] Reuse/extend controller primitives; refuse invalid trims cleanly
   - [x] Uses existing trim/ripple controller behavior (validated, one undo step)
-- [ ] **Numeric duration dialog & multi-selection resize**
-  - [ ] Dialog to set clip duration numerically (and/or out point) with unit
-        awareness (timecode/frames consistent with UI)
-  - [ ] Apply to all selected clips where valid; report partial refusals
+- [x] **Numeric duration dialog & multi-selection resize**
+  - [x] Dialog to set clip duration numerically (HH:MM:SS:FF or frame count)
+        with timecode awareness at sequence fps
+  - [x] Apply to all selected clips where valid; report partial refusals (one
+        undo step for multi-selection)
   - [ ] Tests: single/multi selection, invalid/overlap refusals, undo
 - [x] **Playback/view polish**
   - [x] Optional fixed/centered playhead during playback (toggle, persisted)

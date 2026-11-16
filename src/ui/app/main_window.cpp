@@ -2,6 +2,7 @@
 
 #include "app/project_controller.hpp"
 #include "dialogs/batch_export_dialog.hpp"
+#include "dialogs/duration_dialog.hpp"
 #include "dialogs/quality_metrics_dialog.hpp"
 #include "dialogs/template_picker_dialog.hpp"
 #include "dialogs/title_editor_dialog.hpp"
@@ -896,6 +897,38 @@ void MainWindow::buildActions() {
     registerAction(centerPlayheadAction_, "timeline.center_playhead",
                    tr("Center Playhead During Playback"), QKeySequence());
 
+    setClipDurationAction_ = new QAction(tr("Set Clip Duration..."), this);
+    setClipDurationAction_->setObjectName(QStringLiteral("actionSetClipDuration"));
+    connect(setClipDurationAction_, &QAction::triggered, this, [this] {
+        if (!timelinePanel_ || !controller_) return;
+        const auto& seq = controller_->timeline().sequence();
+        bl::Duration initial = bl::Duration::fromFrames(1, seq.settings.fps);
+        const QSet<bl::ClipId> sel = timelinePanel_->selection();
+        bool found = false;
+        if (!sel.isEmpty()) {
+            for (const auto& trk : seq.videoTracks) {
+                for (const auto& c : trk.clips()) {
+                    if (sel.contains(c.id)) { initial = c.timelineDuration; found = true; break; }
+                }
+                if (found) break;
+            }
+            if (!found) {
+                for (const auto& trk : seq.audioTracks) {
+                    for (const auto& c : trk.clips()) {
+                        if (sel.contains(c.id)) { initial = c.timelineDuration; found = true; break; }
+                    }
+                    if (found) break;
+                }
+            }
+        }
+        DurationDialog dialog(initial, seq.settings.fps, this);
+        if (dialog.exec() == QDialog::Accepted) {
+            timelinePanel_->setSelectionDuration(dialog.duration());
+        }
+    });
+    registerAction(setClipDurationAction_, "timeline.set_clip_duration",
+                   tr("Set Clip Duration..."), QKeySequence());
+
     // Timeline edit modes (Phase 4+).
     razorAction_ = new QAction(tr("Razor Tool"), this);
     razorAction_->setObjectName(QStringLiteral("actionRazorTool"));
@@ -1122,6 +1155,7 @@ void MainWindow::buildMenuAndToolbar() {
     timelineMenu->addSeparator();
     timelineMenu->addAction(rippleTrimInAction_);
     timelineMenu->addAction(rippleTrimOutAction_);
+    timelineMenu->addAction(setClipDurationAction_);
     timelineMenu->addSeparator();
     timelineMenu->addAction(loopPlaybackAction_);
 

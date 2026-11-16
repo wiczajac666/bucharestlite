@@ -18,6 +18,9 @@
 - **Centered playhead during playback.** `View → Center Playhead During
   Playback` keeps the playhead centered in the timeline while playing; the
   setting is persisted.
+- **Set clip duration.** `Timeline → Set Clip Duration...` sets the duration of
+  selected clips numerically (timecode/frames), applying valid clips as one
+  undo step and reporting partial refusals.
 
 ## v1.10.0 — 2026-11-07
 

@@ -448,6 +448,13 @@ public:
     // the active track. One undo step; refusals reported via statusMessage.
     bool rippleTrimToPlayhead(bool leftEdge);
 
+    // --- Numeric duration (Phase 1) ------------------------------------------
+    // Sets the timeline duration of each selected clip to `dur` (non-ripple
+    // right-edge trim). Multiple clips are applied as one undo step; clips
+    // that cannot take the duration are skipped and reported. Returns the
+    // number of clips resized (0 = refused/no valid targets).
+    int setSelectionDuration(const bl::Duration& dur);
+
     // Playback-driven view behavior (center playhead while playing).
     void setPlaybackActive(bool active);
     bool playbackActive() const { return playbackActive_; }
