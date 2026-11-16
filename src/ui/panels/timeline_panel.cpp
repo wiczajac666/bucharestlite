@@ -2956,16 +2956,24 @@ bool TimelinePanel::addMediaToTimeline(
     }
     bl::Clip clip = *clipOpt;
 
-    // First lane whose kind can carry the media: video material goes to the
-    // first video lane (V1), audio-only material to the first audio lane.
+    // Prefer the active track when compatible; otherwise the first lane whose
+    // kind can carry the media.
     const bl::Sequence& seq = sequence();
     const int laneCount = trackCount();
     int lane = -1;
-    for (int i = 0; i < laneCount; ++i) {
-        const bool videoLane = editor_.isVideoTrack(seq, i);
-        if ((videoLane && hasVideo) || (!videoLane && hasAudio)) {
-            lane = i;
-            break;
+    if (activeTrack_ >= 0 && activeTrack_ < laneCount) {
+        const bool videoLane = editor_.isVideoTrack(seq, activeTrack_);
+        if ((videoLane && hasVideo) || (!videoLane && !hasVideo && hasAudio)) {
+            lane = activeTrack_;
+        }
+    }
+    if (lane < 0) {
+        for (int i = 0; i < laneCount; ++i) {
+            const bool videoLane = editor_.isVideoTrack(seq, i);
+            if ((videoLane && hasVideo) || (!videoLane && hasAudio)) {
+                lane = i;
+                break;
+            }
         }
     }
     if (lane < 0) {
@@ -3070,11 +3078,33 @@ bool TimelinePanel::placeSourceEdit(const std::string& mediaId,
     const bl::Sequence& seq = sequence();
     const int videoCount = static_cast<int>(seq.videoTracks.size());
     const int audioCount = static_cast<int>(seq.audioTracks.size());
-    const int videoFlat = videoCount > 0 ? 0 : -1;
+    int videoFlat = videoCount > 0 ? 0 : -1;
     int audioFlat = -1;
-    if (audioCount > 0) {
-        const int aligned = videoFlat >= 0 ? std::min(videoFlat, audioCount - 1) : 0;
-        audioFlat = videoCount + aligned;
+
+    // Prefer the active track when it is compatible with the source kind.
+    if (activeTrack_ >= 0 && activeTrack_ < trackCount()) {
+        const bool activeIsVideo = editor_.isVideoTrack(seq, activeTrack_);
+        if (hasVideo && activeIsVideo) {
+            videoFlat = activeTrack_;
+        } else if (!hasVideo && !activeIsVideo) {
+            audioFlat = activeTrack_;
+        }
+    }
+
+    if (audioFlat < 0 && audioCount > 0) {
+        if (videoFlat >= 0 && editor_.isVideoTrack(seq, videoFlat)) {
+            const int aligned =
+                std::min(editor_.kindIndex(seq, videoFlat), audioCount - 1);
+            audioFlat = videoCount + aligned;
+        } else {
+            // Prefer active audio track for A/V if set, else first audio track.
+            if (activeTrack_ >= 0 && activeTrack_ < trackCount() &&
+                !editor_.isVideoTrack(seq, activeTrack_)) {
+                audioFlat = activeTrack_;
+            } else {
+                audioFlat = videoCount;
+            }
+        }
     }
 
     if (hasVideo && videoFlat < 0) {

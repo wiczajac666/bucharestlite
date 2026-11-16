@@ -334,6 +334,11 @@ void MainWindow::buildDocks() {
     connect(timelinePanel_, &TimelinePanel::zoneChanged, this,
             &MainWindow::syncLoopRangeFromTimeline);
 
+    connect(timelinePanel_, &TimelinePanel::activeTrackChanged, this,
+            [this](int flat) {
+                settings_->setValue(QStringLiteral("timeline/activeTrack"), flat);
+            });
+
     // Forward proxy toggle and per-clip overrides to the preview decoder. The
     // decoder resolves proxies per media item, so translate the clip id first.
     if (timelinePanel_ && previewPanel_) {
@@ -1709,6 +1714,8 @@ void MainWindow::persistLayout() {
         settings_->setValue(kInsertModeKey, state.insertMode);
         settings_->setValue(kRippleKey, state.ripple);
         settings_->setValue(kSnapKey, state.snap);
+        settings_->setValue(QStringLiteral("timeline/activeTrack"),
+                            timelinePanel_->activeTrack());
     }
     if (loopPlaybackAction_) {
         settings_->setValue(QStringLiteral("timeline/loopPlayback"),
@@ -1759,6 +1766,9 @@ void MainWindow::maybeRestoreLayout() {
         if (centerPlayheadAction_) {
             centerPlayheadAction_->setChecked(timelineState.centerPlayhead);
         }
+        const int activeTrack =
+            settings_->value(QStringLiteral("timeline/activeTrack"), 0).toInt();
+        timelinePanel_->setActiveTrack(activeTrack);
     }
 
     if (loopPlaybackAction_) {
