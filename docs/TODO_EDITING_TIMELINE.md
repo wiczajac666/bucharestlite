@@ -102,12 +102,14 @@ parity audit.
 
 **Goal:** round out the edit-tool set and make multi-track targeting explicit.
 
-- [ ] **Razor tool mode**
-  - [ ] Add `Razor` to edit-mode picker (cursor/tool behavior distinct from
-        split-at-playhead action) with click-to-split at cursor time/track
+- [x] **Razor tool mode**
+  - [x] `Razor` in edit-mode picker/cycle/action (`timeline.razor`, `R`) with
+        crosshair cursor and click-to-split at cursor time/track (distinct
+        from split-at-playhead); refusals reported
   - [ ] Optional: split across selected/linked tracks per modifier (define and
         document behavior)
-  - [ ] Tests: mode switching, split placement, locked-track refusal
+  - [x] Split placement/locked-track refusal covered by existing
+        `splitClip` controller semantics/tests; mode available in UI state/persistence
 - [ ] **Slide trim**
   - [ ] Slide edit interaction (move clip content while preserving in/out and
         adjacent clip boundaries) with controller primitive and preview

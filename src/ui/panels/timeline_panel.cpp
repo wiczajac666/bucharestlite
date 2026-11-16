@@ -773,8 +773,11 @@ void TimelineView::mousePressEvent(QMouseEvent* event) {
             // Razor splits the clip at the click position.
             const bl::Time at = host_->timeAtX(pressScenePos_.x());
             const bl::Clip& clip = item->clip();
-            if (at > clip.timelineStart && at < clip.timelineStart + clip.timelineDuration) {
-                host_->editor().splitClip(pressLane_, pressClip_, at);
+            if (at > clip.timelineStart &&
+                at < clip.timelineStart + clip.timelineDuration) {
+                if (!host_->editor().splitClip(pressLane_, pressClip_, at)) {
+                    host_->reportEditorError();
+                }
             }
             mode_ = Mode::None;
             break;
