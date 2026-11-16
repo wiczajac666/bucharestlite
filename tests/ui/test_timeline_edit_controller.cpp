@@ -1257,3 +1257,38 @@ TEST(TimelineEditController, removeAllSpacesRefusesWhenNone) {
     EXPECT_EQ(f.editor.lastError(), "No gaps to remove");
     EXPECT_FALSE(f.undoStack.canUndo());
 }
+
+TEST(TimelineEditController, setTrackHeightIsUndoableAndClamped) {
+    Fixture f;
+    EXPECT_TRUE(f.editor.setTrackHeight(kVideo0, 80));
+    EXPECT_EQ(f.timeline.sequence().videoTracks[0].height(), 80);
+    EXPECT_TRUE(f.timeline.sequence().videoTracks[0].hasCustomHeight());
+
+    f.undoStack.undo();
+    EXPECT_NE(f.timeline.sequence().videoTracks[0].height(), 80);
+
+    f.undoStack.redo();
+    EXPECT_EQ(f.timeline.sequence().videoTracks[0].height(), 80);
+
+    EXPECT_FALSE(f.editor.setTrackHeight(kVideo0, 5));
+    EXPECT_EQ(f.editor.lastError(), "Invalid height");
+    EXPECT_FALSE(f.editor.setTrackHeight(kVideo0, 500));
+}
+
+TEST(TimelineEditController, setTrackCollapsedTogglesAndRestoresHeight) {
+    Fixture f;
+    ASSERT_TRUE(f.editor.setTrackHeight(kVideo0, 72));
+    EXPECT_TRUE(f.editor.setTrackCollapsed(kVideo0, true));
+    EXPECT_EQ(f.timeline.sequence().videoTracks[0].height(), 18);
+
+    EXPECT_TRUE(f.editor.setTrackCollapsed(kVideo0, false));
+    EXPECT_EQ(f.timeline.sequence().videoTracks[0].height(), 72);
+
+    f.undoStack.undo(); // expand
+    EXPECT_EQ(f.timeline.sequence().videoTracks[0].height(), 18);
+    f.undoStack.undo(); // collapse
+    EXPECT_EQ(f.timeline.sequence().videoTracks[0].height(), 72);
+
+    EXPECT_FALSE(f.editor.setTrackCollapsed(kVideo0, false));
+    EXPECT_EQ(f.editor.lastError(), "No change");
+}

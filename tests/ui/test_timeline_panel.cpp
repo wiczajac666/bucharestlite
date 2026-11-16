@@ -2174,3 +2174,72 @@ TEST(TimelinePanel, insertFromSourceGroupsLinkedAvHalves) {
     EXPECT_TRUE(fx.seq().videoTracks[0].clips().empty());
     EXPECT_TRUE(fx.seq().audioTracks[0].clips().empty());
 }
+
+TEST(TimelinePanel, setSelectionDurationResizesSingleClip) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 10));
+    fx.addClip(0, makeClip("b", 20, 10));
+    fx.panel.setSelection(QSet<bl::ClipId>{"a"});
+
+    EXPECT_EQ(fx.panel.setSelectionDuration(durF(15)), 1);
+    QApplication::processEvents();
+    ASSERT_NE(fx.find("a"), nullptr);
+    EXPECT_EQ(frameOf(fx.find("a")->timelineDuration), 15);
+
+    fx.controller.undoStack().undo();
+    QApplication::processEvents();
+    ASSERT_NE(fx.find("a"), nullptr);
+    EXPECT_EQ(frameOf(fx.find("a")->timelineDuration), 10);
+}
+
+TEST(TimelinePanel, setSelectionDurationReportsPartialOverlapFailures) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 10));
+    fx.addClip(0, makeClip("b", 20, 10));
+    fx.addClip(0, makeClip("c", 32, 10));
+    fx.panel.setSelection(QSet<bl::ClipId>{"a", "b"});
+
+    // "a" can grow (gap before "b"), but "b" cannot grow to 15 without
+    // overlapping "c" at frame 32.
+    EXPECT_EQ(fx.panel.setSelectionDuration(durF(15)), 1);
+    QApplication::processEvents();
+    ASSERT_NE(fx.find("a"), nullptr);
+    ASSERT_NE(fx.find("b"), nullptr);
+    EXPECT_EQ(frameOf(fx.find("a")->timelineDuration), 15);
+    EXPECT_EQ(frameOf(fx.find("b")->timelineDuration), 10);
+}
+
+TEST(TimelinePanel, setSelectionDurationMultiSelectionIsOneUndoStep) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 10));
+    fx.addClip(0, makeClip("b", 20, 10));
+    fx.panel.setSelection(QSet<bl::ClipId>{"a", "b"});
+
+    EXPECT_EQ(fx.panel.setSelectionDuration(durF(8)), 2);
+    QApplication::processEvents();
+    ASSERT_NE(fx.find("a"), nullptr);
+    ASSERT_NE(fx.find("b"), nullptr);
+    EXPECT_EQ(frameOf(fx.find("a")->timelineDuration), 8);
+    EXPECT_EQ(frameOf(fx.find("b")->timelineDuration), 8);
+
+    fx.controller.undoStack().undo();
+    QApplication::processEvents();
+    ASSERT_NE(fx.find("a"), nullptr);
+    ASSERT_NE(fx.find("b"), nullptr);
+    EXPECT_EQ(frameOf(fx.find("a")->timelineDuration), 10);
+    EXPECT_EQ(frameOf(fx.find("b")->timelineDuration), 10);
+}
+
+TEST(TimelinePanel, setSelectionDurationRefusesInvalidRequests) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 10));
+
+    fx.panel.clearSelection();
+    EXPECT_EQ(fx.panel.setSelectionDuration(durF(5)), 0);
+
+    fx.panel.setSelection(QSet<bl::ClipId>{"a"});
+    EXPECT_EQ(fx.panel.setSelectionDuration(durF(0)), 0);
+    QApplication::processEvents();
+    ASSERT_NE(fx.find("a"), nullptr);
+    EXPECT_EQ(frameOf(fx.find("a")->timelineDuration), 10);
+}

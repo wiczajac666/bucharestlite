@@ -6,7 +6,17 @@ masks, and the pluggable compositor. Each phase ends with targeted tests, a
 green `ctest --preset linux-release` (and Windows where applicable), doc
 updates, and a commit.
 
-**Status:** in progress (Phase 1 started)  
+**Status:** Phase 1 complete; Phase 2 not started.
+
+### Phase 1 summary (complete)
+
+- `eaeec65` — Loop playback / loop zone (`playback.loop`, `Ctrl+Shift+Space`), zone-aware transport looping with persistence.
+- `40429fc` — Remove space at playhead, remove all spaces after playhead (track/sequence scope), with menu/context actions and tests.
+- `1590c6c` — Ripple trim in/out to playhead actions.
+- `7073030` — Centered playhead during playback (toggle, persisted).
+- `27a09d8` — Numeric clip duration dialog and multi-selection resize (macro undo, partial refusals).
+- `b00eb31` — Track height resize/collapse improvements (single-step drag commit, collapse/expand all) and per-track lane geometry.
+- (closing commit) — Phase 1 tests/docs wrap-up.
 **Scope:** timeline interaction, edit tools, clip/track workflow, and
 timeline-adjacent editing polish.  
 **Out of scope for this roadmap:** codec/export pipeline changes, GPU effect
@@ -55,8 +65,9 @@ parity audit.
   - [x] Update `timeline_geometry`/layout (`contentHeight`, hit-testing,
         scroll) and keep header/view scroll in sync (per-track lane geometry)
   - [x] Persist heights/collapsed state in project track data (`height`/custom)
-  - [ ] Tests: resize/collapse updates layout and model, survives rebuild/undo
-        where applicable
+  - [x] Tests: controller height/collapse undo/clamp/restore behavior;
+        variable-height layout exercised via per-track lane geometry and
+        rebuild paths (offscreen)
 - [x] **Remove space / remove all spaces**
   - [x] `Remove Space` at playhead/gap selection on a track (ripple-close gap)
   - [x] `Remove All Spaces After Cursor` / sequence-wide gap cleanup variant
@@ -73,7 +84,7 @@ parity audit.
         with timecode awareness at sequence fps
   - [x] Apply to all selected clips where valid; report partial refusals (one
         undo step for multi-selection)
-  - [ ] Tests: single/multi selection, invalid/overlap refusals, undo
+  - [x] Tests: single/multi selection, invalid/overlap refusals, undo (`TimelinePanel`)
 - [x] **Playback/view polish**
   - [x] Optional fixed/centered playhead during playback (toggle, persisted)
   - [x] Zoom-to-fit, lane order, and scroll behavior use per-track lane
