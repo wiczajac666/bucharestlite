@@ -160,6 +160,10 @@ public:
     // Slide the clip's source window by a timeline delta; the timeline range
     // is untouched. Fails when the window would leave [0, media duration].
     bool slipClip(int flatTrack, const ClipId& id, Duration delta);
+    // Slide `id` along the timeline to `newStart`, keeping its duration and
+    // source in/out unchanged by trimming the adjacent left/right neighbors by
+    // the same delta. Requires neighbors on both sides with no gaps.
+    bool slideClip(int flatTrack, const ClipId& id, Time newStart);
     // Move the seam shared by two adjacent clips in one atomic step; the left
     // clip's right edge and the right clip's left edge both move to
     // `newBoundary` (leftId names the clip left of the seam).

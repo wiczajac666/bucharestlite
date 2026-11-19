@@ -214,14 +214,19 @@ private:
     // pixels of `sceneX`. Returns false when the track has no such seam.
     bool seamNear(int track, qreal sceneX, ClipId& leftId, ClipId& rightId,
                   bl::Time& boundary) const;
+    // True when `id` has adjacent clips on both sides (no gaps), the
+    // precondition for a slide drag.
+    bool editorHasSlideNeighbors(int track, const ClipId& id) const;
     void updateRangePreview(const QPointF& scenePos);
     void updateRipplePreview(const QPointF& scenePos);
     void updateSlipPreview(const QPointF& scenePos);
     void updateRollPreview(const QPointF& scenePos);
+    void updateSlidePreview(const QPointF& scenePos);
     void updateSpacerPreview(const QPointF& scenePos);
     void commitRipple();
     void commitSlip();
     void commitRoll();
+    void commitSlide();
     void commitSpacer();
 
     // External drop (media bin row, or OS file-manager payload → timeline)
@@ -253,6 +258,7 @@ private:
         Ripple,
         Slip,
         Roll,
+        Slide,
         Spacer,
         ZoneIn,
         ZoneOut,
@@ -295,6 +301,13 @@ private:
     Time rollCurrent_{0, {1'000'000, 1}};
     Time slipAnchor_{0, {1'000'000, 1}};
     Time slipCurrent_{0, {1'000'000, 1}};
+    // Slide gesture: pressed clip's original start + pointer anchor; the
+    // target start is original + (current - anchor), snapped by the editor.
+    int slideFlat_{-1};
+    Time slideOriginalStart_{0, {1'000'000, 1}};
+    Time slideAnchor_{0, {1'000'000, 1}};
+    Time slideCurrent_{0, {1'000'000, 1}};
+    Time slideTarget_{0, {1'000'000, 1}};
     int spacerFlat_{-1};
     Time spacerAnchor_{0, {1'000'000, 1}};
     Time spacerCurrent_{0, {1'000'000, 1}};
@@ -309,7 +322,18 @@ private:
 // Persisted by MainWindow via QSettings.
 // ---------------------------------------------------------------------------
 struct TimelineState {
-    enum class EditMode { Select, Range, Ripple, Roll, Slip, Spacer, Razor };
+    // Values are persisted in QSettings — append new modes only, never
+    // reorder, so a layout saved by an older build keeps its meaning.
+    enum class EditMode {
+        Select,
+        Range,
+        Ripple,
+        Roll,
+        Slip,
+        Spacer,
+        Razor,
+        Slide
+    };
     EditMode editMode{EditMode::Select};
     bool insertMode{false};  // false = overwrite (default)
     bool ripple{false};

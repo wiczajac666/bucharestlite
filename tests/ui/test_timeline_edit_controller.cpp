@@ -398,6 +398,7 @@ TEST(TimelineEditControllerLock, LockedTrackRefusesLayoutEdits) {
     expectLocked(f.editor.setClipEnabled(kVideo0, "a", false));
     expectLocked(
         f.editor.slipClip(kVideo0, "a", Duration::fromFrames(1, kFps)));
+    expectLocked(f.editor.slideClip(kVideo0, "a", frames(15)));
     expectLocked(f.editor.rollTrim(kVideo0, "a", frames(15)));
     expectLocked(f.editor.splitAudioVideo(kVideo0, "a", kAudio0));
     expectLocked(f.editor.removeTrack(true, 0, true));
@@ -597,6 +598,141 @@ TEST(TimelineEditControllerRoll, Refusals) {
     EXPECT_EQ(f.editor.lastError(),
               "Roll trim exceeds the end of the left clip's source");
 
+    EXPECT_FALSE(f.undoStack.canUndo());
+}
+
+TEST(TimelineEditControllerSlide, MovesMiddleAndTrimsBothNeighborsRight) {
+    Fixture f;
+    Clip a = makeClip("a", 0, 10, 0);
+    const Time aEnd = a.timelineStart + a.timelineDuration;
+    Clip b = makeClipAt("b", aEnd, 10, 20);
+    const Time bEnd = b.timelineStart + b.timelineDuration;
+    Clip c = makeClipAt("c", bEnd, 10, 40);
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, a));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, b));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, c));
+
+    const Time target = b.timelineStart + Duration::fromFrames(3, kFps);
+    ASSERT_TRUE(f.editor.slideClip(kVideo0, "b", target));
+
+    const Clip* la = f.clip(kVideo0, "a");
+    const Clip* lb = f.clip(kVideo0, "b");
+    const Clip* lc = f.clip(kVideo0, "c");
+    ASSERT_NE(la, nullptr);
+    ASSERT_NE(lb, nullptr);
+    ASSERT_NE(lc, nullptr);
+    // Left neighbor grows its right edge (source out advances).
+    EXPECT_DUR_EQ(la->timelineDuration, 13);
+    EXPECT_TIME_EQ(la->source.sourceOut, 13);
+    // Middle clip moves without changing duration or source window.
+    EXPECT_TIME_EQ(lb->timelineStart, target);
+    EXPECT_DUR_EQ(lb->timelineDuration, 10);
+    EXPECT_TIME_EQ(lb->source.sourceIn, 20);
+    EXPECT_TIME_EQ(lb->source.sourceOut, 30);
+    // Right neighbor shrinks its left edge (source in advances).
+    EXPECT_TIME_EQ(lc->timelineStart, target + Duration::fromFrames(10, kFps));
+    EXPECT_DUR_EQ(lc->timelineDuration, 7);
+    EXPECT_TIME_EQ(lc->source.sourceIn, 43);
+
+    // Total span (a.start .. c.end) is unchanged, and one undo restores all.
+    const Time cEnd = lc->timelineStart + lc->timelineDuration;
+    EXPECT_TIME_EQ(cEnd, c.timelineStart + c.timelineDuration);
+    f.undoStack.undo();
+    EXPECT_DUR_EQ(f.clip(kVideo0, "a")->timelineDuration, 10);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->timelineStart, aEnd);
+    EXPECT_DUR_EQ(f.clip(kVideo0, "c")->timelineDuration, 10);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "c")->source.sourceIn, 40);
+}
+
+TEST(TimelineEditControllerSlide, MovesMiddleAndTrimsBothNeighborsLeft) {
+    Fixture f;
+    Clip a = makeClip("a", 0, 10, 0);
+    const Time aEnd = a.timelineStart + a.timelineDuration;
+    Clip b = makeClipAt("b", aEnd, 10, 20);
+    const Time bEnd = b.timelineStart + b.timelineDuration;
+    Clip c = makeClipAt("c", bEnd, 10, 40);
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, a));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, b));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, c));
+
+    const Time target = b.timelineStart - Duration::fromFrames(3, kFps);
+    ASSERT_TRUE(f.editor.slideClip(kVideo0, "b", target));
+
+    EXPECT_DUR_EQ(f.clip(kVideo0, "a")->timelineDuration, 7);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "a")->source.sourceOut, 7);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->timelineStart, target);
+    EXPECT_DUR_EQ(f.clip(kVideo0, "b")->timelineDuration, 10);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "b")->source.sourceIn, 20);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "c")->timelineStart,
+                   target + Duration::fromFrames(10, kFps));
+    EXPECT_DUR_EQ(f.clip(kVideo0, "c")->timelineDuration, 13);
+    EXPECT_TIME_EQ(f.clip(kVideo0, "c")->source.sourceIn, 37);
+}
+
+TEST(TimelineEditControllerSlide, RefusalsAndSourceBounds) {
+    Fixture f;
+    Clip a = makeClip("a", 0, 10, 0);
+    const Time aEnd = a.timelineStart + a.timelineDuration;
+    Clip b = makeClipAt("b", aEnd, 10, 20);
+    const Time bEnd = b.timelineStart + b.timelineDuration;
+    Clip c = makeClipAt("c", bEnd, 10, 40);
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, a));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, b));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, c));
+
+    EXPECT_FALSE(f.editor.slideClip(kVideo0, "nope", frames(13)));
+    EXPECT_EQ(f.editor.lastError(), "Clip not found");
+    // Edge clips have no neighbor on both sides.
+    EXPECT_FALSE(f.editor.slideClip(kVideo0, "a", frames(5)));
+    EXPECT_EQ(f.editor.lastError(),
+              "Slide requires adjacent clips on both sides");
+    EXPECT_FALSE(f.editor.slideClip(kVideo0, "b", b.timelineStart));
+    EXPECT_EQ(f.editor.lastError(), "No change");
+    // Far outside the neighbors' spans.
+    EXPECT_FALSE(f.editor.slideClip(
+        kVideo0, "b", b.timelineStart - Duration::fromFrames(30, kFps)));
+    EXPECT_EQ(f.editor.lastError(), "Slide exceeds adjacent clip bounds");
+    EXPECT_FALSE(f.editor.slideClip(
+        kVideo0, "b", b.timelineStart + Duration::fromFrames(30, kFps)));
+    EXPECT_EQ(f.editor.lastError(), "Slide exceeds adjacent clip bounds");
+
+    // Known media length bounds the left neighbor's growth.
+    f.editor.setMediaDurationProvider(
+        [](const std::string& id) -> std::optional<Duration> {
+            if (id == "a") return Duration::fromFrames(10, kFps);
+            return std::nullopt;
+        });
+    EXPECT_FALSE(f.editor.slideClip(
+        kVideo0, "b", b.timelineStart + Duration::fromFrames(3, kFps)));
+    EXPECT_EQ(f.editor.lastError(), "Slide exceeds the left clip's source");
+
+    // A gap / non-adjacent neighbor is refused.
+    Fixture g;
+    ASSERT_TRUE(g.timeline.addClipToVideoTrack(0, makeClip("x", 0, 10)));
+    ASSERT_TRUE(g.timeline.addClipToVideoTrack(0, makeClip("y", 20, 10)));
+    ASSERT_TRUE(g.timeline.addClipToVideoTrack(0, makeClip("z", 40, 10)));
+    EXPECT_FALSE(g.editor.slideClip(kVideo0, "y", frames(25)));
+    EXPECT_EQ(g.editor.lastError(),
+              "Slide requires adjacent clips on both sides");
+
+    EXPECT_FALSE(f.undoStack.canUndo());
+    EXPECT_FALSE(g.undoStack.canUndo());
+}
+
+TEST(TimelineEditControllerSlide, RefusesWhenRightSourceWouldGoNegative) {
+    Fixture f;
+    Clip a = makeClip("a", 0, 30, 0);
+    const Time aEnd = a.timelineStart + a.timelineDuration;
+    Clip b = makeClipAt("b", aEnd, 10, 10);
+    const Time bEnd = b.timelineStart + b.timelineDuration;
+    Clip c = makeClipAt("c", bEnd, 10, 2); // little headroom on the right
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, a));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, b));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, c));
+
+    EXPECT_FALSE(f.editor.slideClip(
+        kVideo0, "b", b.timelineStart - Duration::fromFrames(5, kFps)));
+    EXPECT_EQ(f.editor.lastError(), "Slide exceeds the right clip's source");
     EXPECT_FALSE(f.undoStack.canUndo());
 }
 

@@ -185,6 +185,29 @@ video underneath shows through). Titles are created from `File → Add Title…`
   Rename or delete a marker from its own right-click menu. Markers are undoable
   and take part in snapping.
 
+### Edit tools (edit modes)
+
+The **edit-mode picker** in the timeline toolbar (or **Cycle Edit Mode**, `E`)
+selects how a drag on a clip behaves. The current mode is saved with the layout.
+
+- **Select** (default): move/trim clips and marquee-select empty space.
+- **Range**: drag on the ruler to set the timeline in/out zone.
+- **Ripple**: dragging a clip shifts later clips to close the gap it leaves.
+- **Roll**: drag the seam between two adjacent clips to move the cut in both
+  directions; their combined span stays fixed.
+- **Slip**: drag a clip to move its source in/out window inside a fixed timeline
+  frame.
+- **Slide** (`Y`): drag a clip between its two neighbors; their facing edges
+  are trimmed by the same amount so the clip's in/out and the overall span stay
+  fixed. Requires adjacent clips on both sides, is bounded by neighbor spans
+  and source limits, snaps to frames/edges, and is one undo step.
+- **Spacer**: drag on empty space (or a clip) to insert or remove time.
+- **Razor** (`R`): click a clip to split it at the pointer position; refusals
+  (e.g. a locked track) are reported in the status bar.
+
+Locked tracks refuse layout edits — move, trim, split, delete, slip, slide and
+roll — in every mode.
+
 ### Three-point editing
 
 The **Source Monitor** dock sits next to the preview and follows the Media Bin

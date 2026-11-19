@@ -28,6 +28,10 @@
 - **Razor tool.** Razor edit mode (`timeline.razor`, `R`) splits a clip at the
   clicked position with a crosshair cursor and reports refusals (e.g. locked
   tracks).
+- **Slide tool.** Slide edit mode (`timeline.slide`, `Y`) slides a clip between
+  its two neighbors, trimming their facing edges by the same amount while the
+  clip's in/out and the overall span stay fixed. Bounded by neighbor spans and
+  source limits, snapped, and applied as one undo step.
 - **Active track routing.** The active timeline track is persisted and preferred
   for insert/overwrite-from-source and add-to-timeline actions when compatible
   (with fallback to the first compatible lane).

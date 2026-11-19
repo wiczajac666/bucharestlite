@@ -395,8 +395,8 @@ Kdenlive. None of them are regressions — they are the remaining parity backlog
 | Multi-track (unlimited V + A), video on top / audio on bottom | ✅ |
 | Track layout order — split / mixed / mixed-reverse | ✅ `laneOrderCombo` |
 | Edit **modes** — Normal / Overwrite / Insert | ✅ |
-| Edit **tools** — Select / Ripple / Roll / Slip / Spacer (+ Range) | ✅ |
-| Gap-aware trim, split, ripple delete, rolling, slip | ✅ |
+| Edit **tools** — Select / Ripple / Roll / Slip / Slide / Spacer / Razor (+ Range) | ✅ (slide + razor post-1.10.0) |
+| Gap-aware trim, split, ripple delete, rolling, slip, slide | ✅ |
 | Group / ungroup clips (across tracks) | ✅ |
 | A/V auto-split + linking, split linked clips | ✅ |
 | Timeline zone — in / out / clear / **extract** / **lift** | ✅ |
@@ -422,34 +422,34 @@ Kdenlive. None of them are regressions — they are the remaining parity backlog
 | **Disable all timeline effects** toggle | Absent (per-clip toggle only) |
 | **Video thumbnails on timeline clips** | Absent (audio waveforms only) |
 | **Effect names drawn on clips** | Absent |
-| **Slide** trim | Absent (roll / slip / ripple present) |
-| **Ripple Trim to Playhead** (`(` / `)`) | Absent |
-| **Expand Clip** | Absent |
-| **Insert / Overwrite Clip Zone in Timeline** | Absent (no source monitor) |
-| **Remove Space / Remove All Spaces After Cursor** | Absent (spacer + ripple delete cover part of it) |
-| **Numeric Duration dialog** + "apply to all selected" multi-clip resize | Absent |
-| **Active / target track** targeting | Absent |
+| ~~**Slide** trim~~ | Shipped post-1.10.0 (`timeline.slide`, `Y`) |
+| ~~**Ripple Trim to Playhead**~~ | Shipped post-1.10.0 (menu actions) |
+| ~~**Expand Clip**~~ | Shipped post-1.10.0 (fill adjacent gaps) |
+| ~~**Insert / Overwrite Clip Zone in Timeline**~~ | Shipped post-1.10.0 (Source Monitor in/out + insert/overwrite at zone) |
+| ~~**Remove Space / Remove All Spaces After Cursor**~~ | Shipped post-1.10.0 |
+| ~~**Numeric Duration dialog**~~ + multi-clip resize | Shipped post-1.10.0 |
+| ~~**Active / target track**~~ targeting | Shipped post-1.10.0 (active track persisted, preferred for insert/overwrite) |
 
 ### 10.3 Partial / caveats (⚠️)
 
 | Feature | Status |
 |---|---|
 | **3-point editing** | The model supports it (`makeThreePointClip(SourceRef{mediaId, sourceIn, sourceOut})` → insert / overwrite / append, with tests), but there is **no source monitor and no bin in/out UI**, so the user-facing Kdenlive 3-point workflow is not exposed. The README claim is softened to match (§10.4). |
-| **Razor** | Exists as a *split action* (split at playhead / split clip), not as a cursor **tool**; no `Razor` entry in the edit-mode picker. |
+| ~~**Razor**~~ | Shipped post-1.10.0 as a cursor tool (`timeline.razor`, `R`) in the edit-mode picker; split actions also remain. |
 | **Subtitles** | Import + soft MOV_TEXT/subrip/WebVTT stream + an "S" badge on the clip; **no subtitle editor UI and no burn-in** (the compositor never draws subtitle text). |
 | **Mix Clips** (same-track transition toolbar) | Transitions exist in the model, preview and export, but there is no "Mix Clips" button to add a same-track transition. |
 | **Markers** | Timeline markers ✅, but no **clip-level markers** and no **marker comment text** display toggle. |
 | **Speed** | Via the Inspector only — no **Ctrl+drag on a clip** to change speed, and **no pitch compensation**. |
 | **Position indicator** | No timecode-vs-frames unit toggle. |
-| **Docs** | The user guide documents none of razor / spacer / slip / roll / edit modes / markers / 3-point. |
+| ~~**Docs**~~ | The user guide now documents edit modes (Select / Range / Ripple / Roll / Slip / Slide / Spacer / Razor), markers and three-point editing (post-1.10.0). |
 
 ### 10.3.1 Prioritized shortlist
 
 1. **Timeline Preview Render** — the largest missing *feature* (pre-render for smooth playback).
 2. ~~**Loop playback + loop zone**~~ — shipped post-1.10.0.
 3. **Per-track height + collapse** and **timeline video thumbnails** — the most visible "this doesn't feel like Kdenlive" gaps.
-4. **Razor tool mode** + **slide trim** + **ripple-trim-to-playhead** — round out the edit-tool set.
-5. **Source monitor + bin in/out** — make the 3-point claim genuinely true.
+4. ~~**Razor tool mode** + **slide trim** + **ripple-trim-to-playhead**~~ — shipped post-1.10.0, rounding out the edit-tool set.
+5. ~~**Source monitor + bin in/out**~~ — shipped post-1.10.0 (in/out marks + insert/overwrite at zone).
 6. **Remove Space** + **Duration dialog** — small workflow wins.
 
 ### 10.4 Doc reconciliation

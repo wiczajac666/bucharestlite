@@ -1460,7 +1460,7 @@ TEST(TimelineEditState, DefaultsAndToolbarDriveState) {
 
     auto* mode = fx.panel.findChild<QComboBox*>(QStringLiteral("editModeCombo"));
     ASSERT_NE(mode, nullptr);
-    ASSERT_EQ(mode->count(), 7);
+    ASSERT_EQ(mode->count(), 8);
     EXPECT_EQ(mode->currentData().toInt(),
               static_cast<int>(EditMode::Select));
 
@@ -1472,6 +1472,11 @@ TEST(TimelineEditState, DefaultsAndToolbarDriveState) {
     fx.panel.setEditMode(EditMode::Razor);
     EXPECT_EQ(mode->currentIndex(), 6);
     EXPECT_EQ(mode->currentData().toInt(), static_cast<int>(EditMode::Razor));
+    // Slide is appended last so its persisted value does not shift the modes
+    // saved by older builds.
+    fx.panel.setEditMode(EditMode::Slide);
+    EXPECT_EQ(mode->currentIndex(), 7);
+    EXPECT_EQ(mode->currentData().toInt(), static_cast<int>(EditMode::Slide));
 
     auto* insert = fx.panel.findChild<QToolButton*>(QStringLiteral("insertModeButton"));
     auto* ripple = fx.panel.findChild<QToolButton*>(QStringLiteral("rippleButton"));
@@ -1584,6 +1589,58 @@ TEST(TimelineEditState, SlipModeDragSlidesSourceWindow) {
 
     fx.controller.undoStack().undo();
     EXPECT_EQ(frameOf(fx.find("a")->source.sourceIn), 0);
+}
+
+TEST(TimelineEditState, SlideModeDragMovesClipBetweenNeighbors) {
+    Fixture fx;
+    Clip a = makeClip("a", 0, 10);
+    a.source.sourceIn = fr(0);
+    a.source.sourceOut = fr(20); // headroom to grow right
+    Clip b = makeClip("b", 0, 10);
+    b.timelineStart = a.timelineStart + a.timelineDuration;
+    b.source.sourceIn = fr(10);
+    b.source.sourceOut = fr(20);
+    Clip c = makeClip("c", 0, 10);
+    c.timelineStart = b.timelineStart + b.timelineDuration;
+    c.source.sourceIn = fr(10);
+    c.source.sourceOut = fr(30); // headroom to grow left
+    fx.addClip(0, a);
+    fx.addClip(0, b);
+    fx.addClip(0, c);
+
+    fx.panel.setSnapEnabled(false);
+    fx.panel.setEditMode(EditMode::Slide);
+
+    const qreal y = fx.panel.laneRect(0).top() + 5.0;
+    // Press inside b (frame 10..20) and drag +2 frames.
+    const QPoint press = fx.viewportPos(QPointF(fx.sceneX(12), y));
+    const QPoint mid = fx.viewportPos(QPointF(fx.sceneX(13), y));
+    const QPoint release = fx.viewportPos(QPointF(fx.sceneX(14), y));
+    QTest::mousePress(fx.panel.view()->viewport(), Qt::LeftButton,
+                      Qt::NoModifier, press);
+    QTest::mouseMove(fx.panel.view()->viewport(), mid);
+    QTest::mouseMove(fx.panel.view()->viewport(), release);
+    QTest::mouseRelease(fx.panel.view()->viewport(), Qt::LeftButton,
+                        Qt::NoModifier, release);
+
+    const Clip* ca = fx.find("a");
+    const Clip* cb = fx.find("b");
+    const Clip* cc = fx.find("c");
+    ASSERT_NE(ca, nullptr);
+    ASSERT_NE(cb, nullptr);
+    ASSERT_NE(cc, nullptr);
+    EXPECT_EQ(frameOf(ca->timelineStart), 0);
+    EXPECT_EQ(frameOf(ca->timelineStart + ca->timelineDuration), 12);
+    EXPECT_EQ(frameOf(cb->timelineStart), 12);
+    EXPECT_EQ(frameOf(cb->timelineDuration), 10); // in/out preserved
+    EXPECT_EQ(frameOf(cb->source.sourceIn), 10);
+    EXPECT_EQ(frameOf(cc->timelineStart), 22);
+    EXPECT_EQ(frameOf(cc->timelineStart + cc->timelineDuration), 30);
+
+    fx.controller.undoStack().undo();
+    EXPECT_EQ(frameOf(fx.find("a")->timelineDuration), 10);
+    EXPECT_EQ(frameOf(fx.find("b")->timelineStart), 10);
+    EXPECT_EQ(frameOf(fx.find("c")->timelineStart), 20);
 }
 
 TEST(TimelineEditState, RollModeDragMovesSeam) {

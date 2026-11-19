@@ -1082,6 +1082,90 @@ bool TimelineEditController::slipClip(int flatTrack, const ClipId& id,
     return true;
 }
 
+bool TimelineEditController::slideClip(int flatTrack, const ClipId& id,
+                                       Time newStart) {
+    lastError_.clear();
+    if (!ensureEditable(flatTrack)) return false;
+    const Sequence& seq = timeline_->sequence();
+    const TrackT& track = trackAt(seq, flatTrack);
+    auto midIdx = track.findClipById(id);
+    if (!midIdx) {
+        lastError_ = "Clip not found";
+        return false;
+    }
+    if (*midIdx == 0 || *midIdx + 1 >= track.clips().size()) {
+        lastError_ = "Slide requires adjacent clips on both sides";
+        return false;
+    }
+    const Clip mid = track.clips()[*midIdx];
+    const Clip left = track.clips()[*midIdx - 1];
+    const Clip right = track.clips()[*midIdx + 1];
+    const Time leftEnd = left.timelineStart + left.timelineDuration;
+    const Time midEnd = mid.timelineStart + mid.timelineDuration;
+    const Time rightEnd = right.timelineStart + right.timelineDuration;
+    if (leftEnd != mid.timelineStart || midEnd != right.timelineStart) {
+        lastError_ = "Slide requires adjacent clips on both sides";
+        return false;
+    }
+    const Duration delta = newStart - mid.timelineStart;
+    if (delta == Duration{}) {
+        lastError_ = "No change";
+        return false;
+    }
+
+    const Time newLeftEnd = leftEnd + delta;
+    const Time newRightStart = right.timelineStart + delta;
+    if (newLeftEnd <= left.timelineStart || newRightStart >= rightEnd) {
+        lastError_ = "Slide exceeds adjacent clip bounds";
+        return false;
+    }
+
+    // Left neighbor's right edge moves: source out changes by delta.
+    const Time newLeftOut = advanceSourceTime(left.source.sourceOut, delta, left.speed);
+    if (newLeftOut <= left.source.sourceIn) {
+        lastError_ = "Slide exceeds the left clip's source";
+        return false;
+    }
+    if (delta > Duration{} && mediaDuration_) {
+        if (const auto mediaDur = mediaDuration_(left.source.mediaItemId)) {
+            const Time mediaEnd = Time::fromTicks(mediaDur->ticks, mediaDur->rate);
+            if (newLeftOut > mediaEnd) {
+                lastError_ = "Slide exceeds the left clip's source";
+                return false;
+            }
+        }
+    }
+
+    // Right neighbor's left edge moves: source in changes by delta.
+    const Time newRightIn = advanceSourceTime(right.source.sourceIn, delta, right.speed);
+    if (newRightIn >= right.source.sourceOut) {
+        lastError_ = "Slide exceeds the right clip's source";
+        return false;
+    }
+    if (newRightIn < Time::fromTicks(0, newRightIn.rate)) {
+        lastError_ = "Slide exceeds the right clip's source";
+        return false;
+    }
+
+    const bool slideRight = delta > Duration{};
+    return runSequenceEdit("Slide clip", [&](Sequence& s) {
+        TrackT& tr = mutableTrackAt(s, flatTrack);
+        bool ok = true;
+        if (slideRight) {
+            // Shrink right neighbor from left, move middle, grow left neighbor.
+            ok = tr.trimClipLeft(right.id, newRightStart);
+            if (ok) ok = tr.moveClip(mid.id, newStart);
+            if (ok) ok = tr.trimClipRight(left.id, newLeftEnd);
+        } else {
+            // Shrink left neighbor from right, move middle, grow right neighbor.
+            ok = tr.trimClipRight(left.id, newLeftEnd);
+            if (ok) ok = tr.moveClip(mid.id, newStart);
+            if (ok) ok = tr.trimClipLeft(right.id, newRightStart);
+        }
+        return ok;
+    });
+}
+
 bool TimelineEditController::rollTrim(int flatTrack, const ClipId& leftId,
                                       Time newBoundary) {
     lastError_.clear();

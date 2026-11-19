@@ -742,6 +742,19 @@ void TimelineView::mousePressEvent(QMouseEvent* event) {
             slipCurrent_ = slipAnchor_;
             mode_ = Mode::Slip;
             break;
+        case TimelineState::EditMode::Slide:
+            // Slide moves the clip between its two neighbors; require both
+            // so the drag can be clamped to their bounds during preview.
+            if (editorHasSlideNeighbors(pressLane_, pressClip_)) {
+                slideFlat_ = pressLane_;
+                slideOriginalStart_ = item->clip().timelineStart;
+                slideAnchor_ = host_->rawTimeAtX(pressScenePos_.x());
+                slideCurrent_ = slideAnchor_;
+                mode_ = Mode::Slide;
+            } else {
+                mode_ = Mode::None;
+            }
+            break;
         case TimelineState::EditMode::Roll: {
             ClipId left;
             ClipId right;
@@ -857,6 +870,9 @@ void TimelineView::mouseMoveEvent(QMouseEvent* event) {
         break;
     case Mode::Roll:
         updateRollPreview(scenePos);
+        break;
+    case Mode::Slide:
+        updateSlidePreview(scenePos);
         break;
     case Mode::Spacer:
         updateSpacerPreview(scenePos);
@@ -978,6 +994,31 @@ bool TimelineView::seamNear(int track, qreal sceneX, ClipId& leftId,
     return found;
 }
 
+bool TimelineView::editorHasSlideNeighbors(int track,
+                                           const ClipId& id) const {
+    if (!host_ || track < 0 || track >= host_->trackCount()) return false;
+    const bl::Sequence& seq = host_->sequence();
+    const std::vector<Clip>& clips =
+        host_->editor().isVideoTrack(seq, track)
+            ? seq.videoTracks[static_cast<size_t>(track)].clips()
+            : seq.audioTracks[static_cast<size_t>(
+                  track - static_cast<int>(seq.videoTracks.size()))]
+                  .clips();
+    size_t idx = clips.size();
+    for (size_t i = 0; i < clips.size(); ++i) {
+        if (clips[i].id == id) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx == 0 || idx + 1 >= clips.size()) return false;
+    const bl::Time leftEnd =
+        clips[idx - 1].timelineStart + clips[idx - 1].timelineDuration;
+    const bl::Time midEnd = clips[idx].timelineStart + clips[idx].timelineDuration;
+    return leftEnd == clips[idx].timelineStart &&
+           midEnd == clips[idx + 1].timelineStart;
+}
+
 void TimelineView::updateRangePreview(const QPointF& scenePos) {
     const bl::Time t = host_->timeAtX(scenePos.x());
     host_->setZone(rangeAnchor_, t);
@@ -1021,6 +1062,75 @@ void TimelineView::updateRollPreview(const QPointF& scenePos) {
 
     if (host_->snapIndicator_ && rollCurrent_ != raw && host_->snapEnabled()) {
         host_->snapIndicator_->setPos(host_->xForTime(rollCurrent_), 0.0);
+        host_->snapIndicator_->setActive(true);
+    } else {
+        clearSnapIndicator();
+    }
+}
+
+void TimelineView::updateSlidePreview(const QPointF& scenePos) {
+    if (slideFlat_ < 0 || pressClip_.empty()) return;
+    const bl::Sequence& seq = host_->sequence();
+    const bl::Time raw = host_->rawTimeAtX(scenePos.x());
+    slideCurrent_ = raw;
+
+    // Snap the clip's target start (not the pointer) to frames / neighboring
+    // edges, excluding the clip being slid.
+    const bl::Time rawTarget = slideOriginalStart_ + (raw - slideAnchor_);
+    bl::Time target = rawTarget;
+    if (host_->snapEnabled()) {
+        target = host_->editor().snapToNearest(seq, target,
+                                               snapToleranceFrames(),
+                                               pressClip_);
+    }
+    if (target < bl::Time{}) target = bl::Time{};
+    slideTarget_ = target;
+
+    const std::vector<Clip>& clips =
+        host_->editor().isVideoTrack(seq, slideFlat_)
+            ? seq.videoTracks[static_cast<size_t>(slideFlat_)].clips()
+            : seq.audioTracks[static_cast<size_t>(
+                  slideFlat_ - static_cast<int>(seq.videoTracks.size()))]
+                  .clips();
+    size_t idx = clips.size();
+    for (size_t i = 0; i < clips.size(); ++i) {
+        if (clips[i].id == pressClip_) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx == 0 || idx + 1 >= clips.size()) return;
+
+    const bl::Time leftStart = clips[idx - 1].timelineStart;
+    const bl::Time rightEnd =
+        clips[idx + 1].timelineStart + clips[idx + 1].timelineDuration;
+    const bl::Time midEnd = target + clips[idx].timelineDuration;
+    const QRectF lr = host_->laneRect(slideFlat_);
+
+    ClipItem* left = host_->clipItemFor(clips[idx - 1].id);
+    ClipItem* mid = host_->clipItemFor(pressClip_);
+    ClipItem* right = host_->clipItemFor(clips[idx + 1].id);
+    if (left && target > leftStart) {
+        left->setPreviewRect(QRectF(host_->xForTime(leftStart), lr.top(),
+                                    host_->xForTime(target) -
+                                        host_->xForTime(leftStart),
+                                    lr.height()));
+    }
+    if (mid) {
+        mid->setPreviewRect(QRectF(host_->xForTime(target), lr.top(),
+                                   host_->xForTime(midEnd) -
+                                       host_->xForTime(target),
+                                   lr.height()));
+    }
+    if (right && midEnd < rightEnd) {
+        right->setPreviewRect(QRectF(host_->xForTime(midEnd), lr.top(),
+                                     host_->xForTime(rightEnd) -
+                                         host_->xForTime(midEnd),
+                                     lr.height()));
+    }
+
+    if (host_->snapIndicator_ && target != rawTarget && host_->snapEnabled()) {
+        host_->snapIndicator_->setPos(host_->xForTime(target), 0.0);
         host_->snapIndicator_->setActive(true);
     } else {
         clearSnapIndicator();
@@ -1100,6 +1210,17 @@ void TimelineView::commitRoll() {
     rollFlat_ = -1;
 }
 
+void TimelineView::commitSlide() {
+    if (slideFlat_ < 0 || pressClip_.empty()) return;
+    if (slideTarget_ != slideOriginalStart_) {
+        if (!host_->editor().slideClip(slideFlat_, pressClip_, slideTarget_)) {
+            host_->reportEditorError();
+            host_->rebuildFromModel();
+        }
+    }
+    slideFlat_ = -1;
+}
+
 void TimelineView::commitSpacer() {
     if (spacerFlat_ < 0) return;
     const bl::Duration delta = spacerCurrent_ - spacerAnchor_;
@@ -1169,6 +1290,7 @@ void TimelineView::updateHoverCursor(const QPointF& scenePos) {
 
     switch (edit) {
     case TimelineState::EditMode::Slip:
+    case TimelineState::EditMode::Slide:
         if (item) shape = Qt::SizeHorCursor;
         break;
     case TimelineState::EditMode::Roll: {
@@ -1655,6 +1777,9 @@ void TimelineView::mouseReleaseEvent(QMouseEvent* event) {
     case Mode::Roll:
         if (dragging_) commitRoll();
         break;
+    case Mode::Slide:
+        if (dragging_) commitSlide();
+        break;
     case Mode::Spacer:
         if (dragging_) commitSpacer();
         break;
@@ -2068,7 +2193,8 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
         static_cast<int>(timeline_geometry::LaneOrder::MixedReverse));
 
     // Edit-mode picker (Kdenlive parity): Select / Range / Ripple / Roll /
-    // Slip / Spacer.
+    // Slip / Spacer / Razor / Slide. Ordered to match EditMode (whose values
+    // are persisted), so append-only additions keep saved layouts valid.
     editModeCombo_ = new QComboBox(this);
     editModeCombo_->setObjectName(QStringLiteral("editModeCombo"));
     editModeCombo_->setToolTip(tr("Timeline edit mode"));
@@ -2084,6 +2210,7 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
         {TimelineState::EditMode::Slip, QT_TR_NOOP("Slip")},
         {TimelineState::EditMode::Spacer, QT_TR_NOOP("Spacer")},
         {TimelineState::EditMode::Razor, QT_TR_NOOP("Razor")},
+        {TimelineState::EditMode::Slide, QT_TR_NOOP("Slide")},
     };
     for (const auto& entry : kModes) {
         editModeCombo_->addItem(tr(entry.label),

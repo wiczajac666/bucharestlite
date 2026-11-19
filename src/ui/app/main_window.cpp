@@ -24,6 +24,7 @@
 #include <filesystem>
 
 #include <QAction>
+#include <QSignalBlocker>
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDockWidget>
@@ -321,6 +322,18 @@ void MainWindow::buildDocks() {
     // change so it survives even an abnormal shutdown.
     connect(timelinePanel_, &TimelinePanel::timelineStateChanged, this, [this] {
         const TimelineState& state = timelinePanel_->timelineState();
+        // Keep the checkable tool actions in sync with the shared edit mode
+        // (the combo and Cycle action also change it).
+        if (razorAction_) {
+            const QSignalBlocker blocker(razorAction_);
+            razorAction_->setChecked(state.editMode ==
+                                     TimelineState::EditMode::Razor);
+        }
+        if (slideAction_) {
+            const QSignalBlocker blocker(slideAction_);
+            slideAction_->setChecked(state.editMode ==
+                                     TimelineState::EditMode::Slide);
+        }
         settings_->setValue(kEditModeKey,
                             static_cast<int>(state.editMode));
         settings_->setValue(kInsertModeKey, state.insertMode);
@@ -970,11 +983,22 @@ void MainWindow::buildActions() {
     });
     registerAction(razorAction_, "timeline.razor", tr("Razor Tool"), QKeySequence(Qt::Key_R));
 
+    slideAction_ = new QAction(tr("Slide Tool"), this);
+    slideAction_->setObjectName(QStringLiteral("actionSlideTool"));
+    slideAction_->setCheckable(true);
+    connect(slideAction_, &QAction::toggled, this, [this](bool on) {
+        if (timelinePanel_) {
+            if (on) timelinePanel_->setEditMode(bl::ui::TimelineState::EditMode::Slide);
+            else timelinePanel_->setEditMode(bl::ui::TimelineState::EditMode::Select);
+        }
+    });
+    registerAction(slideAction_, "timeline.slide", tr("Slide Tool"), QKeySequence(Qt::Key_Y));
+
     cycleEditModeAction_ = new QAction(tr("Cycle Edit Mode"), this);
     cycleEditModeAction_->setObjectName(QStringLiteral("actionCycleEditMode"));
     connect(cycleEditModeAction_, &QAction::triggered, this, [this] {
         if (!timelinePanel_) return;
-        const int count = 7; // Select, Range, Ripple, Roll, Slip, Spacer, Razor
+        const int count = 8; // Select, Range, Ripple, Roll, Slip, Spacer, Razor, Slide
         int next = static_cast<int>(timelinePanel_->editMode()) + 1;
         if (next >= count) next = 0;
         timelinePanel_->setEditMode(static_cast<bl::ui::TimelineState::EditMode>(next));
@@ -1794,7 +1818,7 @@ void MainWindow::maybeRestoreLayout() {
         TimelineState timelineState = timelinePanel_->timelineState();
         timelineState.editMode = static_cast<TimelineState::EditMode>(
             std::clamp(settings_->value(kEditModeKey, 0).toInt(), 0,
-                       static_cast<int>(TimelineState::EditMode::Razor)));
+                       static_cast<int>(TimelineState::EditMode::Slide)));
         timelineState.insertMode = settings_->value(kInsertModeKey, false).toBool();
         timelineState.ripple = settings_->value(kRippleKey, false).toBool();
         timelineState.snap = settings_->value(kSnapKey, true).toBool();

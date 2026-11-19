@@ -127,3 +127,27 @@
 - [x] **Dead proxy stub removed** — the non-functional `proxy_generator` (`include/bl_core/proxy/*` + `src/core/proxy/*`) was deleted and dropped from `src/core/CMakeLists.txt`; nothing else referenced it. Proxy editing stays out of v1 scope (ARCHITECTURE §12 marked post-v1)
 - [x] **v1 feature completion** — every pending row in `docs/PLAN_V1.md` is resolved. Shipped this cycle: PSNR/SSIM comparison, media-bin folders, project templates, transition rendering, multi-monitor full-screen preview, stream to IP (RTMP/UDP), the dead `proxy_generator` stub removed (proxy editing stays post-v1), and a two-row default workspace layout (Media Bin | Preview | Scopes above a full-width Timeline; Inspector/Mixer start hidden). Verified **879/879** green in `linux-debug` **and** `linux-release`; `linux-tsan` core/model suite 502/502 clean (the UI suite still shows the pre-existing `MainWindow`-destructor × `AudioMeterEngine` and `ExportWorker::Request` races documented in the Phase 1 notes — accepted for v1). Version bumped to **1.9.14**; Windows (MSVC 14.44 + Qt 6.8.3) verified **879/879** on the release VM; macOS remains out of scope.
 - [x] **Release hygiene — v1.9.14 (v1 release)** — tag `v1.9.14` pushed and the GitHub release [v1.9.14](https://github.com/wiczajac666/bucharestlite/releases/tag/v1.9.14) published with **9 assets**: `bucharest-lite_1.9.14-1_amd64.deb` + `-dbgsym` ddeb (rebuilt on Ubuntu 26.04.1 and launch-checked offscreen), `bucharest-lite-1.9.14-1.fc44.x86_64.rpm` (+ debuginfo/debugsource) built on VM `10.42.0.238` (Fedora 44 — the spec's duplicated `%changelog` marker and a wrong 1.8.14 weekday were fixed), `bucharest-lite-1.9.14-x86_64.flatpak` (org.kde.Platform/Sdk 6.8 with FFmpeg 8.0.1 bundled; installed and launch-verified), `bucharest-lite-1.9.14-windows-x64-setup.exe` + `-portable.zip` (VM `10.42.0.207`, MSVC 14.44 + Qt 6.8.3) and the source tarball `bucharest-lite-1.9.14.tar.gz` (regenerated from the tagged tree). All artifacts are also mirrored to `/var/www/html/BucharestLite/`. The CI tag job's FileVersion guard was corrected to compare the numeric `FILEVERSION` (the resource's string field is 3-part `1.9.14`, the numeric is `1.9.14.0`), which would otherwise have failed every tag build.
+
+## Editing & timeline roadmap (post-1.10.0)
+
+Tracked in `docs/TODO_EDITING_TIMELINE.md`. Each item landed with targeted
+tests, a green `ctest --preset linux-release`, doc updates and a commit.
+
+- [x] **v1.10 items 1–5 + release 1.10.0** — Linux ALSA audio sink behind
+  `IDeviceOutput` (`BL_AUDIO_DEVICE`, null fallback), per-clip preview audio
+  with 48 kHz resample + gain/pan/mute/solo/speed/reverse, Source Monitor
+  in/out 3-point editing, CPU mask raster path (feather/opacity/invert), and
+  the pluggable `ICompositorBackend` (CPU default, optional Qt OpenGL 3.3
+  backend via `BL_COMPOSITOR=gpu|auto` with CPU fallback). Windows verified.
+- [x] **Phase 1 — timeline interaction & quick wins** — loop playback/zone,
+  per-track height resize + collapse/all, remove space (track/sequence),
+  ripple trim to playhead, numeric duration dialog + multi-selection resize,
+  centered playhead during playback. Full suite **979/979** green.
+- [x] **Phase 2 — edit tools & timeline targeting** — razor tool
+  (`timeline.razor`, `R`), active/target track persisted and preferred for
+  insert/overwrite-from-source and add-to-timeline, expand clip to fill gaps,
+  insert/overwrite source range at the timeline zone, and slide trim
+  (`timeline.slide`, `Y`) with a controller primitive, three-clip preview,
+  snapping, bounds/source validation and one-step undo. Docs (user guide,
+  changelog, Kdenlive parity §10) synced; full suite green with controller +
+  offscreen UI coverage.

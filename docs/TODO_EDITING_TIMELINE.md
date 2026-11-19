@@ -6,7 +6,7 @@ masks, and the pluggable compositor. Each phase ends with targeted tests, a
 green `ctest --preset linux-release` (and Windows where applicable), doc
 updates, and a commit.
 
-**Status:** Phase 1 complete; Phase 2 not started.
+**Status:** Phase 1 complete; Phase 2 complete.
 
 ### Phase 1 summary (complete)
 
@@ -89,9 +89,11 @@ parity audit.
   - [x] Optional fixed/centered playhead during playback (toggle, persisted)
   - [x] Zoom-to-fit, lane order, and scroll behavior use per-track lane
         geometry (`contentHeight`/`laneTop`/`laneHeight`) with variable heights
-- [ ] **Docs/tests:** update `docs/user-guide.md`, `CHANGELOG.md`,
+- [x] **Docs/tests:** update `docs/user-guide.md`, `CHANGELOG.md`,
       `PROJECT_STATUS.md`, `KDENLINE_TIMELINE.MD` (§10 status), shortcuts
   - [x] loop playback documented (user guide, changelog, timeline parity)
+  - [x] Phase 1 tools/feedback documented in the user guide, changelog and
+        project/parity status during the Phase 2 wrap-up
 
 **Exit criteria:** loop + track height/collapse + gap removal + ripple-to-playhead
 + duration dialog usable from UI; suites green.
@@ -110,11 +112,15 @@ parity audit.
         document behavior)
   - [x] Split placement/locked-track refusal covered by existing
         `splitClip` controller semantics/tests; mode available in UI state/persistence
-- [ ] **Slide trim**
-  - [ ] Slide edit interaction (move clip content while preserving in/out and
-        adjacent clip boundaries) with controller primitive and preview
-  - [ ] Integrate with edit mode/cursor feedback and snapping
-  - [ ] Tests: slide bounds, neighbors unchanged, undo, locked refusals
+- [x] **Slide trim**
+  - [x] `slideClip` controller primitive slides a clip between its two adjacent
+        neighbors, trimming their facing edges by the same delta while keeping
+        the clip's in/out and total span; bounded by neighbor spans and source
+        limits, one undo step
+  - [x] `Slide` edit mode with horizontal cursor, three-clip preview, snapping
+        of the target start, and action `timeline.slide` (`Y`); mode persisted
+  - [x] Controller tests (left/right slide, undo, bounds, source limits, locked
+        refusals) and an offscreen drag test
 - [x] **Expand clip / fill gaps**
   - [x] "Expand Clip to Fill Gaps" extends selected clips into adjacent gaps on
         their track (left to previous clip/0, right to next clip), bounded by
@@ -139,10 +145,16 @@ parity audit.
         actions (at playhead / after cursor / sequence scope), and ripple
         delete/trim workflows cover common gap cases; existing controller/UI
         tests cover core behaviors (no further refinements required now)
-- [ ] **Docs/tests:** user guide (edit tools), shortcuts, changelog
+- [x] **Docs/tests:** user guide (edit tools), shortcuts, changelog updated for
+      the Phase 2 tool set; controller + offscreen UI tests cover bounds, undo,
+      snapping and refusals.
 
-**Exit criteria:** razor/slide/expand + active-target track workflows available
-and covered by controller/UI tests.
+**Exit criteria met:** razor/slide/expand + active-target track workflows are
+available and covered by controller/UI tests.
+
+**Phase 2 complete.** Optional follow-ups (not required for the exit criteria):
+razor split across selected/linked tracks per modifier, and a separate explicit
+target-track concept distinct from the active track.
 
 ---
 
