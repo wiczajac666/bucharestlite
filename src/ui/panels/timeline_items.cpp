@@ -3,6 +3,7 @@
 #include <QBrush>
 #include <QColor>
 #include <QFont>
+#include <QFontMetrics>
 #include <QGraphicsScene>
 #include <QPainter>
 #include <QPen>
@@ -30,12 +31,17 @@ qreal frameToX(int64_t frame, qreal pxPerFrame) {
     return static_cast<qreal>(frame) * pxPerFrame;
 }
 
+// The inspector offers eight color labels (buttons 1..8); keep the palette in
+// sync so labels 6/7 do not silently alias back to 0/1.
+constexpr uint32_t kColorLabelCount = 8;
+
 QColor labelColor(uint32_t label, bool selected) {
-    static const QColor palette[6] = {
+    static const QColor palette[kColorLabelCount] = {
         QColor(0x8a, 0x9c, 0xb0), QColor(0x6c, 0x8f, 0xd3),
         QColor(0x88, 0xb0, 0x5a), QColor(0xd3, 0xa0, 0x51),
-        QColor(0xc1, 0x6e, 0x5e), QColor(0x9a, 0x77, 0xc6)};
-    const QColor& base = palette[static_cast<size_t>(label % 6)];
+        QColor(0xc1, 0x6e, 0x5e), QColor(0x9a, 0x77, 0xc6),
+        QColor(0x3f, 0xa9, 0x9a), QColor(0xb0, 0x6b, 0xa8)};
+    const QColor& base = palette[label % kColorLabelCount];
     return selected ? base.lighter(125) : base;
 }
 
@@ -349,10 +355,21 @@ void ClipItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget
     f.setPixelSize(10);
     painter->setFont(f);
     const QRectF textRect = r.adjusted(4, 0, -4, 0);
+    const QString nameText = QString::fromStdString(clip_.name);
+    if (!nameText.isEmpty()) {
+        // Translucent backing keeps the name readable over a filmstrip or
+        // waveform without hiding the sampled frames behind it.
+        const QRectF nameBox = painter->fontMetrics().boundingRect(
+            textRect.toRect(), Qt::AlignLeft | Qt::AlignVCenter, nameText);
+        painter->save();
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(QColor(0x0c, 0x0e, 0x10, 150));
+        painter->drawRoundedRect(nameBox.adjusted(-3, -1, 3, 1), 2.0, 2.0);
+        painter->restore();
+    }
     painter->setClipRect(textRect);
     painter->setPen(QColor(0xf0, 0xf0, 0xf0));
-    painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
-                      QString::fromStdString(clip_.name));
+    painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, nameText);
     painter->setClipping(false);
 
     if (selected) {
@@ -382,6 +399,73 @@ void ClipItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget
             std::min(frameToX(std::max<int64_t>(frames, 1), pxPerFrame_), 28.0);
         painter->setBrush(QColor(0xd0, 0x60, 0x60, 0xa0));
         painter->drawRect(QRectF(r.right() - w, r.top(), w, r.height()));
+    }
+
+    // Color tag + effect chips (Phase 3 item 2). Drawn after the selection
+    // overlay so they stay crisp, and kept clear of the right-hand badges.
+    if (showLabels_) {
+        // A thin bar across the top keeps the color tag legible even when a
+        // filmstrip or waveform fills the body.
+        if (clip_.colorLabel != 0) {
+            painter->save();
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(labelColor(clip_.colorLabel, selected));
+            painter->drawRect(QRectF(r.left(), r.top(), r.width(), 3.0));
+            painter->restore();
+        }
+
+        if (!effectDisplays_.empty() && r.height() >= 30.0) {
+            painter->save();
+            QFont chipFont = painter->font();
+            chipFont.setPixelSize(9);
+            painter->setFont(chipFont);
+            const QFontMetrics fm(chipFont);
+            const qreal chipH = 12.0;
+            const qreal top = r.top() + 5.0;  // below the 3px color bar
+            // Reserve room for the right-hand badges and the trim handle.
+            const qreal limit = r.right() - 20.0;
+            qreal x = r.left() + h + 2.0;
+
+            constexpr size_t kMaxChips = 3;
+            size_t drawn = 0;
+            for (const bl::EffectDisplay& display : effectDisplays_) {
+                if (drawn >= kMaxChips || x >= limit) break;
+                const int maxTextW = static_cast<int>(
+                    std::max<qreal>(1.0, limit - x - 10.0));
+                const QString text = fm.elidedText(
+                    QString::fromStdString(display.name), Qt::ElideRight,
+                    maxTextW);
+                const qreal chipW = fm.horizontalAdvance(text) + 8.0;
+                if (x + chipW > limit) break;
+
+                painter->setPen(Qt::NoPen);
+                painter->setBrush(display.enabled
+                                      ? QColor(0x16, 0x1a, 0x1e, 220)
+                                      : QColor(0x30, 0x32, 0x34, 170));
+                painter->drawRoundedRect(QRectF(x, top, chipW, chipH),
+                                         2.0, 2.0);
+                painter->setPen(display.enabled ? QColor(0xe8, 0xee, 0xf4)
+                                                : QColor(0xa0, 0xa6, 0xac));
+                painter->drawText(QRectF(x, top, chipW, chipH),
+                                  Qt::AlignCenter, text);
+                x += chipW + 3.0;
+                ++drawn;
+            }
+            if (drawn < effectDisplays_.size() && x < r.right() - h) {
+                // The stack did not fit: summarize the remaining effects.
+                const QString more = QStringLiteral("+%1").arg(static_cast<int>(
+                    effectDisplays_.size() - drawn));
+                const qreal chipW = fm.horizontalAdvance(more) + 8.0;
+                painter->setPen(Qt::NoPen);
+                painter->setBrush(QColor(0x16, 0x1a, 0x1e, 220));
+                painter->drawRoundedRect(QRectF(x, top, chipW, chipH),
+                                         2.0, 2.0);
+                painter->setPen(QColor(0xe8, 0xee, 0xf4));
+                painter->drawText(QRectF(x, top, chipW, chipH),
+                                  Qt::AlignCenter, more);
+            }
+            painter->restore();
+        }
     }
 
     // Subtitle badge.

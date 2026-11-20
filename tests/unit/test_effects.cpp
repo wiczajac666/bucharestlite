@@ -120,6 +120,29 @@ TEST_F(EffectsTest, CatalogListsRegisteredEffects) {
     EXPECT_EQ(names[10], "transform_2d");
 }
 
+TEST_F(EffectsTest, ClipEffectDisplaysResolvesNamesAndKeepsOrder) {
+    std::vector<bl::EffectInstance> effects;
+    effects.push_back({"blur.box", true, nlohmann::json::object()});
+    effects.push_back({"greyscale", false, nlohmann::json::object()});
+    // An unregistered id still round-trips in the model; the raw id must be
+    // shown so old projects do not silently lose their effect indicator.
+    effects.push_back({"legacy.unknown", true, nlohmann::json::object()});
+
+    const std::vector<bl::EffectDisplay> displays =
+        bl::clipEffectDisplays(effects);
+    ASSERT_EQ(displays.size(), 3u);
+    EXPECT_EQ(displays[0].name, "Box Blur");
+    EXPECT_TRUE(displays[0].enabled);
+    EXPECT_EQ(displays[1].name, "Greyscale");
+    EXPECT_FALSE(displays[1].enabled);  // bypassed state survives the mapping
+    EXPECT_EQ(displays[2].name, "legacy.unknown");
+    EXPECT_TRUE(displays[2].enabled);
+}
+
+TEST_F(EffectsTest, ClipEffectDisplaysEmptyForEmptyStack) {
+    EXPECT_TRUE(bl::clipEffectDisplays({}).empty());
+}
+
 TEST_F(EffectsTest, DisplayNamesAreHumanReadable) {
     auto& reg = EffectRegistry::instance();
     EXPECT_EQ(reg.find("blur.box")->displayName(), "Box Blur");

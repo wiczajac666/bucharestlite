@@ -297,11 +297,22 @@ TEST(MainWindow, editStatePersistsAcrossWindows) {
         panel->setInsertMode(true);
         panel->setRippleEnabled(true);
         panel->setSnapEnabled(false);
+        // The View action and the panel share one persisted state value.
+        auto* labels = window.findChild<QAction*>(
+            QStringLiteral("actionShowClipLabels"));
+        ASSERT_NE(labels, nullptr);
+        EXPECT_TRUE(labels->isChecked());
+        labels->setChecked(false);
+        EXPECT_FALSE(panel->showClipLabels());
         // Written as soon as it changes (survives crashes).
         EXPECT_EQ(storage.settings.value(QStringLiteral("timeline/editMode")).toInt(),
                   static_cast<int>(bl::ui::TimelineState::EditMode::Slip));
         EXPECT_TRUE(
             storage.settings.value(QStringLiteral("timeline/insertMode")).toBool());
+        EXPECT_TRUE(storage.settings.contains(
+            QStringLiteral("timeline/showClipLabels")));
+        EXPECT_FALSE(storage.settings.value(
+            QStringLiteral("timeline/showClipLabels")).toBool());
     }
 
     {
@@ -313,6 +324,11 @@ TEST(MainWindow, editStatePersistsAcrossWindows) {
         EXPECT_TRUE(panel->insertMode());
         EXPECT_TRUE(panel->rippleEnabled());
         EXPECT_FALSE(panel->snapEnabled());
+        EXPECT_FALSE(panel->showClipLabels());
+        auto* restoredLabels = restored.findChild<QAction*>(
+            QStringLiteral("actionShowClipLabels"));
+        ASSERT_NE(restoredLabels, nullptr);
+        EXPECT_FALSE(restoredLabels->isChecked());
         auto* combo = panel->findChild<QComboBox*>(QStringLiteral("editModeCombo"));
         ASSERT_NE(combo, nullptr);
         EXPECT_EQ(combo->currentData().toInt(),

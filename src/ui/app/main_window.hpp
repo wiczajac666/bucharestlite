@@ -196,6 +196,7 @@ private:
     QAction* collapseAllTracksAction_{nullptr};
     QAction* expandAllTracksAction_{nullptr};
     QAction* centerPlayheadAction_{nullptr};
+    QAction* showClipLabelsAction_{nullptr};
     QAction* razorAction_{nullptr};
     QAction* slideAction_{nullptr};
     QAction* cycleEditModeAction_{nullptr};

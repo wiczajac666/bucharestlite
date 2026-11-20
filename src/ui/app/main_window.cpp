@@ -73,6 +73,7 @@ constexpr const char* kEditModeKey = "timeline/editMode";
 constexpr const char* kInsertModeKey = "timeline/insertMode";
 constexpr const char* kRippleKey = "timeline/ripple";
 constexpr const char* kSnapKey = "timeline/snap";
+constexpr const char* kShowClipLabelsKey = "timeline/showClipLabels";
 
 QString untitledTitle() {
     return QStringLiteral("Untitled");
@@ -342,6 +343,10 @@ void MainWindow::buildDocks() {
             slideAction_->setChecked(state.editMode ==
                                      TimelineState::EditMode::Slide);
         }
+        if (showClipLabelsAction_) {
+            const QSignalBlocker blocker(showClipLabelsAction_);
+            showClipLabelsAction_->setChecked(state.showClipLabels);
+        }
         settings_->setValue(kEditModeKey,
                             static_cast<int>(state.editMode));
         settings_->setValue(kInsertModeKey, state.insertMode);
@@ -350,6 +355,7 @@ void MainWindow::buildDocks() {
         settings_->setValue("timeline/autoSplitAv", state.autoSplitAv);
         settings_->setValue("timeline/useProxies", state.useProxies);
         settings_->setValue("timeline/centerPlayhead", state.centerPlayhead);
+        settings_->setValue(kShowClipLabelsKey, state.showClipLabels);
     });
 
     connect(timelinePanel_, &TimelinePanel::zoneChanged, this,
@@ -981,6 +987,20 @@ void MainWindow::buildActions() {
     registerAction(centerPlayheadAction_, "timeline.center_playhead",
                    tr("Center Playhead During Playback"), QKeySequence());
 
+    showClipLabelsAction_ = new QAction(tr("Show Clip Labels & Effects"), this);
+    showClipLabelsAction_->setObjectName(
+        QStringLiteral("actionShowClipLabels"));
+    showClipLabelsAction_->setCheckable(true);
+    showClipLabelsAction_->setChecked(true);
+    connect(showClipLabelsAction_, &QAction::toggled, this, [this](bool on) {
+        if (!timelinePanel_) return;
+        TimelineState state = timelinePanel_->timelineState();
+        state.showClipLabels = on;
+        timelinePanel_->setTimelineState(state);
+    });
+    registerAction(showClipLabelsAction_, "timeline.show_clip_labels",
+                   tr("Show Clip Labels & Effects"), QKeySequence());
+
     setClipDurationAction_ = new QAction(tr("Set Clip Duration..."), this);
     setClipDurationAction_->setObjectName(QStringLiteral("actionSetClipDuration"));
     connect(setClipDurationAction_, &QAction::triggered, this, [this] {
@@ -1277,6 +1297,7 @@ void MainWindow::buildMenuAndToolbar() {
     viewMenu->addSeparator();
     viewMenu->addAction(fitTimelineAction_);
     viewMenu->addAction(centerPlayheadAction_);
+    viewMenu->addAction(showClipLabelsAction_);
     viewMenu->addAction(collapseAllTracksAction_);
     viewMenu->addAction(expandAllTracksAction_);
     viewMenu->addAction(fullScreenPreviewAction_);
@@ -1844,6 +1865,7 @@ void MainWindow::persistLayout() {
         settings_->setValue(kInsertModeKey, state.insertMode);
         settings_->setValue(kRippleKey, state.ripple);
         settings_->setValue(kSnapKey, state.snap);
+        settings_->setValue(kShowClipLabelsKey, state.showClipLabels);
         settings_->setValue(QStringLiteral("timeline/activeTrack"),
                             timelinePanel_->activeTrack());
     }
@@ -1892,9 +1914,15 @@ void MainWindow::maybeRestoreLayout() {
         timelineState.useProxies = settings_->value("timeline/useProxies", false).toBool();
         timelineState.centerPlayhead =
             settings_->value("timeline/centerPlayhead", false).toBool();
+        timelineState.showClipLabels =
+            settings_->value(kShowClipLabelsKey, true).toBool();
         timelinePanel_->setTimelineState(timelineState);
         if (centerPlayheadAction_) {
             centerPlayheadAction_->setChecked(timelineState.centerPlayhead);
+        }
+        if (showClipLabelsAction_) {
+            const QSignalBlocker blocker(showClipLabelsAction_);
+            showClipLabelsAction_->setChecked(timelineState.showClipLabels);
         }
         const int activeTrack =
             settings_->value(QStringLiteral("timeline/activeTrack"), 0).toInt();

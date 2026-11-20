@@ -179,11 +179,22 @@ target-track concept distinct from the active track.
         UI-thread stalls (enqueue off-thread, non-blocking, callback never on
         caller), rebuild correctness (time-window sampling, late frames via
         refresh, zoom cell counts, pixel-level BGRA color). Full suite green.
-- [ ] **Clip labels & effect indicators**
-  - [ ] Draw applied effect names/indicators on clips (truncated/summarized)
-  - [ ] Optional clip color labels/tags if not already present; ensure
+- [x] **Clip labels & effect indicators** — clips draw up to three truncated
+      effect-name chips at the top-left (resolved via `EffectRegistry`'s human
+      display names, raw ids for unregistered effects, bypassed effects dimmed)
+      plus a `+N` summary when the stack does not fit. The clip's color label is
+      reinforced with a thin top bar so the tag stays visible over a filmstrip,
+      and the name gets a translucent backing for legibility over waveforms.
+      The palette now covers all eight labels offered by the Inspector (was six).
+  - [x] Draw applied effect names/indicators on clips (truncated/summarized)
+  - [x] Optional clip color labels/tags if not already present; ensure
         readability over thumbnails/waveforms
-  - [ ] Tests: rendering/state mapping (model → view), toggles if added
+  - [x] Tests: rendering/state mapping (model → view), toggles if added —
+        Qt-free `clipEffectDisplays()` unit tests, offscreen attach/paint/toggle
+        tests, eight-label distinctness, and MainWindow persistence. The
+        `Labels` toolbar button / `View → Show Clip Labels & Effects` action
+        repaint items without rebuilding (so drags are not cancelled) and are
+        persisted as `timeline/showClipLabels`.
 - [ ] **Clip-level markers & comments**
   - [ ] Add/edit/delete markers attached to clips (separate from sequence
         markers), with labels/comments and snap behavior

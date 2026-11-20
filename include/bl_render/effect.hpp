@@ -1,5 +1,7 @@
 #pragma once
 
+#include <bl_timeline/clip.hpp>
+
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
@@ -46,5 +48,19 @@ private:
 };
 
 void registerBuiltinEffects();
+
+// A clip effect resolved for display on the timeline. `name` is the registry's
+// human-readable displayName(), or the raw effect id when the effect is not
+// registered (e.g. a plugin referenced by an older project). Stack order and
+// the enabled flag are preserved so the UI can show bypassed effects dimmed.
+struct EffectDisplay {
+    std::string name;
+    bool enabled{true};
+};
+
+// Resolves a clip's effect stack into display labels in stack order. Kept in
+// bl_render (next to EffectRegistry) so it is Qt-free and unit-testable.
+std::vector<EffectDisplay> clipEffectDisplays(
+    const std::vector<EffectInstance>& effects);
 
 } // namespace bl

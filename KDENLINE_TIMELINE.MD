@@ -421,7 +421,7 @@ Kdenlive. None of them are regressions — they are the remaining parity backlog
 | **Track compositing enable/disable** checkbox | Absent (always composites) |
 | **Disable all timeline effects** toggle | Absent (per-clip toggle only) |
 | ~~**Video thumbnails on timeline clips**~~ | Shipped post-1.10.0 (Phase 3): sampled filmstrips, async bounded source-time cache, zoom-aware cells, loading placeholders) |
-| **Effect names drawn on clips** | Absent |
+| ~~**Effect names drawn on clips**~~ | Shipped post-1.10.0 (Phase 3 item 2): truncated effect-name chips with `+N` summary, bypass dimming, color-tag bar, `Labels` toolbar/View toggle persisted under `timeline/showClipLabels`) |
 | ~~**Slide** trim~~ | Shipped post-1.10.0 (`timeline.slide`, `Y`) |
 | ~~**Ripple Trim to Playhead**~~ | Shipped post-1.10.0 (menu actions) |
 | ~~**Expand Clip**~~ | Shipped post-1.10.0 (fill adjacent gaps) |

@@ -160,3 +160,14 @@ tests, a green `ctest --preset linux-release`, doc updates and a commit.
   Docs (user guide, changelog, Kdenlive parity §10) synced; 9 new unit + 5 new
   offscreen UI tests plus a MainWindow resolver-wiring assertion. Full suite
   **1006/1006 green** (5 GL tests skipped without `DISPLAY`).
+- [x] **Phase 3 — clip labels & effect indicators** — Qt-free
+  `bl::clipEffectDisplays()` resolves effect ids to human names (raw-id fallback
+  for unregistered effects, bypass preserved). `ClipItem` paints up to three
+  truncated chips plus a `+N` summary at the top-left, a thin color-tag bar,
+  and a translucent backing behind the name for legibility over filmstrips and
+  waveforms; the palette now covers all eight Inspector labels. The `Labels`
+  toolbar button / `View → Show Clip Labels & Effects` action repaints via
+  `TimelinePanel::refreshClipLabels()` (no scene rebuild) and persists as
+  `timeline/showClipLabels`. 2 new Qt-free unit tests, 4 new offscreen UI tests,
+  and extended state/persistence tests; full suite **1012/1012 green** (5 GL
+  tests skipped without `DISPLAY`).

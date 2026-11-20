@@ -2,6 +2,7 @@
 
 #include <bl_audio/audio_meter_analysis.hpp>
 #include <bl_core/time.hpp>
+#include <bl_render/effect.hpp>
 #include <bl_render/timeline_clip_thumbnail_engine.hpp>
 #include <bl_timeline/clip.hpp>
 #include <bl_timeline/sequence.hpp>
@@ -113,9 +114,10 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// Clip: a rect with name label, trim-handle hit zones, transition hatch and
-// subtitle badge. Scene position follows the model; during a drag the view
-// sets a preview rectangle via setPreviewRect() without touching the model.
+// Clip: a rect with name label, color-tag bar, effect chips, trim-handle hit
+// zones, transition hatch and subtitle/proxy badges. Scene position follows
+// the model; during a drag the view sets a preview rectangle via
+// setPreviewRect() without touching the model.
 // ---------------------------------------------------------------------------
 class ClipItem : public QGraphicsRectItem {
 public:
@@ -160,6 +162,21 @@ public:
         return thumbnail_;
     }
 
+    // Effect indicators (Phase 3 item 2). The panel resolves the clip's effect
+    // ids to display names and hands them in; the paint code draws truncated
+    // chips at the top-left, dimming bypassed effects. No list draws nothing.
+    void setEffectDisplays(std::vector<bl::EffectDisplay> displays) {
+        effectDisplays_ = std::move(displays);
+    }
+    const std::vector<bl::EffectDisplay>& effectDisplays() const {
+        return effectDisplays_;
+    }
+
+    // Whether supplementary clip labels (the color-tag bar and effect chips)
+    // are drawn. The clip name itself is always visible.
+    void setShowLabels(bool on) { showLabels_ = on; }
+    bool showLabels() const { return showLabels_; }
+
     // Proxy override: true = use proxy, false = use original
     void setUseProxy(bool useProxy) {
         useProxy_ = useProxy;
@@ -185,6 +202,8 @@ private:
     std::optional<QRectF> preview_;
     std::shared_ptr<const bl::AudioMeterEnvelope> waveform_;
     std::shared_ptr<const bl::ClipThumbnailStrip> thumbnail_;
+    std::vector<bl::EffectDisplay> effectDisplays_;
+    bool showLabels_{true};
     bool useProxy_{true};  // Default to using proxy when available
     QString proxyStatus_{QStringLiteral("none")};
 };

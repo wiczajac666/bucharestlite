@@ -5,6 +5,8 @@
 #include "panels/timeline_edit_controller.hpp"
 #include "panels/timeline_items.hpp"
 
+#include <bl_render/effect.hpp>
+
 #include <QAction>
 #include <QActionGroup>
 #include <QCheckBox>
@@ -2268,6 +2270,17 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
     useProxyBtn_->setAutoRaise(true);
     useProxyBtn_->setFocusPolicy(Qt::NoFocus);
 
+    // Phase 3: toggle the color-tag bar and effect-name chips on clips.
+    clipLabelsBtn_ = new QToolButton(this);
+    clipLabelsBtn_->setObjectName(QStringLiteral("clipLabelsButton"));
+    clipLabelsBtn_->setText(tr("Labels"));
+    clipLabelsBtn_->setToolTip(
+        tr("Show color tags and effect names on timeline clips"));
+    clipLabelsBtn_->setCheckable(true);
+    clipLabelsBtn_->setChecked(state_.showClipLabels);
+    clipLabelsBtn_->setAutoRaise(true);
+    clipLabelsBtn_->setFocusPolicy(Qt::NoFocus);
+
     // Timeline zone (Phase 5): set the in/out points at the playhead and clear.
     zoneInBtn_ = new QToolButton(this);
     zoneInBtn_->setObjectName(QStringLiteral("zoneInButton"));
@@ -2333,6 +2346,8 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
             &TimelinePanel::setAutoSplitAv);
     connect(useProxyBtn_, &QToolButton::toggled, this,
             &TimelinePanel::setUseProxies);
+    connect(clipLabelsBtn_, &QToolButton::toggled, this,
+            &TimelinePanel::setShowClipLabels);
     connect(zoneInBtn_, &QToolButton::clicked, this,
             [this] { setZoneIn(playhead_); });
     connect(zoneOutBtn_, &QToolButton::clicked, this,
@@ -2349,6 +2364,7 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
     topBar->addWidget(rippleBtn_);
     topBar->addWidget(avSplitBtn_);
     topBar->addWidget(useProxyBtn_);
+    topBar->addWidget(clipLabelsBtn_);
     topBar->addSpacing(8);
     topBar->addWidget(zoneInBtn_);
     topBar->addWidget(zoneOutBtn_);
@@ -2537,6 +2553,7 @@ void TimelinePanel::setTimelineState(const TimelineState& state) {
     setRippleEnabled(state.ripple);
     setAutoSplitAv(state.autoSplitAv);
     setUseProxies(state.useProxies);
+    setShowClipLabels(state.showClipLabels);
     state_.centerPlayhead = state.centerPlayhead;
     setSnapEnabled(state.snap);
 }
@@ -2593,6 +2610,27 @@ void TimelinePanel::setUseProxies(bool on) {
     }
     emit timelineStateChanged();
     emit useProxiesChanged(on);
+}
+
+void TimelinePanel::setShowClipLabels(bool on) {
+    if (state_.showClipLabels == on) return;
+    state_.showClipLabels = on;
+    if (clipLabelsBtn_) {
+        const QSignalBlocker blocker(clipLabelsBtn_);
+        clipLabelsBtn_->setChecked(on);
+    }
+    refreshClipLabels();
+    emit timelineStateChanged();
+}
+
+void TimelinePanel::refreshClipLabels() {
+    for (auto& [id, item] : clipItems_) {
+        (void)id;
+        if (!item) continue;
+        item->setShowLabels(state_.showClipLabels);
+        item->setEffectDisplays(bl::clipEffectDisplays(item->clip().effects));
+        item->update();
+    }
 }
 
 void TimelinePanel::setZone(const bl::Time& in, const bl::Time& out) {
@@ -3418,6 +3456,11 @@ void TimelinePanel::rebuildFromModel() {
                     clipItem->setThumbnail(thumbnailResolver_(
                         thumbnailSpecFor(clip, clipItem->rect().width())));
                 }
+                // Effects are synchronous model data: resolve display names
+                // once at rebuild time. The toggle only repaints (no rebuild).
+                clipItem->setEffectDisplays(
+                    bl::clipEffectDisplays(clip.effects));
+                clipItem->setShowLabels(state_.showClipLabels);
                 clipItem->setData(kClipItemIdRole, QString::fromStdString(clip.id));
                 clipItem->setData(kClipItemTrackRole, flat);
                 clipItem->setSelected(selection_.contains(clip.id));

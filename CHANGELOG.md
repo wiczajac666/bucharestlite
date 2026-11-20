@@ -10,6 +10,14 @@
   sources are re-decoded. The number of cells follows clip width/zoom (1–12),
   with a neutral placeholder for frames still loading. The thumbnail pixel
   format was corrected so red and blue are no longer swapped.
+- **Clip labels & effect indicators on the timeline.** Clips now show up to
+  three truncated effect-name chips at the top-left (human-readable names, a
+  `+N` summary for longer stacks, bypassed effects dimmed) and a thin bar
+  carrying the clip's color label. The clip name gets a translucent backing so
+  it stays readable over filmstrips and waveforms. All eight Inspector color
+  labels now render distinctly (previously labels 6/7 aliased to 1/2). The
+  `Labels` toolbar button and `View → Show Clip Labels & Effects` toggle these
+  overlays without rebuilding the timeline, and persist the choice.
 - **Loop playback.** `Playback → Loop Playback` (`Ctrl+Shift+Space`) loops
   transport playback over the current timeline zone, or over the full sequence
   when no zone is set. The loop range follows zone changes and the loop state

@@ -433,6 +433,15 @@ main window.
   interrupting playback or an edit. Zoom in to see more cells (up to 12 across a
   clip), or zoom out for a single representative frame. Trimming a clip
   re-samples its new in/out range; moving it keeps the cached frames.
+- **Clip labels & effects.** Each clip draws a small chip for every effect on
+  its stack, using the effect's display name (truncated to fit, with a `+N`
+  summary when the stack is longer). Bypassed effects are dimmed. The clip's
+  color label appears as a thin bar across the top, and the clip name has a
+  translucent backing so it stays legible over filmstrips and waveforms. Use
+  the **Labels** button in the timeline toolbar or
+  **View → Show Clip Labels & Effects** to hide these overlays; the choice is
+  remembered between sessions. All eight color labels available in the
+  Inspector render as distinct colors.
 - **Mixer.** The **Mixer** dock has one strip per audio track (gain, pan, mute,
   solo) plus a master bus. Its live L/R meters follow the playhead, so they are
   snapshots of the mix *at that instant* rather than a tap on the device output

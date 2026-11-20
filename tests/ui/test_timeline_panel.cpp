@@ -1173,6 +1173,113 @@ TEST(TimelinePanel, ClipItemPaintsFilmstripInBgraColor) {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 3 item 2: clip labels & effect indicators (model -> view).
+// ---------------------------------------------------------------------------
+
+TEST(TimelinePanel, EffectDisplaysAttachFromModel) {
+    Fixture f;
+    Clip c = makeClip("v", 0, 20);
+    c.effects.push_back({"blur.box", true, nlohmann::json::object()});
+    c.effects.push_back({"greyscale", false, nlohmann::json::object()});
+    f.addClip(0, c);
+
+    bl::ui::ClipItem* item = f.panel.clipItemFor("v");
+    ASSERT_NE(item, nullptr);
+    ASSERT_EQ(item->effectDisplays().size(), 2u);
+    EXPECT_EQ(item->effectDisplays()[0].name, "Box Blur");
+    EXPECT_TRUE(item->effectDisplays()[0].enabled);
+    EXPECT_EQ(item->effectDisplays()[1].name, "Greyscale");
+    EXPECT_FALSE(item->effectDisplays()[1].enabled);
+}
+
+TEST(TimelinePanel, ClipLabelsToggleRepaintsWithoutRebuild) {
+    Fixture f;
+    Clip c = makeClip("v", 0, 20);
+    c.effects.push_back({"blur.box", true, nlohmann::json::object()});
+    f.addClip(0, c);
+
+    bl::ui::ClipItem* item = f.panel.clipItemFor("v");
+    ASSERT_NE(item, nullptr);
+    ASSERT_TRUE(item->showLabels());
+
+    auto* button = f.panel.findChild<QToolButton*>(
+        QStringLiteral("clipLabelsButton"));
+    ASSERT_NE(button, nullptr);
+    button->setChecked(false);
+    EXPECT_FALSE(f.panel.showClipLabels());
+    EXPECT_FALSE(item->showLabels());
+    // Repaint-only: the very same ClipItem instance must still be in the scene.
+    EXPECT_EQ(f.panel.clipItemFor("v"), item);
+
+    f.panel.setShowClipLabels(true);
+    EXPECT_TRUE(button->isChecked());
+    EXPECT_TRUE(item->showLabels());
+}
+
+TEST(TimelinePanel, ClipItemPaintsEffectChipAndToggle) {
+    Fixture f;
+    Clip c = makeClip("v", 0, 20);
+    c.name.clear();  // keep the name backing off the sampled chip pixel
+    c.effects.push_back({"blur.box", true, nlohmann::json::object()});
+    f.addClip(0, c);
+
+    bl::ui::ClipItem* item = f.panel.clipItemFor("v");
+    ASSERT_NE(item, nullptr);
+    ASSERT_EQ(item->effectDisplays().size(), 1u);
+
+    const QRectF r = item->rect();
+    auto render = [&]() {
+        QImage out(240, 64, QImage::Format_ARGB32);
+        out.fill(QColor(10, 10, 10, 255));
+        QPainter painter(&out);
+        f.panel.view()->scene()->render(&painter, QRectF(out.rect()), r,
+                                        Qt::IgnoreAspectRatio);
+        painter.end();
+        // Scene -> image mapping (r now fills the whole image).
+        const int px = static_cast<int>(10.0 * out.width() / r.width());
+        const int py = static_cast<int>(11.0 * out.height() / r.height());
+        return out.pixelColor(px, py);
+    };
+
+    // Chip padding (x = left+8+2, y = chip center) is a dark rounded rect.
+    const QColor withChip = render();
+    EXPECT_LT(withChip.red(), 90);
+    EXPECT_LT(withChip.green(), 90);
+    EXPECT_LT(withChip.blue(), 90);
+
+    f.panel.setShowClipLabels(false);
+    const QColor withoutChip = render();
+    EXPECT_GT(withoutChip.red(), 110);  // back to the slate clip body
+}
+
+TEST(TimelinePanel, EightColorLabelsRenderDistinctly) {
+    Fixture f;
+    Clip a = makeClip("a", 0, 20);
+    a.name.clear();
+    a.colorLabel = 1;
+    Clip b = makeClip("b", 20, 20);
+    b.name.clear();
+    b.colorLabel = 7;
+    f.addClip(0, a);
+    f.addClip(0, b);
+
+    auto sample = [&](const ClipId& id) {
+        bl::ui::ClipItem* item = f.panel.clipItemFor(id);
+        EXPECT_NE(item, nullptr);
+        QImage img(80, 40, QImage::Format_ARGB32);
+        img.fill(QColor(0, 0, 0, 255));
+        QPainter p(&img);
+        f.panel.view()->scene()->render(&p, QRectF(img.rect()), item->rect());
+        p.end();
+        return img.pixelColor(img.width() / 2, img.height() / 2);
+    };
+
+    // The inspector offers 8 color labels. With the old 6-entry palette,
+    // label 7 aliased back to label 1 and these two samples were identical.
+    EXPECT_NE(sample("a"), sample("b"));
+}
+
+// ---------------------------------------------------------------------------
 // P1: Kdenlive-parity lane ordering — every order round-trips between flat
 // indices and lane numbers, and Split is identical to the legacy layout.
 // ---------------------------------------------------------------------------
@@ -1604,6 +1711,7 @@ TEST(TimelineEditState, DefaultsAndToolbarDriveState) {
     EXPECT_FALSE(fx.panel.insertMode());
     EXPECT_FALSE(fx.panel.rippleEnabled());
     EXPECT_TRUE(fx.panel.snapEnabled());
+    EXPECT_TRUE(fx.panel.showClipLabels());
 
     auto* mode = fx.panel.findChild<QComboBox*>(QStringLiteral("editModeCombo"));
     ASSERT_NE(mode, nullptr);
@@ -1637,6 +1745,15 @@ TEST(TimelineEditState, DefaultsAndToolbarDriveState) {
     EXPECT_FALSE(insert->isChecked());
     fx.panel.setRippleEnabled(false);
     EXPECT_FALSE(ripple->isChecked());
+
+    auto* labels = fx.panel.findChild<QToolButton*>(
+        QStringLiteral("clipLabelsButton"));
+    ASSERT_NE(labels, nullptr);
+    EXPECT_TRUE(labels->isChecked());
+    labels->setChecked(false);
+    EXPECT_FALSE(fx.panel.showClipLabels());
+    fx.panel.setShowClipLabels(true);
+    EXPECT_TRUE(labels->isChecked());
 }
 
 TEST(TimelineEditState, SetTimelineStateAppliesEveryField) {
@@ -1646,12 +1763,14 @@ TEST(TimelineEditState, SetTimelineStateAppliesEveryField) {
     s.insertMode = true;
     s.ripple = true;
     s.snap = false;
+    s.showClipLabels = false;
     s.laneOrder = tg::LaneOrder::Mixed;
     fx.panel.setTimelineState(s);
     EXPECT_EQ(fx.panel.editMode(), EditMode::Spacer);
     EXPECT_TRUE(fx.panel.insertMode());
     EXPECT_TRUE(fx.panel.rippleEnabled());
     EXPECT_FALSE(fx.panel.snapEnabled());
+    EXPECT_FALSE(fx.panel.showClipLabels());
     EXPECT_EQ(fx.panel.laneOrder(), tg::LaneOrder::Mixed);
 }
 

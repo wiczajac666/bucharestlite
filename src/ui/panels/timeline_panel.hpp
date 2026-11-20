@@ -341,6 +341,8 @@ struct TimelineState {
     bool autoSplitAv{true};  // drop an A/V clip as a linked video+audio pair
     bool useProxies{false};  // global "Use Proxies" toggle
     bool centerPlayhead{false}; // keep playhead centered during playback
+    // Phase 3: draw the color-tag bar and effect-name chips on clips.
+    bool showClipLabels{true};
     timeline_geometry::LaneOrder laneOrder{timeline_geometry::LaneOrder::Split};
 };
 
@@ -438,6 +440,11 @@ public:
     // Global "Use Proxies" toggle: when on, preview uses proxy files if available.
     bool useProxies() const { return state_.useProxies; }
     void setUseProxies(bool on);
+
+    // Phase 3: show the color-tag bar and effect chips on clips. Repaints the
+    // existing items without rebuilding the scene (so a drag is not cancelled).
+    bool showClipLabels() const { return state_.showClipLabels; }
+    void setShowClipLabels(bool on);
 
     // --- Timeline zone (Phase 4/5) -----------------------------------------
     // In/out range set by Range-mode ruler drags and the toolbar buttons; the
@@ -659,6 +666,8 @@ private:
     void updateZoomLabel();
     // Emits editor_.lastError() (when non-empty) through statusMessage.
     void reportEditorError();
+    // Repaint-only refresh of the clip label/effect overlays.
+    void refreshClipLabels();
     // Shared body of liftZone()/extractZone(); refuses a missing/empty zone.
     bool applyZoneEdit(bool extract);
     // First audio lane that can hold `clip` at `start` (preferring the lane
@@ -686,6 +695,7 @@ private:
     QToolButton* rippleBtn_{nullptr};
     QToolButton* avSplitBtn_{nullptr};
     QToolButton* useProxyBtn_{nullptr};
+    QToolButton* clipLabelsBtn_{nullptr};
     QToolButton* zoneInBtn_{nullptr};
     QToolButton* zoneOutBtn_{nullptr};
     QToolButton* clearZoneBtn_{nullptr};

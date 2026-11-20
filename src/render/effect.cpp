@@ -39,6 +39,22 @@ size_t EffectRegistry::count() const noexcept { return effects_.size(); }
 
 void EffectRegistry::clear() noexcept { effects_.clear(); }
 
+std::vector<EffectDisplay> clipEffectDisplays(
+    const std::vector<EffectInstance>& effects) {
+    std::vector<EffectDisplay> out;
+    out.reserve(effects.size());
+    const auto& reg = EffectRegistry::instance();
+    for (const EffectInstance& fx : effects) {
+        IEffect* effect = reg.find(fx.effectId);
+        // Unknown/unregistered ids still round-trip in the model; show the
+        // raw id rather than dropping the entry so the user can spot it.
+        const std::string name =
+            effect ? std::string(effect->displayName()) : fx.effectId;
+        out.push_back(EffectDisplay{name, fx.enabled});
+    }
+    return out;
+}
+
 // --- IEffect defaults ---
 
 std::string_view IEffect::displayName() const { return name(); }
