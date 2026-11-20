@@ -2,7 +2,7 @@
 
 #include <bl_audio/audio_meter_analysis.hpp>
 #include <bl_core/time.hpp>
-#include <bl_render/thumbnail.hpp>
+#include <bl_render/timeline_clip_thumbnail_engine.hpp>
 #include <bl_timeline/clip.hpp>
 #include <bl_timeline/sequence.hpp>
 
@@ -149,13 +149,14 @@ public:
         return waveform_;
     }
 
-    // Video thumbnail (P1 #13). The first-frame thumbnail for this clip's
-    // source is resolved by the panel and handed in; a null/empty thumbnail
-    // (audio-only clip, or video not decoded yet) draws nothing.
-    void setThumbnail(std::shared_ptr<const bl::MediaThumbnail> thumbnail) {
-        thumbnail_ = std::move(thumbnail);
+    // Video filmstrip (Phase 3). The panel hands in one sampled thumbnail per
+    // cell across the clip's source window; cells still decoding are null and
+    // drawn as a placeholder until onReady repaints. A null strip (audio-only
+    // clip, or no resolver) draws nothing.
+    void setThumbnail(std::shared_ptr<const bl::ClipThumbnailStrip> strip) {
+        thumbnail_ = std::move(strip);
     }
-    const std::shared_ptr<const bl::MediaThumbnail>& thumbnail() const {
+    const std::shared_ptr<const bl::ClipThumbnailStrip>& thumbnail() const {
         return thumbnail_;
     }
 
@@ -183,7 +184,7 @@ private:
     QRectF laneRect_;
     std::optional<QRectF> preview_;
     std::shared_ptr<const bl::AudioMeterEnvelope> waveform_;
-    std::shared_ptr<const bl::MediaThumbnail> thumbnail_;
+    std::shared_ptr<const bl::ClipThumbnailStrip> thumbnail_;
     bool useProxy_{true};  // Default to using proxy when available
     QString proxyStatus_{QStringLiteral("none")};
 };

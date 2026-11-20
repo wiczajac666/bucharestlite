@@ -366,6 +366,9 @@ TEST(MainWindow, timelineWaveformResolverIsWired) {
     // Background audio analysis feeds each clip's waveform through this
     // resolver; a MainWindow that forgot to wire it would draw none.
     EXPECT_TRUE(static_cast<bool>(panel->waveformResolver()));
+    // Phase 3: the time-keyed filmstrip cache feeds each video clip through
+    // this resolver; without it clips would never show sampled frames.
+    EXPECT_TRUE(static_cast<bool>(panel->thumbnailResolver()));
 }
 
 TEST(MainWindow, closeWithCleanProjectPersistsLayout) {

@@ -2,6 +2,7 @@
 
 #include <bl_core/media_source.hpp>
 #include <bl_core/result.hpp>
+#include <bl_core/time.hpp>
 
 #include <cstdint>
 #include <string>
@@ -33,6 +34,17 @@ struct MediaThumbnail {
 Result<MediaThumbnail> readThumbnail(const std::string& path,
                                      const CodecRegistry& registry,
                                      uint32_t maxWidth = 96);
+
+// Decodes the video frame covering `sourceTime` (the frame a viewer would see
+// at that source position), scaled to at most `maxWidth` like readThumbnail().
+// Used to build per-clip filmstrips: sampling a clip's source window at several
+// times yields one thumbnail per cell. Seeks are best-effort; when the stream
+// cannot seek or has no frame at/after the request, the last decodable frame is
+// returned. Metadata is returned even when no frame decodes; the call only
+// fails when the file cannot be opened/probed or the time is negative.
+Result<MediaThumbnail> readThumbnailAt(const std::string& path, Time sourceTime,
+                                       const CodecRegistry& registry,
+                                       uint32_t maxWidth = 96);
 
 // One-line human summary for a media-bin row:
 //   video: "00:00:02 · 320×240 · h264"

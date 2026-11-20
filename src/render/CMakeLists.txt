@@ -11,6 +11,7 @@ add_library(bl_render STATIC
     thumbnail.cpp
     quality_metrics.cpp
     media_bin_thumbnail_engine.cpp
+    timeline_clip_thumbnail_engine.cpp
 )
 
 add_library(bl::render ALIAS bl_render)

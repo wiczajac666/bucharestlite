@@ -426,6 +426,13 @@ main window.
   clip shows its loudest transients, a zoomed-in one stays smooth). Video clips
   whose media also has an audio stream draw it too; the video-only half of a
   split A/V pair does not.
+- **Video filmstrip.** Video clips show a strip of frames sampled across the
+  clip's source range, so you can scan the footage and find a cut point without
+  opening the source monitor. The strip is decoded in the background and cached;
+  frames that are still loading show a neutral placeholder and fill in without
+  interrupting playback or an edit. Zoom in to see more cells (up to 12 across a
+  clip), or zoom out for a single representative frame. Trimming a clip
+  re-samples its new in/out range; moving it keeps the cached frames.
 - **Mixer.** The **Mixer** dock has one strip per audio track (gain, pan, mute,
   solo) plus a master bus. Its live L/R meters follow the playhead, so they are
   snapshots of the mix *at that instant* rather than a tap on the device output

@@ -20,12 +20,14 @@
 #include <bl_audio/audio_meter_engine.hpp>
 #include <bl_core/proxy.hpp>
 #include <bl_render/media_bin_thumbnail_engine.hpp>
+#include <bl_render/timeline_clip_thumbnail_engine.hpp>
 
 #include <QMainWindow>
 
 #include <functional>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 class QSettings;
 class QThread;
@@ -219,6 +221,10 @@ private:
 
     std::unique_ptr<bl::AudioMeterEngine> meterEngine_;
     std::unique_ptr<bl::MediaBinThumbnailEngine> thumbnailEngine_;
+    std::unique_ptr<bl::TimelineClipThumbnailEngine> timelineThumbnails_;
+    // Last-seen media path per id, for invalidating clip thumbnails when a
+    // source is replaced without changing its media id.
+    std::unordered_map<std::string, std::string> timelineThumbPaths_;
     // Declared before the generator: members are destroyed in reverse order,
     // and the JobManager must outlive the ProxyGenerator whose jobs it runs.
     std::unique_ptr<bl::JobManager> proxyJobManager_;

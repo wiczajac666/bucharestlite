@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <string>
 
 namespace bl {
@@ -150,9 +151,16 @@ std::string channelLabel(uint32_t channels) {
 
 } // namespace
 
-Result<MediaThumbnail> readThumbnail(const std::string& path,
-                                     const CodecRegistry& registry,
-                                     uint32_t maxWidth) {
+namespace {
+
+// Shared decode path for readThumbnail() (first frame) and readThumbnailAt()
+// (frame covering a source time). The seek variant keeps the last frame before
+// the request as a fallback, so a time past the final packet still yields a
+// useful still.
+Result<MediaThumbnail> readThumbnailImpl(const std::string& path,
+                                         const CodecRegistry& registry,
+                                         uint32_t maxWidth,
+                                         std::optional<Time> seekTo) {
     if (path.empty()) {
         return Result<MediaThumbnail>::err(Err::InvalidArgument,
                                            "empty media path");
@@ -169,15 +177,13 @@ Result<MediaThumbnail> readThumbnail(const std::string& path,
     Demuxer demuxer = std::move(opened.value());
 
     MediaThumbnail thumb;
-    const StreamInfo& info = demuxer.info();
-    thumb.info = info;
-
-    if (info.videoStreams.empty()) {
+    thumb.info = demuxer.info();
+    if (thumb.info.videoStreams.empty()) {
         return Result<MediaThumbnail>::ok(std::move(thumb));
     }
     thumb.hasVideo = true;
 
-    const VideoStreamInfo& video = info.videoStreams.front();
+    const VideoStreamInfo& video = thumb.info.videoStreams.front();
     if (video.width == 0 || video.height == 0) {
         return Result<MediaThumbnail>::ok(std::move(thumb));
     }
@@ -208,9 +214,17 @@ Result<MediaThumbnail> readThumbnail(const std::string& path,
     }
     DecoderBridge bridge = std::move(bridgeResult.value());
 
+    if (seekTo) {
+        if (auto seek = demuxer.seek(*seekTo); !seek.ok()) {
+            BL_LOG_WARN("thumb", "seek failed for '" + path +
+                                     "': " + seek.message());
+        }
+    }
+
     // The opening keyframe is normally a handful of packets in; the cap only
     // guards against malformed streams.
     constexpr int kMaxPackets = 1024;
+    std::optional<MediaThumbnail> lastBefore;
     for (int i = 0; i < kMaxPackets; ++i) {
         auto packetResult = demuxer.nextPacket();
         if (!packetResult.ok()) {
@@ -235,9 +249,22 @@ Result<MediaThumbnail> readThumbnail(const std::string& path,
                                      "': " + decoded.message());
             continue;
         }
-        if (storeFrame(*decoded, maxWidth, thumb)) {
-            return Result<MediaThumbnail>::ok(std::move(thumb));
+        MediaThumbnail candidate = thumb;  // carry the probed metadata
+        if (!storeFrame(*decoded, maxWidth, candidate)) {
+            continue;
         }
+        if (!seekTo) {
+            return Result<MediaThumbnail>::ok(std::move(candidate));
+        }
+        const Time frameTime = packet->hasPts ? packet->pts : *seekTo;
+        if (frameTime >= *seekTo) {
+            return Result<MediaThumbnail>::ok(std::move(candidate));
+        }
+        lastBefore = std::move(candidate);
+    }
+
+    if (seekTo && lastBefore) {
+        return Result<MediaThumbnail>::ok(std::move(*lastBefore));
     }
 
     // The first frame may still sit in the decoder's reorder buffer.
@@ -246,6 +273,25 @@ Result<MediaThumbnail> readThumbnail(const std::string& path,
         storeFrame(**flushed, maxWidth, thumb);
     }
     return Result<MediaThumbnail>::ok(std::move(thumb));
+}
+
+} // namespace
+
+Result<MediaThumbnail> readThumbnail(const std::string& path,
+                                     const CodecRegistry& registry,
+                                     uint32_t maxWidth) {
+    return readThumbnailImpl(path, registry, maxWidth, std::nullopt);
+}
+
+Result<MediaThumbnail> readThumbnailAt(const std::string& path,
+                                       Time sourceTime,
+                                       const CodecRegistry& registry,
+                                       uint32_t maxWidth) {
+    if (sourceTime < Time{}) {
+        return Result<MediaThumbnail>::err(Err::InvalidArgument,
+                                           "sourceTime must be non-negative");
+    }
+    return readThumbnailImpl(path, registry, maxWidth, sourceTime);
 }
 
 std::string describeMedia(const StreamInfo& info) {

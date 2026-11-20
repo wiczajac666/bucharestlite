@@ -54,6 +54,7 @@ add_executable(bl_core_tests
     test_codec_plugins.cpp
     test_preview_engine.cpp
     test_media_thumbnail.cpp
+    test_timeline_clip_thumbnail.cpp
     test_quality_metrics.cpp
     test_export_roundtrip.cpp
     test_proxy.cpp

@@ -19,7 +19,9 @@
 #include <QGraphicsRectItem>
 #include <QGraphicsScene>
 #include <QGraphicsView>
+#include <QImage>
 #include <QLabel>
+#include <QPainter>
 #include <QLineEdit>
 #include <QMimeData>
 #include <QPoint>
@@ -1023,6 +1025,151 @@ TEST(TimelinePanel, RefreshWaveformsPicksUpLateAnalysis) {
     f.panel.refreshWaveforms();
     ASSERT_TRUE(item->waveform() != nullptr);
     EXPECT_EQ(item->waveform()->windowCount(), 5u);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: video filmstrips — the panel resolves sampled frames for each video
+// clip, ClipItem paints them, and cells still decoding show a placeholder.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+bl::MediaThumbnail solidThumb(uint8_t r, uint8_t g, uint8_t b) {
+    bl::MediaThumbnail t;
+    t.width = 8;
+    t.height = 6;
+    t.linesize = t.width * 4u;
+    t.hasVideo = true;
+    t.pixels.resize(static_cast<size_t>(t.linesize) * t.height);
+    for (uint32_t i = 0; i < t.pixels.size(); i += 4) {
+        // MediaThumbnail stores BGRA32, matching the decoder output.
+        t.pixels[i + 0] = b;
+        t.pixels[i + 1] = g;
+        t.pixels[i + 2] = r;
+        t.pixels[i + 3] = 255;
+    }
+    return t;
+}
+
+std::shared_ptr<const bl::ClipThumbnailStrip> solidStrip(size_t cells) {
+    auto strip = std::make_shared<bl::ClipThumbnailStrip>();
+    for (size_t i = 0; i < cells; ++i) {
+        strip->sampleTimes.push_back(
+            bl::Time::fromSeconds(static_cast<double>(i) * 0.2,
+                                  bl::Rational{1'000'000, 1}));
+        const uint8_t red = static_cast<uint8_t>(180 + i * 10);
+        strip->frames.push_back(
+            std::make_shared<const bl::MediaThumbnail>(solidThumb(red, 30, 30)));
+    }
+    return strip;
+}
+
+} // namespace
+
+TEST(TimelinePanel, ThumbnailResolverAttachesFilmstripToVideoClips) {
+    Fixture f;
+    Clip video = makeClip("v", 0, 20);
+    video.hasVideo = true;
+    f.addClip(0, video);
+
+    f.panel.setThumbnailResolver(
+        [strip = solidStrip(3)](const bl::ClipThumbnailSpec& spec) {
+            EXPECT_EQ(spec.mediaItemId, "m");
+            EXPECT_GE(spec.sampleCount, 1u);
+            return strip;
+        });
+
+    bl::ui::ClipItem* item = f.panel.clipItemFor("v");
+    ASSERT_NE(item, nullptr);
+    ASSERT_TRUE(item->thumbnail() != nullptr);
+    EXPECT_EQ(item->thumbnail()->frames.size(), 3u);
+}
+
+TEST(TimelinePanel, ThumbnailNotAttachedToAudioOnlyClip) {
+    Fixture f;
+    Clip audio = makeClip("au", 0, 20);
+    audio.hasVideo = false;  // audio-only half of an A/V split
+    audio.hasAudio = true;
+    f.addClip(1, audio);
+
+    f.panel.setThumbnailResolver(
+        [strip = solidStrip(2)](const bl::ClipThumbnailSpec&) { return strip; });
+
+    bl::ui::ClipItem* item = f.panel.clipItemFor("au");
+    ASSERT_NE(item, nullptr);
+    EXPECT_EQ(item->thumbnail(), nullptr);
+}
+
+TEST(TimelinePanel, RefreshThumbnailsPicksUpLateFrames) {
+    Fixture f;
+    Clip video = makeClip("v", 0, 20);
+    video.hasVideo = true;
+    f.addClip(0, video);
+
+    bool ready = false;
+    f.panel.setThumbnailResolver(
+        [&ready](const bl::ClipThumbnailSpec&) {
+            return ready ? solidStrip(2) : nullptr;
+        });
+
+    bl::ui::ClipItem* item = f.panel.clipItemFor("v");
+    ASSERT_NE(item, nullptr);
+    EXPECT_EQ(item->thumbnail(), nullptr);  // frames not decoded yet
+
+    ready = true;
+    f.panel.refreshThumbnails();
+    ASSERT_TRUE(item->thumbnail() != nullptr);
+    EXPECT_EQ(item->thumbnail()->frames.size(), 2u);
+}
+
+TEST(TimelinePanel, FilmstripCellCountFollowsClipWidth) {
+    Fixture f;
+    Clip video = makeClip("v", 0, 20);
+    video.hasVideo = true;
+    f.addClip(0, video);
+
+    size_t seen = 0;
+    f.panel.setThumbnailResolver(
+        [&seen](const bl::ClipThumbnailSpec& spec) {
+            seen = spec.sampleCount;
+            return solidStrip(spec.sampleCount);
+        });
+    EXPECT_GE(seen, 1u);
+    EXPECT_LE(seen, bl::kMaxStripCells);
+
+    // Zooming in rebuilds items and requests at least as many cells; the
+    // resolver survives the rebuild and sees the wider clip.
+    const size_t atDefault = seen;
+    f.panel.setZoom(24.0);
+    EXPECT_GE(seen, atDefault);
+}
+
+TEST(TimelinePanel, ClipItemPaintsFilmstripInBgraColor) {
+    Fixture f;
+    Clip video = makeClip("v", 0, 20);
+    video.hasVideo = true;
+    video.name.clear();  // keep the label off the sampled pixel
+    f.addClip(0, video);
+
+    f.panel.setThumbnailResolver(
+        [strip = solidStrip(1)](const bl::ClipThumbnailSpec&) { return strip; });
+
+    bl::ui::ClipItem* item = f.panel.clipItemFor("v");
+    ASSERT_NE(item, nullptr);
+    ASSERT_EQ(item->thumbnail()->frames.size(), 1u);
+
+    QImage image(240, 64, QImage::Format_ARGB32);
+    image.fill(QColor(10, 10, 10, 255));
+    QPainter painter(&image);
+    f.panel.view()->scene()->render(&painter, QRectF(image.rect()), item->rect());
+    painter.end();
+
+    // The thumbnail is BGRA (180,30,30) red. The old RGBA8888 mapping would
+    // have swapped it to blue, so this also guards the pixel-format fix.
+    const QColor sampled = image.pixelColor(image.width() / 2,
+                                            image.height() / 2);
+    EXPECT_GT(sampled.red(), 120);
+    EXPECT_LT(sampled.blue(), 90);
 }
 
 // ---------------------------------------------------------------------------

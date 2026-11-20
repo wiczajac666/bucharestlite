@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Added
+- **Video filmstrips on timeline clips.** Video clips now show a strip of
+  frames sampled across their source range instead of only the first frame.
+  Decoding is asynchronous and cached in a bounded LRU keyed by source time, so
+  trimming re-samples the new range, moving reuses cached frames, and re-linked
+  sources are re-decoded. The number of cells follows clip width/zoom (1–12),
+  with a neutral placeholder for frames still loading. The thumbnail pixel
+  format was corrected so red and blue are no longer swapped.
 - **Loop playback.** `Playback → Loop Playback` (`Ctrl+Shift+Space`) loops
   transport playback over the current timeline zone, or over the full sequence
   when no zone is set. The loop range follows zone changes and the loop state

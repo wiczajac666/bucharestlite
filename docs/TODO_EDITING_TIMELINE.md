@@ -162,12 +162,23 @@ target-track concept distinct from the active track.
 
 **Goal:** improve readability and navigation of complex timelines.
 
-- [ ] **Video thumbnails on timeline clips**
-  - [ ] Generate/cache lightweight frame thumbnails for video clips (async,
+- [x] **Video thumbnails on timeline clips** — sampled filmstrips, not just a
+      first frame. `readThumbnailAt()` seeks and decodes the frame covering a
+      source time; `TimelineClipThumbnailEngine` is a Qt-free, JobManager-backed
+      async cache keyed by (media id, source time, width) with a bounded LRU and
+      `remove()`/`retain()` invalidation. Trimming changes the sampled source
+      times (new keys), moving reuses them, and source re-links are invalidated
+      by path tracking in `MainWindow`.
+  - [x] Generate/cache lightweight frame thumbnails for video clips (async,
         bounded cache, invalidated on trim/move/source changes)
-  - [ ] Paint thumbnails in `ClipItem` respecting zoom/clip width; graceful
-        fallback while loading
-  - [ ] Tests: cache behavior, no UI-thread stalls, rebuild correctness
+  - [x] Paint thumbnails in `ClipItem` respecting zoom/clip width; graceful
+        fallback while loading. Cell count tracks clip width (1–12), each cell
+        letterboxes its frame, and undecoded cells draw a neutral placeholder.
+        Also fixed the BGRA→`QImage` mapping (was swapping red and blue).
+  - [x] Tests: cache behavior (hit/idempotent, LRU eviction, prune), no
+        UI-thread stalls (enqueue off-thread, non-blocking, callback never on
+        caller), rebuild correctness (time-window sampling, late frames via
+        refresh, zoom cell counts, pixel-level BGRA color). Full suite green.
 - [ ] **Clip labels & effect indicators**
   - [ ] Draw applied effect names/indicators on clips (truncated/summarized)
   - [ ] Optional clip color labels/tags if not already present; ensure

@@ -16,8 +16,11 @@
 
 #include <bl_core/time.hpp>
 #include <bl_core/platform/paths.hpp>
+#include <bl_render/timeline_clip_thumbnail_engine.hpp>
 #include <bl_timeline/project_template.hpp>
 #include <bl_timeline/subtitle_import.hpp>
+
+#include <unordered_map>
 #include <bl_timeline/title.hpp>
 
 #include <nlohmann/json.hpp>
@@ -138,6 +141,11 @@ MainWindow::~MainWindow() {
         // Stop callbacks and cancel in-flight analysis before panels tear down.
         meterEngine_->onAnalyzed = nullptr;
         meterEngine_->clear();
+    }
+    if (timelineThumbnails_) {
+        // Stop callbacks and cancel in-flight decodes before panels tear down.
+        timelineThumbnails_->onReady = nullptr;
+        timelineThumbnails_->clear();
     }
     if (thumbnailEngine_) {
         // Stop callbacks and cancel in-flight decodes before panels tear down.
@@ -401,13 +409,6 @@ void MainWindow::setupMeterEngine() {
     masterFaderPanel_->setMeterResolver(resolver);
     if (timelinePanel_) timelinePanel_->setWaveformResolver(resolver);
 
-    const auto thumbResolver =
-        [this](const std::string& mediaItemId)
-        -> std::shared_ptr<const bl::MediaThumbnail> {
-        return thumbnailEngine_ ? thumbnailEngine_->thumbnailFor(mediaItemId) : nullptr;
-    };
-    if (timelinePanel_) timelinePanel_->setThumbnailResolver(thumbResolver);
-
     // Meters follow every playhead move (playback ticks and ruler scrubs alike
     // funnel through PreviewPanel::playheadChanged).
     connect(previewPanel_, &PreviewPanel::playheadChanged, mixerPanel_,
@@ -451,6 +452,53 @@ void MainWindow::setupThumbnailEngine() {
                                   },
                                   Qt::QueuedConnection);
     };
+
+    // Time-keyed, bounded filmstrip cache for video clips (Phase 3). The
+    // resolver only does cache lookups and non-blocking enqueues, so calling
+    // it from the GUI thread during rebuild/refresh cannot stall the UI.
+    timelineThumbnails_ = std::make_unique<bl::TimelineClipThumbnailEngine>();
+    timelineThumbnails_->configure(previewPanel_->pluginDirs());
+    timelineThumbnails_->onReady = [this](const std::string&, bl::Time, uint32_t) {
+        // A cell settled on a worker thread; repaint clips without a full
+        // rebuild, which would cancel an in-progress drag.
+        QMetaObject::invokeMethod(this, [this] {
+            if (timelinePanel_) timelinePanel_->refreshThumbnails();
+        }, Qt::QueuedConnection);
+    };
+
+    const auto stripResolver =
+        [this](const bl::ClipThumbnailSpec& spec)
+        -> std::shared_ptr<const bl::ClipThumbnailStrip> {
+        if (!timelineThumbnails_ || !controller_ || spec.mediaItemId.empty() ||
+            spec.sampleCount == 0) {
+            return nullptr;
+        }
+        // Resolve the path fresh each time: a replaced source keeps its media
+        // id but may point at a different file.
+        std::string path;
+        for (const auto& item : controller_->mediaBin()) {
+            if (item.id == spec.mediaItemId) {
+                path = item.path;
+                break;
+            }
+        }
+        if (path.empty()) return nullptr;
+
+        auto strip = std::make_shared<bl::ClipThumbnailStrip>();
+        strip->sampleTimes = bl::clipThumbnailSampleTimes(
+            spec.sourceIn, spec.sourceOut, spec.sampleCount);
+        strip->frames.reserve(strip->sampleTimes.size());
+        for (bl::Time t : strip->sampleTimes) {
+            auto thumb =
+                timelineThumbnails_->thumbnailFor(spec.mediaItemId, t, spec.maxWidth);
+            if (!thumb) {
+                timelineThumbnails_->request(spec.mediaItemId, path, t, spec.maxWidth);
+            }
+            strip->frames.push_back(std::move(thumb));
+        }
+        return strip;
+    };
+    if (timelinePanel_) timelinePanel_->setThumbnailResolver(stripResolver);
 
     syncThumbnailJobs();
 }
@@ -638,6 +686,24 @@ void MainWindow::syncThumbnailJobs() {
             applyThumbnail(id);
         }
     }
+
+    // Reconcile the timeline filmstrip cache: prune sources no longer in the
+    // bin and invalidate cells whose backing path changed (re-link) so frames
+    // are re-decoded from the new source at the same sample times.
+    if (timelineThumbnails_) {
+        timelineThumbnails_->retain(requested);
+        for (const auto& item : bin) {
+            auto it = timelineThumbPaths_.find(item.id);
+            if (it != timelineThumbPaths_.end() && it->second != item.path) {
+                timelineThumbnails_->remove(item.id);
+            }
+        }
+        timelineThumbPaths_.clear();
+        for (const auto& item : bin) {
+            timelineThumbPaths_[item.id] = item.path;
+        }
+    }
+    if (timelinePanel_) timelinePanel_->refreshThumbnails();
 }
 
 void MainWindow::applyThumbnail(const std::string& mediaItemId) {

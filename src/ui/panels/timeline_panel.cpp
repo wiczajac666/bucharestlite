@@ -52,6 +52,18 @@ constexpr qreal kDragStartTolerancePx = 4.0;
 constexpr qreal kZoneHandleGrabPx = 6.0;
 const bl::Rational kTimelineRate{1'000'000, 1};
 
+// Build the thumbnail request for a video clip. The cell count follows the
+// clip's on-screen width so zooming in adds filmstrip detail (up to the core's
+// cap); trimming changes the source window, which naturally re-keys the cache.
+bl::ClipThumbnailSpec thumbnailSpecFor(const bl::Clip& clip, qreal clipWidthPx) {
+    bl::ClipThumbnailSpec spec;
+    spec.mediaItemId = clip.source.mediaItemId;
+    spec.sourceIn = clip.source.sourceIn;
+    spec.sourceOut = clip.source.sourceOut;
+    spec.sampleCount = bl::clipThumbnailCellCount(clipWidthPx);
+    return spec;
+}
+
 // The zoom slider spans [kMinZoom, kMaxZoom] logarithmically so equal slider
 // steps give a constant zoom factor.
 constexpr int kZoomSliderSteps = 1000;
@@ -3403,8 +3415,8 @@ void TimelinePanel::rebuildFromModel() {
                         waveformResolver_(clip.source.mediaItemId));
                 }
                 if (thumbnailResolver_ && clip.hasVideo) {
-                    clipItem->setThumbnail(
-                        thumbnailResolver_(clip.source.mediaItemId));
+                    clipItem->setThumbnail(thumbnailResolver_(
+                        thumbnailSpecFor(clip, clipItem->rect().width())));
                 }
                 clipItem->setData(kClipItemIdRole, QString::fromStdString(clip.id));
                 clipItem->setData(kClipItemTrackRole, flat);
@@ -3467,11 +3479,13 @@ void TimelinePanel::refreshThumbnails() {
     for (auto& [id, item] : clipItems_) {
         (void)id;
         if (!item) continue;
-        // Mirror rebuildFromModel: only video-bearing clips carry a thumbnail
+        // Mirror rebuildFromModel: only video-bearing clips carry a filmstrip
         // (the audio half of an A/V split shares its media id but has no video).
-        item->setThumbnail(item->clip().hasVideo
-                               ? thumbnailResolver_(item->clip().source.mediaItemId)
-                               : nullptr);
+        item->setThumbnail(
+            item->clip().hasVideo
+                ? thumbnailResolver_(thumbnailSpecFor(item->clip(),
+                                                      item->rect().width()))
+                : nullptr);
         item->update();
     }
 }

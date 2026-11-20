@@ -289,33 +289,59 @@ void ClipItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget
         }
     }
 
-    // Video thumbnail: draw the first-frame thumbnail inside the clip body,
-    // before the label so the clip name stays readable on top.
-    if (thumbnail_ && thumbnail_->hasPixels() && clip_.hasVideo) {
-        const QImage thumbImage(reinterpret_cast<const uchar*>(thumbnail_->pixels.data()),
-                                static_cast<int>(thumbnail_->width),
-                                static_cast<int>(thumbnail_->height),
-                                static_cast<int>(thumbnail_->linesize),
-                                QImage::Format_RGBA8888);
-        if (!thumbImage.isNull()) {
-            // Scale thumbnail to fit clip height while preserving aspect ratio,
-            // clipped to clip width.
-            const qreal thumbAspect = static_cast<qreal>(thumbnail_->width) / static_cast<qreal>(thumbnail_->height);
-            qreal drawH = r.height() - 4.0;
-            qreal drawW = drawH * thumbAspect;
-            const qreal maxW = r.width() - 4.0;
-            if (drawW > maxW) {
-                drawW = maxW;
-                drawH = drawW / thumbAspect;
+    // Video filmstrip (Phase 3): one sampled thumbnail per cell across the
+    // clip's source window. Cells whose decode has not settled yet draw a
+    // neutral placeholder; the name is painted on top so it stays readable.
+    if (thumbnail_ && clip_.hasVideo && !thumbnail_->frames.empty()) {
+        const qreal innerLeft = r.left() + 2.0;
+        const qreal innerTop = r.top() + 2.0;
+        const qreal innerW = r.width() - 4.0;
+        const qreal innerH = r.height() - 4.0;
+        if (innerW >= 2.0 && innerH >= 2.0) {
+            const size_t cells = thumbnail_->frames.size();
+            const qreal cellW = innerW / static_cast<qreal>(cells);
+            painter->save();
+            for (size_t i = 0; i < cells; ++i) {
+                const QRectF cell(innerLeft + cellW * static_cast<qreal>(i),
+                                  innerTop, cellW, innerH);
+                const auto& thumb = thumbnail_->frames[i];
+                if (thumb && thumb->hasPixels()) {
+                    // MediaThumbnail pixels are BGRA32; on little-endian hosts
+                    // QImage::Format_ARGB32 has the same in-memory B,G,R,A
+                    // order (the old RGBA8888 mapping swapped red and blue).
+                    const QImage image(
+                        reinterpret_cast<const uchar*>(thumb->pixels.data()),
+                        static_cast<int>(thumb->width),
+                        static_cast<int>(thumb->height),
+                        static_cast<int>(thumb->linesize),
+                        QImage::Format_ARGB32);
+                    if (!image.isNull()) {
+                        const qreal aspect = static_cast<qreal>(thumb->width) /
+                                             static_cast<qreal>(thumb->height);
+                        qreal dw = cell.width();
+                        qreal dh = dw / aspect;
+                        if (dh > cell.height()) {
+                            dh = cell.height();
+                            dw = dh * aspect;
+                        }
+                        const QRectF target(
+                            cell.left() + (cell.width() - dw) * 0.5,
+                            cell.top() + (cell.height() - dh) * 0.5, dw, dh);
+                        painter->save();
+                        painter->setClipRect(cell);
+                        painter->drawImage(target, image);
+                        painter->restore();
+                        continue;
+                    }
+                }
+                // Graceful fallback while the cell's frame is decoding (or a
+                // frame could not be produced): a subtle placeholder keeps the
+                // strip grid legible without ever blocking the GUI thread.
+                painter->setPen(Qt::NoPen);
+                painter->setBrush(QColor(0x2a, 0x2e, 0x32, 170));
+                painter->drawRect(cell.adjusted(0.5, 0.5, -0.5, -0.5));
             }
-            if (drawW >= 4.0 && drawH >= 4.0) {
-                const qreal x = r.left() + 2.0;
-                const qreal y = r.top() + (r.height() - drawH) * 0.5;
-                painter->save();
-                painter->setClipRect(r.adjusted(2, 2, -2, -2));
-                painter->drawImage(QRectF(x, y, drawW, drawH), thumbImage);
-                painter->restore();
-            }
+            painter->restore();
         }
     }
 

@@ -3,7 +3,7 @@
 #include <bl_audio/audio_meter_analysis.hpp>
 #include <bl_core/media_source.hpp>
 #include <bl_core/time.hpp>
-#include <bl_render/thumbnail.hpp>
+#include <bl_render/timeline_clip_thumbnail_engine.hpp>
 #include <bl_timeline/sequence.hpp>
 
 #include "panels/mixer_controller.hpp"
@@ -377,13 +377,14 @@ public:
     }
     void refreshWaveforms();
 
-    // Video thumbnail display. `resolver` hands each video clip its first-frame
-    // thumbnail (MainWindow wires the shared MediaBinThumbnailEngine's cache
-    // lookup here); a null resolver simply draws no thumbnails. Background
-    // decoding settles asynchronously, so call refreshThumbnails() when new
-    // thumbnails arrive to repaint without a full rebuild.
-    using ThumbnailResolver =
-        std::function<std::shared_ptr<const bl::MediaThumbnail>(const std::string& mediaItemId)>;
+    // Video filmstrip display. `resolver` maps a clip's thumbnail spec (source
+    // window + cell count derived from its on-screen width) to a sampled strip;
+    // MainWindow wires it to the shared TimelineClipThumbnailEngine. Cells that
+    // are still decoding are null placeholders. Call refreshThumbnails() when
+    // frames settle to repaint without a full rebuild (which would cancel an
+    // in-progress gesture).
+    using ThumbnailResolver = std::function<
+        std::shared_ptr<const bl::ClipThumbnailStrip>(const bl::ClipThumbnailSpec&)>;
     void setThumbnailResolver(ThumbnailResolver resolver) {
         thumbnailResolver_ = std::move(resolver);
         refreshThumbnails();

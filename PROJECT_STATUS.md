@@ -151,3 +151,12 @@ tests, a green `ctest --preset linux-release`, doc updates and a commit.
   snapping, bounds/source validation and one-step undo. Docs (user guide,
   changelog, Kdenlive parity §10) synced; full suite green with controller +
   offscreen UI coverage.
+- [x] **Phase 3 — video filmstrips** — `readThumbnailAt()` seeks/decodes a frame
+  at a source time; Qt-free `TimelineClipThumbnailEngine` is a JobManager-backed
+  async cache keyed by (media id, source time, width) with a bounded LRU and
+  `remove()`/`retain()` invalidation (trim re-samples, move reuses, source
+  re-links re-decode). `ClipItem` paints 1–12 letterboxed cells by clip width
+  with neutral placeholders while loading; the BGRA→`QImage` mapping was fixed.
+  Docs (user guide, changelog, Kdenlive parity §10) synced; 9 new unit + 5 new
+  offscreen UI tests plus a MainWindow resolver-wiring assertion. Full suite
+  **1006/1006 green** (5 GL tests skipped without `DISPLAY`).
