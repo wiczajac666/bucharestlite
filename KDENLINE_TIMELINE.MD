@@ -415,8 +415,8 @@ Kdenlive. None of them are regressions — they are the remaining parity backlog
 | **Timeline Preview Render** (pre-render zones, Start/Stop, automatic preview, manage cached data) | Entirely absent |
 | **Multicam tool** + multitrack view | Absent (documented non-goal) |
 | **Nested sequences** (nested timeline) | Absent (model only) |
-| **Per-track height resize + collapse** (individually / all) | Absent (`Track::height` exists in the model but no UI) |
-| **Vertical zoombar** | Absent (horizontal only) |
+| ~~**Per-track height resize + collapse**~~ (individually / all) | Shipped (header drag handle / collapse toggle, Collapse/Expand All, Reset Track Height; see Phase 2 write-up) |
+| ~~**Vertical zoombar**~~ | Shipped post-1.10.0 (Phase 3 item 5): view-only vertical zoom slider scaling lane geometry and scroll range |
 | **Fixed centered playhead** option | Absent |
 | **Track compositing enable/disable** checkbox | Absent (always composites) |
 | **Disable all timeline effects** toggle | Absent (per-clip toggle only) |
@@ -424,6 +424,7 @@ Kdenlive. None of them are regressions — they are the remaining parity backlog
 | ~~**Effect names drawn on clips**~~ | Shipped post-1.10.0 (Phase 3 item 2): truncated effect-name chips with `+N` summary, bypass dimming, color-tag bar, `Labels` toolbar/View toggle persisted under `timeline/showClipLabels`) |
 | ~~**Clip markers & comments**~~ | Shipped post-1.10.0 (Phase 3 item 3): clip-local markers with label/comment/color, painted as triangles on the clip, absolute snap targets, undoable add/edit/delete, backward-compatible JSON, ride along on copy/paste |
 | ~~**Sequence marker comments + navigation**~~ | Shipped post-1.10.0 (Phase 3 item 4): optional marker comments with a ruler text chip and persisted `Comments` toggle, `Next/Previous Marker` (`]`/`[`) with scroll-into-view, backward-compatible JSON and undoable comment edits |
+| ~~**Vertical zoombar / timecode-vs-frames indicator**~~ | Shipped post-1.10.0 (Phase 3 item 5): view-only vertical lane zoom (slider, no model/undo change) and a persisted `Frames` toggle that switches the ruler and position readout between timecode and frame counts |
 | ~~**Slide** trim~~ | Shipped post-1.10.0 (`timeline.slide`, `Y`) |
 | ~~**Ripple Trim to Playhead**~~ | Shipped post-1.10.0 (menu actions) |
 | ~~**Expand Clip**~~ | Shipped post-1.10.0 (fill adjacent gaps) |
@@ -442,14 +443,14 @@ Kdenlive. None of them are regressions — they are the remaining parity backlog
 | **Mix Clips** (same-track transition toolbar) | Transitions exist in the model, preview and export, but there is no "Mix Clips" button to add a same-track transition. |
 | **Markers** | Timeline markers ✅; clip-level markers and the **marker comment text** display toggle are now shipped (Phase 3 items 3–4). Full Kdenlive-style marker editing UI (e.g. a dedicated marker panel) is still absent. |
 | **Speed** | Via the Inspector only — no **Ctrl+drag on a clip** to change speed, and **no pitch compensation**. |
-| **Position indicator** | No timecode-vs-frames unit toggle. |
+| ~~**Position indicator**~~ | Shipped post-1.10.0 (Phase 3 item 5): persisted Frames/timecode toggle for the toolbar readout and ruler labels. |
 | ~~**Docs**~~ | The user guide now documents edit modes (Select / Range / Ripple / Roll / Slip / Slide / Spacer / Razor), markers and three-point editing (post-1.10.0). |
 
 ### 10.3.1 Prioritized shortlist
 
 1. **Timeline Preview Render** — the largest missing *feature* (pre-render for smooth playback).
 2. ~~**Loop playback + loop zone**~~ — shipped post-1.10.0.
-3. **Per-track height + collapse** and **timeline video thumbnails** — the most visible "this doesn't feel like Kdenlive" gaps.
+3. ~~**Per-track height + collapse**, **timeline video thumbnails**, and **vertical zoombar / timecode-vs-frames indicator**~~ — shipped post-1.10.0 (Phase 3).
 4. ~~**Razor tool mode** + **slide trim** + **ripple-trim-to-playhead**~~ — shipped post-1.10.0, rounding out the edit-tool set.
 5. ~~**Source monitor + bin in/out**~~ — shipped post-1.10.0 (in/out marks + insert/overwrite at zone).
 6. **Remove Space** + **Duration dialog** — small workflow wins.

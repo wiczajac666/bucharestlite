@@ -59,6 +59,11 @@ QString timecodeLabel(int64_t frame, const bl::Rational& fps) {
 
 } // namespace
 
+QString formatTimelinePosition(int64_t frame, const bl::Rational& fps,
+                               bool showFrames) {
+    return showFrames ? QString::number(frame) : timecodeLabel(frame, fps);
+}
+
 // ---------------------------------------------------------------------------
 // RulerItem
 // ---------------------------------------------------------------------------
@@ -103,7 +108,8 @@ void RulerItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidge
         painter->drawLine(QPointF(x, major ? bottom - 12.0 : bottom - 6.0),
                           QPointF(x, bottom));
         if (major) {
-            painter->drawText(QPointF(x + 2.0, bottom - 14.0), timecodeLabel(f, fps));
+            painter->drawText(QPointF(x + 2.0, bottom - 14.0),
+                              formatTimelinePosition(f, fps, showFrames_));
         }
     }
 }
@@ -642,7 +648,8 @@ int flatForLane(const bl::Sequence& seq, int lane, LaneOrder order) {
     return perm[lane];
 }
 
-qreal laneHeight(const bl::Sequence& seq, int flat, int videoCount) {
+qreal laneHeight(const bl::Sequence& seq, int flat, int videoCount,
+                 qreal verticalScale) {
     // Use the track's custom height when the user has set one, otherwise fall
     // back to the per-kind defaults (the model's generic 60 is not a UI size).
     qreal h = 0.0;
@@ -660,17 +667,20 @@ qreal laneHeight(const bl::Sequence& seq, int flat, int videoCount) {
         }
         if (h <= 0.0) h = kDefaultAudioLaneHeight;
     }
-    // Clamp to valid range.
-    return std::clamp(h, kMinLaneHeight, kMaxLaneHeight);
+    // Clamp the model height to the usable band, then apply the view-only
+    // vertical zoom. The ruler itself is never scaled.
+    return std::clamp(h, kMinLaneHeight, kMaxLaneHeight) *
+           std::max(verticalScale, 0.05);
 }
 
-qreal laneTop(const bl::Sequence& seq, int flat, int videoCount, LaneOrder order) {
+qreal laneTop(const bl::Sequence& seq, int flat, int videoCount,
+              LaneOrder order, qreal verticalScale) {
     const auto perm = lanePermutation(
         videoCount, static_cast<int>(seq.audioTracks.size()), order);
     qreal y = kRulerHeight;
     for (size_t lane = 0; lane < perm.size(); ++lane) {
         if (perm[lane] == flat) return y;
-        y += laneHeight(seq, perm[lane], videoCount);
+        y += laneHeight(seq, perm[lane], videoCount, verticalScale);
     }
     return y;
 }
@@ -693,14 +703,14 @@ qreal contentWidth(const bl::Sequence& seq, qreal pxPerFrame) {
     return frameToX(endFrame, pxPerFrame) + kSnapBarWidth;
 }
 
-qreal contentHeight(const bl::Sequence& seq) {
+qreal contentHeight(const bl::Sequence& seq, qreal verticalScale) {
     qreal h = kRulerHeight;
     const int vc = static_cast<int>(seq.videoTracks.size());
     for (size_t i = 0; i < seq.videoTracks.size(); ++i) {
-        h += laneHeight(seq, static_cast<int>(i), vc);
+        h += laneHeight(seq, static_cast<int>(i), vc, verticalScale);
     }
     for (size_t i = 0; i < seq.audioTracks.size(); ++i) {
-        h += laneHeight(seq, vc + static_cast<int>(i), vc);
+        h += laneHeight(seq, vc + static_cast<int>(i), vc, verticalScale);
     }
     return h;
 }

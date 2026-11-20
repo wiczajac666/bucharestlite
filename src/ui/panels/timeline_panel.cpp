@@ -88,6 +88,27 @@ qreal sliderToZoom(int value) {
     return std::exp(lo + t * (hi - lo));
 }
 
+// Vertical zoom is logarithmic too, over the narrower [0.5, 4] band that
+// keeps lanes readable while still fitting a tall stack into a short viewport.
+constexpr qreal kMinVerticalZoom = 0.5;
+constexpr qreal kMaxVerticalZoom = 4.0;
+
+int verticalZoomToSlider(qreal scale) {
+    const qreal lo = std::log(kMinVerticalZoom);
+    const qreal hi = std::log(kMaxVerticalZoom);
+    const qreal z = std::clamp(scale, kMinVerticalZoom, kMaxVerticalZoom);
+    return static_cast<int>(
+        std::lround((std::log(z) - lo) / (hi - lo) * kZoomSliderSteps));
+}
+
+qreal sliderToVerticalZoom(int value) {
+    const qreal lo = std::log(kMinVerticalZoom);
+    const qreal hi = std::log(kMaxVerticalZoom);
+    const qreal t = std::clamp(value, 0, kZoomSliderSteps) /
+                    static_cast<qreal>(kZoomSliderSteps);
+    return std::exp(lo + t * (hi - lo));
+}
+
 const QColor kBackground{0x20, 0x22, 0x25};
 const QColor kRulerFill{0x2a, 0x2d, 0x30};
 const QColor kHeaderFill{0x26, 0x28, 0x2b};
@@ -573,10 +594,12 @@ void TrackHeader::layoutRows() {
     for (TrackHeaderRow* row : rows_) {
         if (!row) continue;
         const int flat = row->flatTrack();
-        const qreal top = timeline_geometry::laneTop(seq, flat, vc,
-                                                     host_->laneOrder()) -
-                          static_cast<qreal>(offset_);
-        const qreal h = timeline_geometry::laneHeight(seq, flat, vc);
+        const qreal top =
+            timeline_geometry::laneTop(seq, flat, vc, host_->laneOrder(),
+                                       host_->verticalZoom()) -
+            static_cast<qreal>(offset_);
+        const qreal h = timeline_geometry::laneHeight(
+            seq, flat, vc, host_->verticalZoom());
         row->setGeometry(0, static_cast<int>(std::lround(top)), width(),
                          static_cast<int>(std::lround(h)));
     }
@@ -2232,6 +2255,13 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
     zoomLabel_->setAlignment(Qt::AlignCenter);
     zoomLabel_->setFixedWidth(56);
 
+    // Phase 3 item 5: playhead position readout in the ruler's units.
+    positionLabel_ = new QLabel(this);
+    positionLabel_->setObjectName(QStringLiteral("timelinePosition"));
+    positionLabel_->setAlignment(Qt::AlignCenter);
+    positionLabel_->setFixedWidth(104);
+    positionLabel_->setToolTip(tr("Playhead position"));
+
     addVideoBtn_ = new QToolButton(this);
     addVideoBtn_->setObjectName(QStringLiteral("addVideoTrackButton"));
     addVideoBtn_->setText(QStringLiteral("+V"));
@@ -2347,6 +2377,18 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
     markerCommentsBtn_->setAutoRaise(true);
     markerCommentsBtn_->setFocusPolicy(Qt::NoFocus);
 
+    // Phase 3 item 5: switch the playhead readout and ruler labels between
+    // timecode and plain frame counts (the Kdenlive position-unit toggle).
+    showFramesBtn_ = new QToolButton(this);
+    showFramesBtn_->setObjectName(QStringLiteral("showFramesButton"));
+    showFramesBtn_->setText(tr("Frames"));
+    showFramesBtn_->setToolTip(
+        tr("Show positions as frame numbers instead of timecode"));
+    showFramesBtn_->setCheckable(true);
+    showFramesBtn_->setChecked(state_.showFrames);
+    showFramesBtn_->setAutoRaise(true);
+    showFramesBtn_->setFocusPolicy(Qt::NoFocus);
+
     // Timeline zone (Phase 5): set the in/out points at the playhead and clear.
     zoneInBtn_ = new QToolButton(this);
     zoneInBtn_->setObjectName(QStringLiteral("zoneInButton"));
@@ -2378,6 +2420,15 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
     zoomSlider_->setFocusPolicy(Qt::NoFocus);
     zoomSlider_->setValue(zoomToSlider(pxPerFrame_));
 
+    // Vertical zoombar (Phase 3 item 5): scale lane heights for tall timelines.
+    vZoomSlider_ = new QSlider(Qt::Vertical, this);
+    vZoomSlider_->setObjectName(QStringLiteral("verticalZoomSlider"));
+    vZoomSlider_->setRange(0, kZoomSliderSteps);
+    vZoomSlider_->setFixedWidth(16);
+    vZoomSlider_->setToolTip(tr("Vertical zoom"));
+    vZoomSlider_->setFocusPolicy(Qt::NoFocus);
+    vZoomSlider_->setValue(verticalZoomToSlider(state_.verticalZoom));
+
     fitBtn_ = new QToolButton(this);
     fitBtn_->setObjectName(QStringLiteral("fitZoomButton"));
     fitBtn_->setText(QStringLiteral("Fit"));
@@ -2391,6 +2442,11 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
     connect(addAudioBtn_, &QToolButton::clicked, this, [this] { addTrack(false); });
     connect(zoomSlider_, &QSlider::valueChanged, this,
             [this](int value) { setZoom(sliderToZoom(value)); });
+    connect(vZoomSlider_, &QSlider::valueChanged, this, [this](int value) {
+        setVerticalZoom(sliderToVerticalZoom(value));
+    });
+    connect(showFramesBtn_, &QToolButton::toggled, this,
+            &TimelinePanel::setShowFrames);
     connect(fitBtn_, &QToolButton::clicked, this,
             &TimelinePanel::fitZoomToViewport);
     connect(laneOrderCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -2434,6 +2490,7 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
     topBar->addWidget(useProxyBtn_);
     topBar->addWidget(clipLabelsBtn_);
     topBar->addWidget(markerCommentsBtn_);
+    topBar->addWidget(showFramesBtn_);
     topBar->addSpacing(8);
     topBar->addWidget(zoneInBtn_);
     topBar->addWidget(zoneOutBtn_);
@@ -2441,6 +2498,8 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
     topBar->addSpacing(8);
     topBar->addWidget(laneOrderCombo_);
     topBar->addStretch(1);
+    topBar->addWidget(positionLabel_);
+    topBar->addSpacing(8);
     topBar->addWidget(zoomOut_);
     topBar->addWidget(zoomSlider_);
     topBar->addWidget(zoomLabel_);
@@ -2452,6 +2511,7 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
     body->setSpacing(0);
     body->addWidget(header_);
     body->addWidget(view_, 1);
+    body->addWidget(vZoomSlider_);
 
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -2516,9 +2576,10 @@ int TimelinePanel::flatAtY(qreal sceneY) const {
     for (int lane = 0; lane < lanes; ++lane) {
         const int flat = timeline_geometry::flatForLane(seq, lane, state_.laneOrder);
         if (flat < 0) continue;
-        const qreal top =
-            timeline_geometry::laneTop(seq, flat, vc, state_.laneOrder);
-        const qreal h = timeline_geometry::laneHeight(seq, flat, vc);
+        const qreal top = timeline_geometry::laneTop(
+            seq, flat, vc, state_.laneOrder, state_.verticalZoom);
+        const qreal h = timeline_geometry::laneHeight(
+            seq, flat, vc, state_.verticalZoom);
         if (sceneY >= top && sceneY < top + h) return flat;
     }
     return -1;
@@ -2527,8 +2588,10 @@ int TimelinePanel::flatAtY(qreal sceneY) const {
 QRectF TimelinePanel::laneRect(int flat) const {
     const bl::Sequence& seq = sequence();
     const int vc = static_cast<int>(seq.videoTracks.size());
-    const qreal top = timeline_geometry::laneTop(seq, flat, vc, state_.laneOrder);
-    const qreal h = timeline_geometry::laneHeight(seq, flat, vc);
+    const qreal top = timeline_geometry::laneTop(
+        seq, flat, vc, state_.laneOrder, state_.verticalZoom);
+    const qreal h = timeline_geometry::laneHeight(
+        seq, flat, vc, state_.verticalZoom);
     qreal w = timeline_geometry::contentWidth(seq, pxPerFrame_);
     if (w <= 0) w = 800;
     return QRectF(0, top, w, h);
@@ -2552,6 +2615,21 @@ void TimelinePanel::setZoom(qreal pxPerFrame) {
         zoomSlider_->setValue(zoomToSlider(pxPerFrame_));
     }
     rebuildFromModel();
+}
+
+void TimelinePanel::setVerticalZoom(qreal scale) {
+    const qreal clamped =
+        std::clamp(scale, kMinVerticalZoom, kMaxVerticalZoom);
+    if (qFuzzyCompare(clamped, state_.verticalZoom)) return;
+    state_.verticalZoom = clamped;
+    if (vZoomSlider_) {
+        const QSignalBlocker blocker(vZoomSlider_);
+        vZoomSlider_->setValue(verticalZoomToSlider(clamped));
+    }
+    // View-only: rebuild the geometry but leave the model (and undo stack)
+    // untouched. Lane heights and the header rows are derived from this scale.
+    rebuildFromModel();
+    emit timelineStateChanged();
 }
 
 void TimelinePanel::fitZoomToViewport() {
@@ -2591,10 +2669,30 @@ void TimelinePanel::updateZoomLabel() {
     }
 }
 
+void TimelinePanel::updatePositionLabel() {
+    if (!positionLabel_) return;
+    const bl::Rational& fps = sequence().settings.fps;
+    positionLabel_->setText(formatTimelinePosition(
+        playhead_.toFrameAt(fps), fps, state_.showFrames));
+}
+
+void TimelinePanel::refreshTimeFormat() {
+    if (scene_) {
+        for (QGraphicsItem* item : scene_->items()) {
+            auto* ruler = dynamic_cast<RulerItem*>(item);
+            if (!ruler) continue;
+            ruler->setShowFrames(state_.showFrames);
+            ruler->update();
+        }
+    }
+    updatePositionLabel();
+}
+
 void TimelinePanel::setPlayhead(const bl::Time& t) {
     if (t == playhead_) return;
     playhead_ = t;
     updatePlayheadItem();
+    updatePositionLabel();
     if (state_.centerPlayhead && playbackActive_ && view_) {
         const qreal x = xForTime(playhead_);
         const QPointF center = view_->mapToScene(
@@ -2624,6 +2722,8 @@ void TimelinePanel::setTimelineState(const TimelineState& state) {
     setUseProxies(state.useProxies);
     setShowClipLabels(state.showClipLabels);
     setShowMarkerComments(state.showMarkerComments);
+    setVerticalZoom(state.verticalZoom);
+    setShowFrames(state.showFrames);
     state_.centerPlayhead = state.centerPlayhead;
     setSnapEnabled(state.snap);
 }
@@ -2724,6 +2824,17 @@ void TimelinePanel::refreshMarkerComments() {
         marker->setShowComment(state_.showMarkerComments);
         marker->update();
     }
+}
+
+void TimelinePanel::setShowFrames(bool on) {
+    if (state_.showFrames == on) return;
+    state_.showFrames = on;
+    if (showFramesBtn_) {
+        const QSignalBlocker blocker(showFramesBtn_);
+        showFramesBtn_->setChecked(on);
+    }
+    refreshTimeFormat();
+    emit timelineStateChanged();
 }
 
 void TimelinePanel::setZone(const bl::Time& in, const bl::Time& out) {
@@ -2990,7 +3101,8 @@ void TimelinePanel::updateZoneItem() {
     }
     const qreal x0 = xForTime(zoneIn_);
     const qreal x1 = xForTime(zoneOut_);
-    const qreal height = timeline_geometry::contentHeight(sequence());
+    const qreal height = timeline_geometry::contentHeight(
+        sequence(), state_.verticalZoom);
     zoneItem_->setRange(x0, std::max<qreal>(x1 - x0, 1.0), 0.0, height);
     zoneItem_->setVisible(true);
 }
@@ -3672,13 +3784,15 @@ void TimelinePanel::rebuildFromModel() {
 
     const bl::Sequence& seq = sequence();
     const qreal width = timeline_geometry::contentWidth(seq, pxPerFrame_);
-    const qreal height = timeline_geometry::contentHeight(seq);
+    const qreal height =
+        timeline_geometry::contentHeight(seq, state_.verticalZoom);
     scene_->setSceneRect(0, 0, width, height);
 
     auto* ruler = new RulerItem(timeline_geometry::kRulerHeight);
     ruler->configure(seq.settings);
     ruler->setWidth(width);
     ruler->setZoom(pxPerFrame_);
+    ruler->setShowFrames(state_.showFrames);
     scene_->addItem(ruler);
 
     int flat = 0;
@@ -3746,6 +3860,9 @@ void TimelinePanel::rebuildFromModel() {
     }
     if (header_) header_->rebuild();
     applyProxyOverrides();
+    // The sequence's fps may have changed with the project; refresh the
+    // readout and the ruler unit against the items just rebuilt.
+    refreshTimeFormat();
 }
 
 void TimelinePanel::refreshWaveforms() {

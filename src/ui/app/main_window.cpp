@@ -75,6 +75,8 @@ constexpr const char* kRippleKey = "timeline/ripple";
 constexpr const char* kSnapKey = "timeline/snap";
 constexpr const char* kShowClipLabelsKey = "timeline/showClipLabels";
 constexpr const char* kShowMarkerCommentsKey = "timeline/showMarkerComments";
+constexpr const char* kShowFramesKey = "timeline/showFrames";
+constexpr const char* kVerticalZoomKey = "timeline/verticalZoom";
 
 QString untitledTitle() {
     return QStringLiteral("Untitled");
@@ -352,6 +354,10 @@ void MainWindow::buildDocks() {
             const QSignalBlocker blocker(showMarkerCommentsAction_);
             showMarkerCommentsAction_->setChecked(state.showMarkerComments);
         }
+        if (showFramesAction_) {
+            const QSignalBlocker blocker(showFramesAction_);
+            showFramesAction_->setChecked(state.showFrames);
+        }
         settings_->setValue(kEditModeKey,
                             static_cast<int>(state.editMode));
         settings_->setValue(kInsertModeKey, state.insertMode);
@@ -362,6 +368,8 @@ void MainWindow::buildDocks() {
         settings_->setValue("timeline/centerPlayhead", state.centerPlayhead);
         settings_->setValue(kShowClipLabelsKey, state.showClipLabels);
         settings_->setValue(kShowMarkerCommentsKey, state.showMarkerComments);
+        settings_->setValue(kShowFramesKey, state.showFrames);
+        settings_->setValue(kVerticalZoomKey, state.verticalZoom);
     });
 
     connect(timelinePanel_, &TimelinePanel::zoneChanged, this,
@@ -1180,6 +1188,21 @@ void MainWindow::buildActions() {
     registerAction(showMarkerCommentsAction_, "timeline.show_marker_comments",
                    tr("Show Marker Comments"), QKeySequence());
 
+    // Phase 3 item 5: Kdenlive-style position unit toggle. The ruler and the
+    // toolbar readout switch together through one TimelineState field.
+    showFramesAction_ = new QAction(tr("Show Positions in Frames"), this);
+    showFramesAction_->setObjectName(QStringLiteral("actionShowFrames"));
+    showFramesAction_->setCheckable(true);
+    showFramesAction_->setChecked(false);
+    connect(showFramesAction_, &QAction::toggled, this, [this](bool on) {
+        if (!timelinePanel_) return;
+        TimelineState state = timelinePanel_->timelineState();
+        state.showFrames = on;
+        timelinePanel_->setTimelineState(state);
+    });
+    registerAction(showFramesAction_, "timeline.show_frames",
+                   tr("Show Positions in Frames"), QKeySequence());
+
     // Three-point editing. Zone in/out already own plain I/O, so the source
     // marks use Alt+I/Alt+O; insert/overwrite use the NLE-standard , and .
     // keys.
@@ -1342,6 +1365,7 @@ void MainWindow::buildMenuAndToolbar() {
     viewMenu->addAction(centerPlayheadAction_);
     viewMenu->addAction(showClipLabelsAction_);
     viewMenu->addAction(showMarkerCommentsAction_);
+    viewMenu->addAction(showFramesAction_);
     viewMenu->addAction(collapseAllTracksAction_);
     viewMenu->addAction(expandAllTracksAction_);
     viewMenu->addAction(fullScreenPreviewAction_);
@@ -1913,6 +1937,8 @@ void MainWindow::persistLayout() {
         settings_->setValue(kSnapKey, state.snap);
         settings_->setValue(kShowClipLabelsKey, state.showClipLabels);
         settings_->setValue(kShowMarkerCommentsKey, state.showMarkerComments);
+        settings_->setValue(kShowFramesKey, state.showFrames);
+        settings_->setValue(kVerticalZoomKey, state.verticalZoom);
         settings_->setValue(QStringLiteral("timeline/activeTrack"),
                             timelinePanel_->activeTrack());
     }
@@ -1965,6 +1991,10 @@ void MainWindow::maybeRestoreLayout() {
             settings_->value(kShowClipLabelsKey, true).toBool();
         timelineState.showMarkerComments =
             settings_->value(kShowMarkerCommentsKey, true).toBool();
+        timelineState.showFrames =
+            settings_->value(kShowFramesKey, false).toBool();
+        timelineState.verticalZoom = std::clamp(
+            settings_->value(kVerticalZoomKey, 1.0).toDouble(), 0.5, 4.0);
         timelinePanel_->setTimelineState(timelineState);
         if (centerPlayheadAction_) {
             centerPlayheadAction_->setChecked(timelineState.centerPlayhead);
@@ -1977,6 +2007,10 @@ void MainWindow::maybeRestoreLayout() {
             const QSignalBlocker blocker(showMarkerCommentsAction_);
             showMarkerCommentsAction_->setChecked(
                 timelineState.showMarkerComments);
+        }
+        if (showFramesAction_) {
+            const QSignalBlocker blocker(showFramesAction_);
+            showFramesAction_->setChecked(timelineState.showFrames);
         }
         const int activeTrack =
             settings_->value(QStringLiteral("timeline/activeTrack"), 0).toInt();

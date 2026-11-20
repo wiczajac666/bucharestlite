@@ -346,6 +346,10 @@ struct TimelineState {
     bool showClipLabels{true};
     // Phase 3 item 4: draw sequence-marker label/comment text on the ruler.
     bool showMarkerComments{true};
+    // Phase 3 item 5: view-only lane-height multiplier (1 = model heights) and
+    // whether positions are shown as frame counts instead of HH:MM:SS:FF.
+    qreal verticalZoom{1.0};
+    bool showFrames{false};
     timeline_geometry::LaneOrder laneOrder{timeline_geometry::LaneOrder::Split};
 };
 
@@ -414,6 +418,11 @@ public:
     // Sets zoom so the whole sequence width fits the viewport (clamped).
     void fitZoomToViewport();
 
+    // Phase 3 item 5: vertical zoom scales every lane height without touching
+    // the model (so it is not an undo step). The ruler keeps its fixed height.
+    qreal verticalZoom() const { return state_.verticalZoom; }
+    void setVerticalZoom(qreal scale);
+
     // --- Lane layout (Phase 3) ---------------------------------------------
     // Kdenlive's three track layouts; default Split (video above, audio
     // below). Mixed / MixedReverse interleave audio with its video lane.
@@ -453,6 +462,11 @@ public:
     // ruler. Repaints the marker items without rebuilding the scene.
     bool showMarkerComments() const { return state_.showMarkerComments; }
     void setShowMarkerComments(bool on);
+
+    // Phase 3 item 5: show the playhead position (and ruler labels) as plain
+    // frame counts instead of HH:MM:SS:FF. Repaint-only.
+    bool showFrames() const { return state_.showFrames; }
+    void setShowFrames(bool on);
 
     // --- Timeline zone (Phase 4/5) -----------------------------------------
     // In/out range set by Range-mode ruler drags and the toolbar buttons; the
@@ -700,6 +714,10 @@ private:
     void ensurePlayheadVisible();
     void updateZoneItem();
     void updateZoomLabel();
+    // Refresh the position readout and the ruler's unit after a playhead or
+    // format change (no scene rebuild).
+    void updatePositionLabel();
+    void refreshTimeFormat();
     // Emits editor_.lastError() (when non-empty) through statusMessage.
     void reportEditorError();
     // Repaint-only refresh of the clip label/effect overlays.
@@ -735,11 +753,14 @@ private:
     QToolButton* useProxyBtn_{nullptr};
     QToolButton* clipLabelsBtn_{nullptr};
     QToolButton* markerCommentsBtn_{nullptr};
+    QToolButton* showFramesBtn_{nullptr};
     QToolButton* zoneInBtn_{nullptr};
     QToolButton* zoneOutBtn_{nullptr};
     QToolButton* clearZoneBtn_{nullptr};
     QSlider* zoomSlider_{nullptr};
     QLabel* zoomLabel_{nullptr};
+    QSlider* vZoomSlider_{nullptr};
+    QLabel* positionLabel_{nullptr};
     QGraphicsScene* scene_{nullptr};
     PlayheadItem* playheadItem_{nullptr};
     SnapIndicatorItem* snapIndicator_{nullptr};

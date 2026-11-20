@@ -198,6 +198,7 @@ private:
     QAction* centerPlayheadAction_{nullptr};
     QAction* showClipLabelsAction_{nullptr};
     QAction* showMarkerCommentsAction_{nullptr};
+    QAction* showFramesAction_{nullptr};
     QAction* nextMarkerAction_{nullptr};
     QAction* previousMarkerAction_{nullptr};
     QAction* razorAction_{nullptr};

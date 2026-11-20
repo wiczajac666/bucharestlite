@@ -18,6 +18,11 @@
   labels now render distinctly (previously labels 6/7 aliased to 1/2). The
   `Labels` toolbar button and `View → Show Clip Labels & Effects` toggle these
   overlays without rebuilding the timeline, and persist the choice.
+- **Timeline navigation aids.** A vertical zoombar beside the timeline scales
+  lane heights for tall projects without changing the model or undo stack. The
+  `Frames` button / `View → Show Positions in Frames` switches the playhead
+  readout and ruler labels between timecode and plain frame counts. Both are
+  persisted across sessions.
 - **Sequence marker comments, display toggle and navigation.** Sequence markers
   now have an optional multi-line comment (right-click a marker → **Edit
   Comment…**); existing projects load unchanged. Marker labels and comments are

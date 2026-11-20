@@ -226,10 +226,23 @@ target-track concept distinct from the active track.
         marker comment/equality/JSON tests, a controller comment-only undo test,
         offscreen panel toggle/pixel/navigation/hit-test tests, and MainWindow
         action + QSettings round-trip tests. Full suite green.
-- [ ] **Timeline navigation aids**
-  - [ ] Vertical zoombar / improved vertical navigation for tall timelines
-  - [ ] Timecode-vs-frames position indicator toggle (consistent with rulers)
-  - [ ] Tests: viewport/scroll correctness, formatting toggle
+- [x] **Timeline navigation aids** — a vertical zoombar (logarithmic 0.5×–4×
+      slider beside the view) scales every lane's rendered height without
+      touching the model or undo stack; `timeline_geometry` helpers take an
+      optional `verticalScale` (default 1, so existing layout/callers are
+      unchanged), the ruler keeps its fixed height, and the header/scene/scroll
+      range track the scaled geometry. A `Frames` toolbar button / `View → Show
+      Positions in Frames` action toggles the playhead readout and ruler labels
+      between `HH:MM:SS:FF` and plain frame counts via a shared
+      `formatTimelinePosition()` helper and a `RulerItem::showFrames` flag.
+      `TimelineState` persists `verticalZoom` (`timeline/verticalZoom`) and
+      `showFrames` (`timeline/showFrames`).
+  - [x] Vertical zoombar / improved vertical navigation for tall timelines
+  - [x] Timecode-vs-frames position indicator toggle (consistent with rulers)
+  - [x] Tests: viewport/scroll correctness, formatting toggle — offscreen panel
+        tests for the position label + ruler pixel formatting, vertical-zoom
+        lane geometry/scene-rect/scroll range and header alignment, plus a
+        MainWindow frames-toggle persistence round-trip. Full suite green.
 - [ ] **Track compositing/effects toggles (evaluate)**
   - [ ] Investigate per-track compositing enable/disable and "disable all
         timeline effects" preview toggle; implement if low-risk, else document

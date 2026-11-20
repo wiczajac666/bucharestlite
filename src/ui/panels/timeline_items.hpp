@@ -25,8 +25,14 @@ namespace bl::ui {
 constexpr int kClipItemIdRole = Qt::UserRole;
 constexpr int kClipItemTrackRole = Qt::UserRole + 1;
 
+// Shared by the ruler ticks and the timeline's position indicator so both
+// switch units together. `showFrames` renders a plain frame count, otherwise
+// HH:MM:SS:FF at the sequence frame rate.
+QString formatTimelinePosition(int64_t frame, const bl::Rational& fps,
+                               bool showFrames);
+
 // ---------------------------------------------------------------------------
-// Ruler: frame ticks + (HH:MM:SS:FF) labels along the top of the timeline.
+// Ruler: frame ticks + labels along the top of the timeline.
 // ---------------------------------------------------------------------------
 class RulerItem : public QGraphicsRectItem {
 public:
@@ -35,6 +41,9 @@ public:
     void configure(const bl::SequenceSettings& settings);
     void setWidth(qreal width);
     void setZoom(qreal pxPerFrame);
+    // Phase 3 item 5: switch ruler labels between timecode and plain frames.
+    void setShowFrames(bool on) { showFrames_ = on; }
+    bool showFrames() const { return showFrames_; }
 
 protected:
     void paint(QPainter* painter, const QStyleOptionGraphicsItem* option,
@@ -43,6 +52,7 @@ protected:
 private:
     bl::SequenceSettings settings_;
     qreal pxPerFrame_{6.0};
+    bool showFrames_{false};
 };
 
 // ---------------------------------------------------------------------------
@@ -247,15 +257,18 @@ int flatForLane(const bl::Sequence& seq, int lane,
                 LaneOrder order = LaneOrder::Split);
 
 // Returns the height of a lane based on the track's stored height, falling
-// back to kind-specific defaults. Height is clamped to [kMinLaneHeight, kMaxLaneHeight].
-qreal laneHeight(const bl::Sequence& seq, int flat, int videoCount);
+// back to kind-specific defaults, then scaled by the view-only vertical zoom.
+// The model height is clamped to [kMinLaneHeight, kMaxLaneHeight] first, so a
+// zoom of 1 keeps the previous layout exactly.
+qreal laneHeight(const bl::Sequence& seq, int flat, int videoCount,
+                 qreal verticalScale = 1.0);
 
 // Returns the top Y position of a lane in scene coordinates (including ruler).
 qreal laneTop(const bl::Sequence& seq, int flat, int videoCount,
-              LaneOrder order = LaneOrder::Split);
+              LaneOrder order = LaneOrder::Split, qreal verticalScale = 1.0);
 
 qreal contentWidth(const bl::Sequence& seq, qreal pxPerFrame);
-qreal contentHeight(const bl::Sequence& seq);
+qreal contentHeight(const bl::Sequence& seq, qreal verticalScale = 1.0);
 
 } // namespace timeline_geometry
 

@@ -193,3 +193,17 @@ tests, a green `ctest --preset linux-release`, doc updates and a commit.
   marker offers **Edit Comment…**. 2 model/JSON tests, 1 controller undo test,
   5 offscreen panel tests and 1 MainWindow action test, plus extended state and
   persistence assertions; full suite **1031/1031 green** (5 GL skips).
+- [x] **Phase 3 — timeline navigation aids** — a vertical zoombar beside the
+  view scales every lane's rendered height (logarithmic 0.5×–4×, view-only: no
+  model/undo change); `timeline_geometry::{laneHeight,laneTop,contentHeight}`
+  take an optional `verticalScale` (default 1, existing layout preserved) while
+  the ruler keeps its fixed height, so the header, scene rect and vertical
+  scroll range follow the scaled geometry. A `Frames` toolbar button /
+  `View → Show Positions in Frames` action toggles the playhead readout and
+  ruler labels between timecode and plain frame counts via a shared
+  `formatTimelinePosition()` and `RulerItem::showFrames`; `TimelineState`
+  persists `verticalZoom`/`showFrames` (`timeline/verticalZoom`,
+  `timeline/showFrames`). 4 offscreen panel tests (position label, ruler
+  pixel format, vertical-zoom geometry/scroll, header alignment) and 1
+  MainWindow persistence test, plus extended state assertions; full suite
+  **1036/1036 green** (5 GL skips).

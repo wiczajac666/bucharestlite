@@ -673,3 +673,39 @@ TEST(MainWindow, ApplyTitleEditReRendersAndRefusesNonTitles) {
     EXPECT_FALSE(window.applyTitleEdit(plainId, edited, 320, 180,
                                        QStringLiteral("Two")));
 }
+TEST(MainWindow, timeFormatTogglePersistsAndDrivesPanel) {
+    ensureApp();
+    QTemporaryDir dir;
+    TempSettings storage(dir);
+
+    {
+        bl::ui::MainWindow window(nullptr, &storage.settings);
+        window.setPromptOnCloseEnabled(false);
+        auto* panel = window.findChild<bl::ui::TimelinePanel*>();
+        ASSERT_NE(panel, nullptr);
+        auto* frames = window.findChild<QAction*>(
+            QStringLiteral("actionShowFrames"));
+        ASSERT_NE(frames, nullptr);
+        EXPECT_FALSE(frames->isChecked());
+        EXPECT_FALSE(panel->showFrames());
+
+        frames->setChecked(true);
+        EXPECT_TRUE(panel->showFrames());
+        EXPECT_TRUE(storage.settings.contains(
+            QStringLiteral("timeline/showFrames")));
+        EXPECT_TRUE(storage.settings.value(
+            QStringLiteral("timeline/showFrames")).toBool());
+    }
+
+    {
+        bl::ui::MainWindow restored(nullptr, &storage.settings);
+        restored.setPromptOnCloseEnabled(false);
+        auto* panel = restored.findChild<bl::ui::TimelinePanel*>();
+        ASSERT_NE(panel, nullptr);
+        EXPECT_TRUE(panel->showFrames());
+        auto* frames = restored.findChild<QAction*>(
+            QStringLiteral("actionShowFrames"));
+        ASSERT_NE(frames, nullptr);
+        EXPECT_TRUE(frames->isChecked());
+    }
+}

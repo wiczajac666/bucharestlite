@@ -30,6 +30,7 @@
 #include <QPlainTextEdit>
 #include <QPoint>
 #include <QPushButton>
+#include <QScrollBar>
 #include <QSlider>
 #include <QSignalSpy>
 #include <QStringList>
@@ -1718,6 +1719,8 @@ TEST(TimelineEditState, DefaultsAndToolbarDriveState) {
     EXPECT_FALSE(fx.panel.rippleEnabled());
     EXPECT_TRUE(fx.panel.snapEnabled());
     EXPECT_TRUE(fx.panel.showClipLabels());
+    EXPECT_FALSE(fx.panel.showFrames());
+    EXPECT_DOUBLE_EQ(fx.panel.verticalZoom(), 1.0);
 
     auto* mode = fx.panel.findChild<QComboBox*>(QStringLiteral("editModeCombo"));
     ASSERT_NE(mode, nullptr);
@@ -1760,6 +1763,15 @@ TEST(TimelineEditState, DefaultsAndToolbarDriveState) {
     EXPECT_FALSE(fx.panel.showClipLabels());
     fx.panel.setShowClipLabels(true);
     EXPECT_TRUE(labels->isChecked());
+
+    auto* frames = fx.panel.findChild<QToolButton*>(
+        QStringLiteral("showFramesButton"));
+    ASSERT_NE(frames, nullptr);
+    EXPECT_FALSE(frames->isChecked());
+    frames->setChecked(true);
+    EXPECT_TRUE(fx.panel.showFrames());
+    fx.panel.setShowFrames(false);
+    EXPECT_FALSE(frames->isChecked());
 }
 
 TEST(TimelineEditState, SetTimelineStateAppliesEveryField) {
@@ -1770,6 +1782,8 @@ TEST(TimelineEditState, SetTimelineStateAppliesEveryField) {
     s.ripple = true;
     s.snap = false;
     s.showClipLabels = false;
+    s.showFrames = true;
+    s.verticalZoom = 2.0;
     s.laneOrder = tg::LaneOrder::Mixed;
     fx.panel.setTimelineState(s);
     EXPECT_EQ(fx.panel.editMode(), EditMode::Spacer);
@@ -1777,7 +1791,18 @@ TEST(TimelineEditState, SetTimelineStateAppliesEveryField) {
     EXPECT_TRUE(fx.panel.rippleEnabled());
     EXPECT_FALSE(fx.panel.snapEnabled());
     EXPECT_FALSE(fx.panel.showClipLabels());
+    EXPECT_TRUE(fx.panel.showFrames());
+    EXPECT_DOUBLE_EQ(fx.panel.verticalZoom(), 2.0);
     EXPECT_EQ(fx.panel.laneOrder(), tg::LaneOrder::Mixed);
+
+    auto* frames = fx.panel.findChild<QToolButton*>(
+        QStringLiteral("showFramesButton"));
+    ASSERT_NE(frames, nullptr);
+    EXPECT_TRUE(frames->isChecked());
+    auto* vZoom = fx.panel.findChild<QSlider*>(
+        QStringLiteral("verticalZoomSlider"));
+    ASSERT_NE(vZoom, nullptr);
+    EXPECT_GT(vZoom->value(), 0);
 }
 
 TEST(TimelineEditState, RangeModeDragSetsZoneAndClickClears) {
@@ -2900,4 +2925,127 @@ TEST(TimelinePanel, insertFromSourceAtZoneRefusesWithoutZone) {
 
     EXPECT_FALSE(fx.panel.insertFromSourceAtZone(id, fr(0), fr(6)));
     EXPECT_TRUE(fx.seq().videoTracks[0].clips().empty());
+}
+
+// --- Phase 3 item 5: timeline navigation aids -------------------------------
+
+TEST(TimelineNavigationAids, PositionLabelTracksPlayheadAndFramesToggle) {
+    Fixture fx;
+    fx.panel.setPlayhead(fr(10));
+    auto* pos = fx.panel.findChild<QLabel*>(QStringLiteral("timelinePosition"));
+    ASSERT_NE(pos, nullptr);
+    EXPECT_TRUE(pos->text().contains(QStringLiteral("00:00:00:10")))
+        << pos->text().toStdString();
+
+    auto* frames = fx.panel.findChild<QToolButton*>(
+        QStringLiteral("showFramesButton"));
+    ASSERT_NE(frames, nullptr);
+    frames->setChecked(true);
+    EXPECT_EQ(pos->text(), QStringLiteral("10"));
+    fx.panel.setPlayhead(fr(25));
+    EXPECT_EQ(pos->text(), QStringLiteral("25"));
+
+    frames->setChecked(false);
+    EXPECT_TRUE(pos->text().contains(QStringLiteral("00:00:01:01")))
+        << pos->text().toStdString();
+}
+
+TEST(TimelineNavigationAids, RulerLabelUnitFollowsFramesToggle) {
+    Fixture fx;
+    fx.panel.rebuildFromModel();
+
+    auto render = [&]() {
+        // A wide area covers the ruler so a major label ("00:00:00:00" vs "0")
+        // is present in the render.
+        const QRectF area(0.0, 0.0, 180.0, 28.0);
+        QImage out(360, 56, QImage::Format_ARGB32);
+        out.fill(QColor(10, 10, 10, 255));
+        QPainter p(&out);
+        fx.panel.view()->scene()->render(&p, QRectF(out.rect()), area,
+                                         Qt::IgnoreAspectRatio);
+        p.end();
+        return out;
+    };
+
+    const QImage timecode = render();
+    fx.panel.setShowFrames(true);
+    const QImage frames = render();
+    EXPECT_FALSE(timecode == frames);
+    fx.panel.setShowFrames(false);
+    EXPECT_TRUE(timecode == render());
+}
+
+TEST(TimelineNavigationAids, VerticalZoomChangesLaneGeometryAndScrollRange) {
+    Fixture fx;
+    // Make the timeline tall so the scaled lanes exceed the viewport.
+    for (int i = 0; i < 30; ++i) {
+        fx.controller.timeline().sequence().addVideoTrack(
+            QStringLiteral("V%1").arg(i + 2).toStdString());
+        fx.controller.timeline().sequence().addAudioTrack(
+            QStringLiteral("A%1").arg(i + 2).toStdString());
+    }
+    fx.panel.resize(1000, 260);
+    fx.panel.rebuildFromModel();
+    QApplication::processEvents();
+
+    auto* vZoom =
+        fx.panel.findChild<QSlider*>(QStringLiteral("verticalZoomSlider"));
+    ASSERT_NE(vZoom, nullptr);
+    EXPECT_DOUBLE_EQ(fx.panel.verticalZoom(), 1.0);
+
+    const qreal baseHeight = tg::laneHeight(fx.seq(), 0, fx.panel.videoCount());
+    EXPECT_DOUBLE_EQ(baseHeight, tg::kDefaultVideoLaneHeight);
+    const qreal baseTop = fx.panel.laneRect(1).top();
+    const qreal baseContent = tg::contentHeight(fx.seq(), 1.0);
+    EXPECT_DOUBLE_EQ(baseContent, fx.panel.view()->sceneRect().height());
+
+    auto* vbar = fx.panel.view()->verticalScrollBar();
+    ASSERT_NE(vbar, nullptr);
+    vbar->setValue(vbar->maximum());
+
+    // The ruler keeps its fixed height; only lane bands scale.
+    const qreal ruler = tg::kRulerHeight;
+    vZoom->setValue(vZoom->maximum());  // 4.0x
+    EXPECT_NEAR(fx.panel.verticalZoom(), 4.0, 1e-6);
+    EXPECT_NEAR(fx.panel.laneRect(1).top(),
+                ruler + (baseTop - ruler) * 4.0, 1e-3);
+    EXPECT_NEAR(tg::contentHeight(fx.seq(), fx.panel.verticalZoom()),
+                ruler + (baseContent - ruler) * 4.0, 1e-3);
+    EXPECT_DOUBLE_EQ(fx.panel.view()->sceneRect().height(),
+                     tg::contentHeight(fx.seq(), fx.panel.verticalZoom()));
+    // Taller content than the viewport drives a scrollable range.
+    EXPECT_GT(vbar->maximum(), 0);
+
+    vZoom->setValue(vZoom->minimum());  // 0.5x
+    EXPECT_NEAR(fx.panel.verticalZoom(), 0.5, 1e-6);
+    EXPECT_NEAR(fx.panel.laneRect(1).top(),
+                ruler + (baseTop - ruler) * 0.5, 1e-3);
+}
+
+TEST(TimelineNavigationAids, VerticalZoomKeepsHeaderAligned) {
+    Fixture fx;
+    for (int i = 0; i < 6; ++i) {
+        fx.controller.timeline().sequence().addVideoTrack(
+            QStringLiteral("V%1").arg(i + 2).toStdString());
+    }
+    fx.panel.rebuildFromModel();
+
+    auto* vZoom =
+        fx.panel.findChild<QSlider*>(QStringLiteral("verticalZoomSlider"));
+    ASSERT_NE(vZoom, nullptr);
+    auto* header = fx.panel.header();
+    ASSERT_NE(header, nullptr);
+
+    vZoom->setValue(vZoom->maximum());
+    const int vc = fx.panel.videoCount();
+    for (int flat = 0; flat < std::min(fx.panel.trackCount(), 5); ++flat) {
+        auto* row = header->rowFor(flat);
+        ASSERT_NE(row, nullptr) << flat;
+        const qreal expectedTop = tg::laneTop(
+            fx.seq(), flat, vc, fx.panel.laneOrder(), fx.panel.verticalZoom());
+        const qreal expectedH = tg::laneHeight(
+            fx.seq(), flat, vc, fx.panel.verticalZoom());
+        EXPECT_EQ(row->y(), static_cast<int>(std::lround(expectedTop)));
+        EXPECT_EQ(row->height(), static_cast<int>(std::lround(expectedH)));
+    }
 }

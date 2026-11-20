@@ -189,6 +189,12 @@ video underneath shows through). Titles are created from `File → Add Title…`
   **Timeline → Next Marker / Previous Marker**) to jump the playhead between
   markers, scrolling the timeline to keep the target visible. Markers are
   undoable and take part in snapping.
+- **Navigation aids.** The position readout in the timeline toolbar and the
+  ruler labels show the playhead in timecode by default; toggle **Frames** (or
+  **View → Show Positions in Frames**) to display plain frame counts instead.
+  The vertical slider at the right edge of the timeline scales lane heights for
+  tall projects (a view zoom — it does not change track heights in the model).
+  Both settings are remembered between sessions.
 
 ### Edit tools (edit modes)
 
