@@ -18,6 +18,14 @@
   labels now render distinctly (previously labels 6/7 aliased to 1/2). The
   `Labels` toolbar button and `View → Show Clip Labels & Effects` toggle these
   overlays without rebuilding the timeline, and persist the choice.
+- **Sequence marker comments, display toggle and navigation.** Sequence markers
+  now have an optional multi-line comment (right-click a marker → **Edit
+  Comment…**); existing projects load unchanged. Marker labels and comments are
+  drawn in a chip under the ruler flag, controlled by the `Comments` toolbar
+  button / `View → Show Marker Comments` and persisted across sessions.
+  `Timeline → Next Marker` (`]`) / `Previous Marker` (`[`) jump the playhead to
+  the nearest marker and scroll it into view. Marker comments are undoable and
+  serialize in the project file.
 - **Clip-level markers & comments.** Clips now carry their own markers with a
   label, multi-line comment and color. Right-click a clip to add a marker at the
   cursor, or right-click the marker triangle on a clip to edit or delete it;

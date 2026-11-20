@@ -82,13 +82,16 @@ protected:
 };
 
 // ---------------------------------------------------------------------------
-// Marker: a flagged frame (small triangle + thin guide).
+// Marker: a flagged frame (triangle in the ruler + thin guide + text chip).
 // ---------------------------------------------------------------------------
 class MarkerItem : public QGraphicsRectItem {
 public:
     MarkerItem(const bl::Marker& marker, qreal x, qreal topY, qreal height);
 
     const bl::Marker& marker() const { return marker_; }
+    // Phase 3 item 4: whether the marker's comment is drawn under its label.
+    void setShowComment(bool on) { showComment_ = on; }
+    bool showComment() const { return showComment_; }
 
 protected:
     void paint(QPainter* painter, const QStyleOptionGraphicsItem* option,
@@ -96,6 +99,7 @@ protected:
 
 private:
     bl::Marker marker_;
+    bool showComment_{true};
 };
 
 // ---------------------------------------------------------------------------

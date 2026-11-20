@@ -344,6 +344,8 @@ struct TimelineState {
     bool centerPlayhead{false}; // keep playhead centered during playback
     // Phase 3: draw the color-tag bar and effect-name chips on clips.
     bool showClipLabels{true};
+    // Phase 3 item 4: draw sequence-marker label/comment text on the ruler.
+    bool showMarkerComments{true};
     timeline_geometry::LaneOrder laneOrder{timeline_geometry::LaneOrder::Split};
 };
 
@@ -446,6 +448,11 @@ public:
     // existing items without rebuilding the scene (so a drag is not cancelled).
     bool showClipLabels() const { return state_.showClipLabels; }
     void setShowClipLabels(bool on);
+
+    // Phase 3 item 4: show/hide sequence-marker label + comment text on the
+    // ruler. Repaints the marker items without rebuilding the scene.
+    bool showMarkerComments() const { return state_.showMarkerComments; }
+    void setShowMarkerComments(bool on);
 
     // --- Timeline zone (Phase 4/5) -----------------------------------------
     // In/out range set by Range-mode ruler drags and the toolbar buttons; the
@@ -602,6 +609,16 @@ public:
     bool addMarkerAt(const bl::Time& at, const QString& label = QString());
     bool renameMarkerAt(const bl::Time& at, const QString& label);
     bool removeMarkerAt(const bl::Time& at);
+    // Phase 3 item 4: replace a marker whole (label/color/comment) in one undo
+    // step, or just its comment — the common case for the ruler text feature.
+    bool editMarkerAt(const bl::Time& at, const bl::Marker& revised);
+    bool setMarkerCommentAt(const bl::Time& at, const QString& comment);
+    // Move the playhead to the next/previous marker in timeline order. Markers
+    // are not kept sorted in the model, so the search scans for the closest
+    // position on the relevant side. Returns false (with a status message) when
+    // there is no such marker. Both also scroll the marker into view.
+    bool gotoNextMarker();
+    bool gotoPreviousMarker();
     // Position of the marker within `radiusFrames` of `at`, if any (used for
     // hit-testing marker clicks). Returns false when none is close enough.
     bool markerNear(const bl::Time& at, int radiusFrames,
@@ -679,12 +696,16 @@ private:
     friend class TrackHeaderRow;
     void onDocumentChanged();
     void updatePlayheadItem();
+    // Scroll the playhead into view after a jump (navigation actions).
+    void ensurePlayheadVisible();
     void updateZoneItem();
     void updateZoomLabel();
     // Emits editor_.lastError() (when non-empty) through statusMessage.
     void reportEditorError();
     // Repaint-only refresh of the clip label/effect overlays.
     void refreshClipLabels();
+    // Repaint-only refresh of sequence-marker text chips.
+    void refreshMarkerComments();
     // Shared body of liftZone()/extractZone(); refuses a missing/empty zone.
     bool applyZoneEdit(bool extract);
     // First audio lane that can hold `clip` at `start` (preferring the lane
@@ -713,6 +734,7 @@ private:
     QToolButton* avSplitBtn_{nullptr};
     QToolButton* useProxyBtn_{nullptr};
     QToolButton* clipLabelsBtn_{nullptr};
+    QToolButton* markerCommentsBtn_{nullptr};
     QToolButton* zoneInBtn_{nullptr};
     QToolButton* zoneOutBtn_{nullptr};
     QToolButton* clearZoneBtn_{nullptr};

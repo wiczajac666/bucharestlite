@@ -410,11 +410,42 @@ TEST(MarkerTest, DefaultAndParameterized) {
     Marker m;
     EXPECT_TRUE(m.label.empty());
     EXPECT_EQ(m.color, 0u);
+    EXPECT_TRUE(m.comment.empty());
 
     Marker m2(Time::fromFrame(50, fps24()), "Act1", 0xFF0000);
     EXPECT_EQ(m2.position, Time::fromFrame(50, fps24()));
     EXPECT_EQ(m2.label, "Act1");
     EXPECT_EQ(m2.color, 0xFF0000);
+
+    // The comment argument is appended after color, so existing positional
+    // callers keep their meaning.
+    Marker m3(Time::fromFrame(50, fps24()), "Act1", 0xFF0000, "the hook");
+    EXPECT_EQ(m3.comment, "the hook");
+}
+
+TEST(MarkerTest, CommentAffectsEquality) {
+    Marker a(Time::fromFrame(10, fps24()), "cue", 1, "note");
+    Marker b = a;
+    EXPECT_TRUE(a == b);
+    b.comment = "different";
+    // Undo snapshots compare whole Sequences; a comment-only edit must count.
+    EXPECT_FALSE(a == b);
+}
+
+TEST(MarkerJson, CommentRoundTripAndLegacyDefault) {
+    Marker m(Time::fromFrame(10, fps24()), "cue", 4, "a long note");
+    nlohmann::json j = m;
+    Marker copy = j.get<Marker>();
+    EXPECT_EQ(copy.position, m.position);
+    EXPECT_EQ(copy.label, "cue");
+    EXPECT_EQ(copy.color, 4u);
+    EXPECT_EQ(copy.comment, "a long note");
+
+    // Projects saved before Phase 3 item 4 have no "comment" key.
+    j.erase("comment");
+    Marker legacy = j.get<Marker>();
+    EXPECT_TRUE(legacy.comment.empty());
+    EXPECT_TRUE(legacy == Marker(Time::fromFrame(10, fps24()), "cue", 4));
 }
 
 TEST(JsonRoundTrip, Clip) {

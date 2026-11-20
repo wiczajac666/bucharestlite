@@ -211,9 +211,21 @@ target-track concept distinct from the active track.
   - [x] Tests: model round-trip, undo, snap, clipboard — Qt-free model/JSON
         tests, controller add/edit/remove/undo + snap + paste tests, offscreen
         panel attach/paint/hit-test tests and a dialog test. Full suite green.
-- [ ] **Sequence marker enhancements**
-  - [ ] Marker comment text display/toggle on ruler; navigation (next/prev)
-  - [ ] Tests: display state, navigation, persistence as designed
+- [x] **Sequence marker enhancements** — sequence markers now carry an optional
+      free-form `comment` (backward-compatible JSON: old markers load with an
+      empty comment, and comment-only edits are undoable). `MarkerItem` draws the
+      label and comment in a chip just below the ruler triangle; the `Comments`
+      toolbar button / `View → Show Marker Comments` toggle switches the text on
+      and off with a repaint only (no scene rebuild) and persists as
+      `timeline/showMarkerComments`. `Timeline → Next Marker` (`]`) and
+      `Previous Marker` (`[`) move the playhead to the nearest marker on that
+      side and scroll it into view, scanning the model rather than assuming the
+      markers are sorted.
+  - [x] Marker comment text display/toggle on ruler; navigation (next/prev)
+  - [x] Tests: display state, navigation, persistence as designed — Qt-free
+        marker comment/equality/JSON tests, a controller comment-only undo test,
+        offscreen panel toggle/pixel/navigation/hit-test tests, and MainWindow
+        action + QSettings round-trip tests. Full suite green.
 - [ ] **Timeline navigation aids**
   - [ ] Vertical zoombar / improved vertical navigation for tall timelines
   - [ ] Timecode-vs-frames position indicator toggle (consistent with rulers)

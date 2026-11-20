@@ -182,8 +182,13 @@ video underneath shows through). Titles are created from `File → Add Title…`
   (paste, add marker, select all), or a **marker** (rename, delete).
 - **Markers.** Press `M` (or **Timeline → Add Marker**) to drop a marker at the
   playhead, or use the ruler/empty-area menu to add one where you clicked.
-  Rename or delete a marker from its own right-click menu. Markers are undoable
-  and take part in snapping.
+  Rename or delete a marker from its own right-click menu; **Edit Comment…**
+  adds a multi-line note. A marker's label and comment appear in a small chip
+  under its ruler flag — toggle them with the **Comments** button in the
+  timeline toolbar or **View → Show Marker Comments**. Press `]` / `[` (or
+  **Timeline → Next Marker / Previous Marker**) to jump the playhead between
+  markers, scrolling the timeline to keep the target visible. Markers are
+  undoable and take part in snapping.
 
 ### Edit tools (edit modes)
 

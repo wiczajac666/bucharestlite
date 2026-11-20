@@ -164,7 +164,10 @@ void ZoneItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget
 MarkerItem::MarkerItem(const bl::Marker& marker, qreal x, qreal topY,
                        qreal height)
     : QGraphicsRectItem(x - 5.0, topY, 10.0, height), marker_(marker) {
-    setZValue(90);
+    // Above the opaque RulerItem (z=100) so the triangle in the ruler band is
+    // actually visible. Mouse input is handled by TimelineView, not the items.
+    setZValue(110);
+    setAcceptedMouseButtons(Qt::NoButton);
 }
 
 void MarkerItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget*) {
@@ -176,12 +179,53 @@ void MarkerItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidg
                              QPointF(r.right(), r.top()),
                              QPointF(r.center().x(), r.top() + 9.0)};
     painter->drawPolygon(triangle);
+
+    // Start the guide below the ruler so it never crosses the timecode row.
     QColor guide = base;
     guide.setAlpha(90);
     QPen pen(guide, 1.0, Qt::DashLine);
     painter->setPen(pen);
-    painter->drawLine(QPointF(r.center().x(), r.top() + 9.0),
+    const qreal guideTop =
+        std::max(r.top() + 9.0, timeline_geometry::kRulerHeight);
+    painter->drawLine(QPointF(r.center().x(), guideTop),
                       QPointF(r.center().x(), r.bottom()));
+
+    // Phase 3 item 4: label (and optional comment) in a chip just under the
+    // ruler. The triangle marks the exact frame in the ruler band; placing the
+    // text below it avoids colliding with the timecode labels.
+    const QString label = QString::fromStdString(marker_.label);
+    const QString comment = showComment_
+                                ? QString::fromStdString(marker_.comment)
+                                : QString();
+    if (label.isEmpty() && comment.isEmpty()) return;
+
+    QFont font = painter->font();
+    font.setPixelSize(9);
+    painter->setFont(font);
+    const QFontMetrics fm(font);
+    const QString first = label.isEmpty() ? comment : label;
+    const QString second = (!label.isEmpty() && !comment.isEmpty())
+                               ? comment : QString();
+    int textW = fm.horizontalAdvance(first);
+    if (!second.isEmpty()) {
+        textW = std::max(textW, fm.horizontalAdvance(second));
+    }
+
+    const qreal x = r.left() + 8.0;
+    const qreal y = timeline_geometry::kRulerHeight + 2.0;
+    const qreal chipH = second.isEmpty() ? 12.0 : 22.0;
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(QColor(0x16, 0x1a, 0x1e, 220));
+    painter->drawRoundedRect(QRectF(x - 2.0, y, textW + 6.0, chipH), 2.0, 2.0);
+
+    painter->setPen(base);
+    painter->drawText(QPointF(x, y + 9.0), first);
+    if (!second.isEmpty()) {
+        QColor dim = base;
+        dim.setAlpha(200);
+        painter->setPen(dim);
+        painter->drawText(QPointF(x, y + 19.0), second);
+    }
 }
 
 // ---------------------------------------------------------------------------

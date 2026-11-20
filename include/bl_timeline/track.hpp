@@ -12,18 +12,27 @@ namespace bl {
 
 enum class TrackKind { Video, Audio };
 
+// A sequence marker (Phase 3 item 4). `comment` is appended after `color` so
+// existing positional constructions stay valid; the JSON reader defaults it
+// to empty so projects saved by older builds still load unchanged.
 struct Marker {
     Time position{};
     std::string label;
     uint32_t color{0};
+    std::string comment;
 
     Marker() = default;
-    Marker(Time pos, std::string lbl, uint32_t col = 0)
-        : position(pos), label(std::move(lbl)), color(col) {}
+    Marker(Time pos, std::string lbl, uint32_t col = 0,
+           std::string cmt = {})
+        : position(pos), label(std::move(lbl)), color(col),
+          comment(std::move(cmt)) {}
 };
 
+// Include the comment: undo snapshots compare whole Sequences, so a
+// comment-only edit must register as a change.
 inline bool operator==(const Marker& a, const Marker& b) {
-    return a.position == b.position && a.label == b.label && a.color == b.color;
+    return a.position == b.position && a.label == b.label &&
+           a.color == b.color && a.comment == b.comment;
 }
 
 template <typename ClipType>

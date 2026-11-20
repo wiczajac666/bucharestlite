@@ -58,7 +58,8 @@ void to_json(nlohmann::json& j, const Marker& m) {
            {"rate", {{"num", m.position.rate.num},
                      {"den", m.position.rate.den}}}}},
          {"label", m.label},
-         {"color", m.color}};
+         {"color", m.color},
+         {"comment", m.comment}};
 }
 
 void from_json(const nlohmann::json& j, Marker& m) {
@@ -69,6 +70,8 @@ void from_json(const nlohmann::json& j, Marker& m) {
         j.at("position").at("rate").at("den").get<int64_t>();
     m.label = j.value("label", "");
     m.color = j.value("color", 0u);
+    // Older projects predate marker comments.
+    m.comment = j.value("comment", "");
 }
 
 } // namespace bl

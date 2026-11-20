@@ -74,6 +74,7 @@ constexpr const char* kInsertModeKey = "timeline/insertMode";
 constexpr const char* kRippleKey = "timeline/ripple";
 constexpr const char* kSnapKey = "timeline/snap";
 constexpr const char* kShowClipLabelsKey = "timeline/showClipLabels";
+constexpr const char* kShowMarkerCommentsKey = "timeline/showMarkerComments";
 
 QString untitledTitle() {
     return QStringLiteral("Untitled");
@@ -347,6 +348,10 @@ void MainWindow::buildDocks() {
             const QSignalBlocker blocker(showClipLabelsAction_);
             showClipLabelsAction_->setChecked(state.showClipLabels);
         }
+        if (showMarkerCommentsAction_) {
+            const QSignalBlocker blocker(showMarkerCommentsAction_);
+            showMarkerCommentsAction_->setChecked(state.showMarkerComments);
+        }
         settings_->setValue(kEditModeKey,
                             static_cast<int>(state.editMode));
         settings_->setValue(kInsertModeKey, state.insertMode);
@@ -356,6 +361,7 @@ void MainWindow::buildDocks() {
         settings_->setValue("timeline/useProxies", state.useProxies);
         settings_->setValue("timeline/centerPlayhead", state.centerPlayhead);
         settings_->setValue(kShowClipLabelsKey, state.showClipLabels);
+        settings_->setValue(kShowMarkerCommentsKey, state.showMarkerComments);
     });
 
     connect(timelinePanel_, &TimelinePanel::zoneChanged, this,
@@ -1137,6 +1143,43 @@ void MainWindow::buildActions() {
     registerAction(addMarkerAction_, "timeline.marker_add", tr("Add Marker"),
                    QKeySequence(Qt::Key_M));
 
+    // Phase 3 item 4: jump between markers in timeline order. Bracket keys are
+    // the common NLE convention and are not used by any other action here.
+    nextMarkerAction_ = new QAction(tr("Next Marker"), this);
+    nextMarkerAction_->setObjectName(QStringLiteral("actionNextMarker"));
+    connect(nextMarkerAction_, &QAction::triggered, this, [this] {
+        if (timelinePanel_) timelinePanel_->gotoNextMarker();
+    });
+    registerAction(nextMarkerAction_, "timeline.marker_next",
+                   tr("Next Marker"),
+                   QKeySequence(Qt::Key_BracketRight));
+
+    previousMarkerAction_ = new QAction(tr("Previous Marker"), this);
+    previousMarkerAction_->setObjectName(
+        QStringLiteral("actionPreviousMarker"));
+    connect(previousMarkerAction_, &QAction::triggered, this, [this] {
+        if (timelinePanel_) timelinePanel_->gotoPreviousMarker();
+    });
+    registerAction(previousMarkerAction_, "timeline.marker_previous",
+                   tr("Previous Marker"),
+                   QKeySequence(Qt::Key_BracketLeft));
+
+    showMarkerCommentsAction_ =
+        new QAction(tr("Show Marker Comments"), this);
+    showMarkerCommentsAction_->setObjectName(
+        QStringLiteral("actionShowMarkerComments"));
+    showMarkerCommentsAction_->setCheckable(true);
+    showMarkerCommentsAction_->setChecked(true);
+    connect(showMarkerCommentsAction_, &QAction::toggled, this,
+            [this](bool on) {
+                if (!timelinePanel_) return;
+                TimelineState state = timelinePanel_->timelineState();
+                state.showMarkerComments = on;
+                timelinePanel_->setTimelineState(state);
+            });
+    registerAction(showMarkerCommentsAction_, "timeline.show_marker_comments",
+                   tr("Show Marker Comments"), QKeySequence());
+
     // Three-point editing. Zone in/out already own plain I/O, so the source
     // marks use Alt+I/Alt+O; insert/overwrite use the NLE-standard , and .
     // keys.
@@ -1298,6 +1341,7 @@ void MainWindow::buildMenuAndToolbar() {
     viewMenu->addAction(fitTimelineAction_);
     viewMenu->addAction(centerPlayheadAction_);
     viewMenu->addAction(showClipLabelsAction_);
+    viewMenu->addAction(showMarkerCommentsAction_);
     viewMenu->addAction(collapseAllTracksAction_);
     viewMenu->addAction(expandAllTracksAction_);
     viewMenu->addAction(fullScreenPreviewAction_);
@@ -1311,6 +1355,8 @@ void MainWindow::buildMenuAndToolbar() {
     timelineMenu->addAction(pasteAction_);
     timelineMenu->addSeparator();
     timelineMenu->addAction(addMarkerAction_);
+    timelineMenu->addAction(nextMarkerAction_);
+    timelineMenu->addAction(previousMarkerAction_);
     timelineMenu->addSeparator();
     timelineMenu->addAction(zoneInAction_);
     timelineMenu->addAction(zoneOutAction_);
@@ -1866,6 +1912,7 @@ void MainWindow::persistLayout() {
         settings_->setValue(kRippleKey, state.ripple);
         settings_->setValue(kSnapKey, state.snap);
         settings_->setValue(kShowClipLabelsKey, state.showClipLabels);
+        settings_->setValue(kShowMarkerCommentsKey, state.showMarkerComments);
         settings_->setValue(QStringLiteral("timeline/activeTrack"),
                             timelinePanel_->activeTrack());
     }
@@ -1916,6 +1963,8 @@ void MainWindow::maybeRestoreLayout() {
             settings_->value("timeline/centerPlayhead", false).toBool();
         timelineState.showClipLabels =
             settings_->value(kShowClipLabelsKey, true).toBool();
+        timelineState.showMarkerComments =
+            settings_->value(kShowMarkerCommentsKey, true).toBool();
         timelinePanel_->setTimelineState(timelineState);
         if (centerPlayheadAction_) {
             centerPlayheadAction_->setChecked(timelineState.centerPlayhead);
@@ -1923,6 +1972,11 @@ void MainWindow::maybeRestoreLayout() {
         if (showClipLabelsAction_) {
             const QSignalBlocker blocker(showClipLabelsAction_);
             showClipLabelsAction_->setChecked(timelineState.showClipLabels);
+        }
+        if (showMarkerCommentsAction_) {
+            const QSignalBlocker blocker(showMarkerCommentsAction_);
+            showMarkerCommentsAction_->setChecked(
+                timelineState.showMarkerComments);
         }
         const int activeTrack =
             settings_->value(QStringLiteral("timeline/activeTrack"), 0).toInt();

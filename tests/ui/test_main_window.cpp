@@ -304,6 +304,13 @@ TEST(MainWindow, editStatePersistsAcrossWindows) {
         EXPECT_TRUE(labels->isChecked());
         labels->setChecked(false);
         EXPECT_FALSE(panel->showClipLabels());
+        // Marker comments have their own persisted View toggle.
+        auto* comments = window.findChild<QAction*>(
+            QStringLiteral("actionShowMarkerComments"));
+        ASSERT_NE(comments, nullptr);
+        EXPECT_TRUE(comments->isChecked());
+        comments->setChecked(false);
+        EXPECT_FALSE(panel->showMarkerComments());
         // Written as soon as it changes (survives crashes).
         EXPECT_EQ(storage.settings.value(QStringLiteral("timeline/editMode")).toInt(),
                   static_cast<int>(bl::ui::TimelineState::EditMode::Slip));
@@ -313,6 +320,10 @@ TEST(MainWindow, editStatePersistsAcrossWindows) {
             QStringLiteral("timeline/showClipLabels")));
         EXPECT_FALSE(storage.settings.value(
             QStringLiteral("timeline/showClipLabels")).toBool());
+        EXPECT_TRUE(storage.settings.contains(
+            QStringLiteral("timeline/showMarkerComments")));
+        EXPECT_FALSE(storage.settings.value(
+            QStringLiteral("timeline/showMarkerComments")).toBool());
     }
 
     {
@@ -329,11 +340,49 @@ TEST(MainWindow, editStatePersistsAcrossWindows) {
             QStringLiteral("actionShowClipLabels"));
         ASSERT_NE(restoredLabels, nullptr);
         EXPECT_FALSE(restoredLabels->isChecked());
+        EXPECT_FALSE(panel->showMarkerComments());
+        auto* restoredComments = restored.findChild<QAction*>(
+            QStringLiteral("actionShowMarkerComments"));
+        ASSERT_NE(restoredComments, nullptr);
+        EXPECT_FALSE(restoredComments->isChecked());
         auto* combo = panel->findChild<QComboBox*>(QStringLiteral("editModeCombo"));
         ASSERT_NE(combo, nullptr);
         EXPECT_EQ(combo->currentData().toInt(),
                   static_cast<int>(bl::ui::TimelineState::EditMode::Slip));
     }
+}
+
+TEST(MainWindow, markerNavigationActionsMovePlayhead) {
+    ensureApp();
+    QTemporaryDir dir;
+    TempSettings storage(dir);
+    bl::ui::MainWindow window(nullptr, &storage.settings);
+    window.setPromptOnCloseEnabled(false);
+    auto* panel = window.findChild<bl::ui::TimelinePanel*>();
+    ASSERT_NE(panel, nullptr);
+
+    QAction* next = findAction(window, QStringLiteral("Next Marker"));
+    QAction* previous = findAction(window, QStringLiteral("Previous Marker"));
+    ASSERT_NE(next, nullptr);
+    ASSERT_NE(previous, nullptr);
+    EXPECT_EQ(next->shortcut(), QKeySequence(Qt::Key_BracketRight));
+    EXPECT_EQ(previous->shortcut(), QKeySequence(Qt::Key_BracketLeft));
+
+    const bl::Rational rate{1'000'000, 1};
+    // Out of order on purpose: navigation must not trust the stored order.
+    window.controller()->timeline().addMarker(
+        bl::Marker(bl::Time::fromTicks(20'000'000, rate), "b"));
+    window.controller()->timeline().addMarker(
+        bl::Marker(bl::Time::fromTicks(10'000'000, rate), "a"));
+    panel->rebuildFromModel();
+
+    panel->setPlayhead(bl::Time::fromTicks(0, rate));
+    next->trigger();
+    EXPECT_EQ(panel->playhead().ticks, 10'000'000);
+    next->trigger();
+    EXPECT_EQ(panel->playhead().ticks, 20'000'000);
+    previous->trigger();
+    EXPECT_EQ(panel->playhead().ticks, 10'000'000);
 }
 
 TEST(MainWindow, zoneActionsDriveTimelineZone) {

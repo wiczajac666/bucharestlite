@@ -40,6 +40,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <utility>
 
 namespace bl::ui {
@@ -1956,6 +1957,7 @@ void TimelineView::contextMenuEvent(QContextMenuEvent* event) {
             idx ? QString::fromStdString(host_->sequence().markers[*idx].label)
                 : QString();
         QAction* renameAct = menu.addAction(tr("Rename Marker…"));
+        QAction* commentAct = menu.addAction(tr("Edit Comment…"));
         QAction* deleteAct = menu.addAction(tr("Delete Marker"));
         QAction* picked = menu.exec(event->globalPos());
         if (picked == renameAct) {
@@ -1964,6 +1966,13 @@ void TimelineView::contextMenuEvent(QContextMenuEvent* event) {
                 QInputDialog::getText(this, tr("Rename Marker"), tr("Label:"),
                                       QLineEdit::Normal, label, &ok);
             if (ok) host_->renameMarkerAt(markerPos, text);
+        } else if (picked == commentAct && idx) {
+            const QString oldComment = QString::fromStdString(
+                host_->sequence().markers[*idx].comment);
+            bool ok = false;
+            const QString text = QInputDialog::getMultiLineText(
+                this, tr("Marker Comment"), tr("Comment:"), oldComment, &ok);
+            if (ok) host_->setMarkerCommentAt(markerPos, text);
         } else if (picked == deleteAct) {
             host_->removeMarkerAt(markerPos);
         }
@@ -2326,6 +2335,18 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
     clipLabelsBtn_->setAutoRaise(true);
     clipLabelsBtn_->setFocusPolicy(Qt::NoFocus);
 
+    // Phase 3 item 4: toggle marker label/comment text on the ruler.
+    markerCommentsBtn_ = new QToolButton(this);
+    markerCommentsBtn_->setObjectName(
+        QStringLiteral("markerCommentsButton"));
+    markerCommentsBtn_->setText(tr("Comments"));
+    markerCommentsBtn_->setToolTip(
+        tr("Show sequence marker labels and comments on the ruler"));
+    markerCommentsBtn_->setCheckable(true);
+    markerCommentsBtn_->setChecked(state_.showMarkerComments);
+    markerCommentsBtn_->setAutoRaise(true);
+    markerCommentsBtn_->setFocusPolicy(Qt::NoFocus);
+
     // Timeline zone (Phase 5): set the in/out points at the playhead and clear.
     zoneInBtn_ = new QToolButton(this);
     zoneInBtn_->setObjectName(QStringLiteral("zoneInButton"));
@@ -2393,6 +2414,8 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
             &TimelinePanel::setUseProxies);
     connect(clipLabelsBtn_, &QToolButton::toggled, this,
             &TimelinePanel::setShowClipLabels);
+    connect(markerCommentsBtn_, &QToolButton::toggled, this,
+            &TimelinePanel::setShowMarkerComments);
     connect(zoneInBtn_, &QToolButton::clicked, this,
             [this] { setZoneIn(playhead_); });
     connect(zoneOutBtn_, &QToolButton::clicked, this,
@@ -2410,6 +2433,7 @@ TimelinePanel::TimelinePanel(ProjectController* controller, QWidget* parent)
     topBar->addWidget(avSplitBtn_);
     topBar->addWidget(useProxyBtn_);
     topBar->addWidget(clipLabelsBtn_);
+    topBar->addWidget(markerCommentsBtn_);
     topBar->addSpacing(8);
     topBar->addWidget(zoneInBtn_);
     topBar->addWidget(zoneOutBtn_);
@@ -2599,6 +2623,7 @@ void TimelinePanel::setTimelineState(const TimelineState& state) {
     setAutoSplitAv(state.autoSplitAv);
     setUseProxies(state.useProxies);
     setShowClipLabels(state.showClipLabels);
+    setShowMarkerComments(state.showMarkerComments);
     state_.centerPlayhead = state.centerPlayhead;
     setSnapEnabled(state.snap);
 }
@@ -2675,6 +2700,29 @@ void TimelinePanel::refreshClipLabels() {
         item->setShowLabels(state_.showClipLabels);
         item->setEffectDisplays(bl::clipEffectDisplays(item->clip().effects));
         item->update();
+    }
+}
+
+void TimelinePanel::setShowMarkerComments(bool on) {
+    if (state_.showMarkerComments == on) return;
+    state_.showMarkerComments = on;
+    if (markerCommentsBtn_) {
+        const QSignalBlocker blocker(markerCommentsBtn_);
+        markerCommentsBtn_->setChecked(on);
+    }
+    refreshMarkerComments();
+    emit timelineStateChanged();
+}
+
+void TimelinePanel::refreshMarkerComments() {
+    if (!scene_) return;
+    // Marker items are rebuilt on model changes; walk the scene so the toggle
+    // works on the items currently being displayed (no rebuild, no lost drag).
+    for (QGraphicsItem* item : scene_->items()) {
+        auto* marker = dynamic_cast<MarkerItem*>(item);
+        if (!marker) continue;
+        marker->setShowComment(state_.showMarkerComments);
+        marker->update();
     }
 }
 
@@ -3198,6 +3246,76 @@ bool TimelinePanel::markerNear(const bl::Time& at, int radiusFrames,
     return found;
 }
 
+bool TimelinePanel::editMarkerAt(const bl::Time& at,
+                                 const bl::Marker& revised) {
+    if (!controller_) return false;
+    if (!editor_.editTimelineMarker(at, revised)) {
+        reportEditorError();
+        return false;
+    }
+    return true;
+}
+
+bool TimelinePanel::setMarkerCommentAt(const bl::Time& at,
+                                       const QString& comment) {
+    const auto idx = sequence().findMarkerAt(at);
+    if (!idx) {
+        if (controller_) emit controller_->statusMessage(tr("No marker there"));
+        return false;
+    }
+    bl::Marker revised = sequence().markers[*idx];
+    revised.comment = comment.toStdString();
+    return editMarkerAt(at, revised);
+}
+
+// Markers are stored in insertion order, not sorted by position, so both
+// navigation directions scan every marker rather than assuming file order.
+// `eligible` picks the side of `from`; `closer` ranks candidates on that side.
+template <typename Eligible, typename Closer>
+static bool findAdjacentMarker(const std::vector<bl::Marker>& markers,
+                               const bl::Time& from, Eligible eligible,
+                               Closer closer, bl::Time& out) {
+    bool found = false;
+    bl::Time best;
+    for (const bl::Marker& m : markers) {
+        if (!eligible(m.position, from)) continue;
+        if (!found || closer(m.position, best)) {
+            out = m.position;
+            best = m.position;
+            found = true;
+        }
+    }
+    return found;
+}
+
+bool TimelinePanel::gotoNextMarker() {
+    bl::Time target;
+    if (!findAdjacentMarker(sequence().markers, playhead(),
+                            std::greater<bl::Time>(), std::less<bl::Time>(),
+                            target)) {
+        if (controller_) emit controller_->statusMessage(tr("No next marker"));
+        return false;
+    }
+    setPlayhead(target);
+    ensurePlayheadVisible();
+    return true;
+}
+
+bool TimelinePanel::gotoPreviousMarker() {
+    bl::Time target;
+    if (!findAdjacentMarker(sequence().markers, playhead(),
+                            std::less<bl::Time>(), std::greater<bl::Time>(),
+                            target)) {
+        if (controller_) {
+            emit controller_->statusMessage(tr("No previous marker"));
+        }
+        return false;
+    }
+    setPlayhead(target);
+    ensurePlayheadVisible();
+    return true;
+}
+
 // --- Clip-local markers (Phase 3 item 3) -----------------------------------
 
 bool TimelinePanel::addClipMarker(const bl::ClipId& clipId,
@@ -3597,7 +3715,10 @@ void TimelinePanel::rebuildFromModel() {
     buildLane(seq.audioTracks, false);
 
     for (const auto& marker : seq.markers) {
-        scene_->addItem(new MarkerItem(marker, xForTime(marker.position), 0, height));
+        auto* markerItem =
+            new MarkerItem(marker, xForTime(marker.position), 0, height);
+        markerItem->setShowComment(state_.showMarkerComments);
+        scene_->addItem(markerItem);
     }
 
     zoneItem_ = new ZoneItem;
@@ -3914,6 +4035,17 @@ void TimelinePanel::updatePlayheadItem() {
     if (playheadItem_) {
         playheadItem_->setPos(xForTime(playhead_), 0);
     }
+}
+
+void TimelinePanel::ensurePlayheadVisible() {
+    if (!view_) return;
+    const qreal x = xForTime(playhead_);
+    const QRectF visible =
+        view_->mapToScene(view_->viewport()->rect()).boundingRect();
+    // Leave a small margin so the marker text chip beside the playhead is
+    // readable too; only scroll when the target is actually off-screen.
+    if (x >= visible.left() + 24.0 && x <= visible.right() - 24.0) return;
+    view_->centerOn(x, visible.center().y());
 }
 
 void TimelinePanel::setClipProxyOverride(const bl::ClipId& id, std::optional<bool> useProxy) {

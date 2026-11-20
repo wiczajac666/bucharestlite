@@ -197,6 +197,9 @@ private:
     QAction* expandAllTracksAction_{nullptr};
     QAction* centerPlayheadAction_{nullptr};
     QAction* showClipLabelsAction_{nullptr};
+    QAction* showMarkerCommentsAction_{nullptr};
+    QAction* nextMarkerAction_{nullptr};
+    QAction* previousMarkerAction_{nullptr};
     QAction* razorAction_{nullptr};
     QAction* slideAction_{nullptr};
     QAction* cycleEditModeAction_{nullptr};

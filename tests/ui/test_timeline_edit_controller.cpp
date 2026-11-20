@@ -870,6 +870,21 @@ TEST(TimelineEditControllerMarkers, AddEditRemoveWithUndo) {
     EXPECT_EQ(f.timeline.sequence().markers[0].label, "moved");
 }
 
+TEST(TimelineEditControllerMarkers, CommentOnlyEditIsUndoable) {
+    Fixture f;
+    ASSERT_TRUE(f.editor.addTimelineMarker(
+        bl::Marker(frames(10), "m", 1, "first")));
+    bl::Marker revised = f.timeline.sequence().markers[0];
+    revised.comment = "second";
+
+    ASSERT_TRUE(f.editor.editTimelineMarker(frames(10), revised));
+    EXPECT_EQ(f.timeline.sequence().markers[0].comment, "second");
+    f.undoStack.undo();
+    EXPECT_EQ(f.timeline.sequence().markers[0].comment, "first");
+    f.undoStack.redo();
+    EXPECT_EQ(f.timeline.sequence().markers[0].comment, "second");
+}
+
 TEST(TimelineEditControllerClipMarkers, AddEditRemoveWithUndo) {
     Fixture f;
     ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 40)));

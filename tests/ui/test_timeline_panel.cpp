@@ -32,6 +32,7 @@
 #include <QPushButton>
 #include <QSlider>
 #include <QSignalSpy>
+#include <QStringList>
 #include <QTemporaryDir>
 #include <QToolButton>
 #include <QUrl>
@@ -2369,6 +2370,121 @@ TEST(ClipMarkerDialog, EditsLabelCommentAndColor) {
     EXPECT_EQ(dialog.label(), QStringLiteral("new"));
     EXPECT_EQ(dialog.comment(), QStringLiteral("long note"));
     EXPECT_EQ(dialog.color(), 5u);
+}
+
+TEST(TimelinePanel, MarkerCommentsToggleUpdatesItemsWithoutRebuild) {
+    Fixture fx;
+    fx.controller.timeline().addMarker(
+        bl::Marker(fr(10), "label", 4, "a comment"));
+    fx.panel.rebuildFromModel();
+
+    auto markerItem = [&]() -> bl::ui::MarkerItem* {
+        for (QGraphicsItem* item : fx.panel.view()->scene()->items()) {
+            if (auto* m = dynamic_cast<bl::ui::MarkerItem*>(item)) return m;
+        }
+        return nullptr;
+    };
+    bl::ui::MarkerItem* item = markerItem();
+    ASSERT_NE(item, nullptr);
+    EXPECT_TRUE(item->showComment());
+
+    auto* button = fx.panel.findChild<QToolButton*>(
+        QStringLiteral("markerCommentsButton"));
+    ASSERT_NE(button, nullptr);
+    EXPECT_TRUE(button->isChecked());
+
+    button->setChecked(false);
+    EXPECT_FALSE(fx.panel.showMarkerComments());
+    EXPECT_FALSE(item->showComment());
+    // Repaint-only: the same item instance must remain in the scene.
+    EXPECT_EQ(markerItem(), item);
+
+    fx.panel.setShowMarkerComments(true);
+    EXPECT_TRUE(button->isChecked());
+    EXPECT_TRUE(item->showComment());
+}
+
+TEST(TimelinePanel, MarkerCommentsToggleChangesRulerTextPixels) {
+    Fixture fx;
+    fx.controller.timeline().addMarker(
+        bl::Marker(fr(10), "label", 4, "a long comment"));
+    fx.panel.rebuildFromModel();
+
+    auto render = [&]() {
+        const QRectF area(fx.sceneX(10) - 5.0, 0.0, 260.0, 50.0);
+        QImage out(520, 100, QImage::Format_ARGB32);
+        out.fill(QColor(10, 10, 10, 255));
+        QPainter p(&out);
+        fx.panel.view()->scene()->render(&p, QRectF(out.rect()), area,
+                                         Qt::IgnoreAspectRatio);
+        p.end();
+        return out;
+    };
+
+    const QImage withComment = render();
+    fx.panel.setShowMarkerComments(false);
+    const QImage withoutComment = render();
+    EXPECT_FALSE(withComment == withoutComment);
+
+    fx.panel.setShowMarkerComments(true);
+    EXPECT_TRUE(withComment == render());
+}
+
+TEST(TimelinePanel, MarkerNavigationVisitsMarkersInTimelineOrder) {
+    Fixture fx;
+    // Deliberately out of order: the model does not sort markers, so next/prev
+    // must scan rather than trust the stored order.
+    fx.controller.timeline().addMarker(bl::Marker(fr(30), "c"));
+    fx.controller.timeline().addMarker(bl::Marker(fr(10), "a"));
+    fx.controller.timeline().addMarker(bl::Marker(fr(20), "b"));
+    fx.panel.rebuildFromModel();
+
+    fx.panel.setPlayhead(fr(0));
+    ASSERT_TRUE(fx.panel.gotoNextMarker());
+    EXPECT_EQ(frameOf(fx.panel.playhead()), 10);
+    ASSERT_TRUE(fx.panel.gotoNextMarker());
+    EXPECT_EQ(frameOf(fx.panel.playhead()), 20);
+    ASSERT_TRUE(fx.panel.gotoPreviousMarker());
+    EXPECT_EQ(frameOf(fx.panel.playhead()), 10);
+
+    fx.panel.setPlayhead(fr(35));
+    EXPECT_FALSE(fx.panel.gotoNextMarker());
+    EXPECT_EQ(frameOf(fx.panel.playhead()), 35);
+    fx.panel.setPlayhead(fr(5));
+    EXPECT_FALSE(fx.panel.gotoPreviousMarker());
+    EXPECT_EQ(frameOf(fx.panel.playhead()), 5);
+}
+
+TEST(TimelinePanel, MarkerNavigationWithoutMarkersReportsRefusal) {
+    Fixture fx;
+    QStringList messages;
+    QObject context;
+    QObject::connect(&fx.controller, &bl::ui::ProjectController::statusMessage,
+                     &context, [&messages](const QString& m) {
+                         messages.push_back(m);
+                     });
+
+    EXPECT_FALSE(fx.panel.gotoNextMarker());
+    EXPECT_TRUE(messages.contains(QStringLiteral("No next marker")));
+    EXPECT_FALSE(fx.panel.gotoPreviousMarker());
+    EXPECT_TRUE(messages.contains(QStringLiteral("No previous marker")));
+}
+
+TEST(TimelinePanel, setMarkerCommentAtEditsAndUndoes) {
+    Fixture fx;
+    fx.controller.timeline().addMarker(
+        bl::Marker(fr(10), "m", 1, "old note"));
+    fx.panel.rebuildFromModel();
+
+    ASSERT_TRUE(fx.panel.setMarkerCommentAt(fr(10),
+                                            QStringLiteral("new note")));
+    ASSERT_EQ(fx.seq().markers.size(), 1u);
+    EXPECT_EQ(fx.seq().markers[0].comment, "new note");
+
+    fx.controller.undoStack().undo();
+    ASSERT_EQ(fx.seq().markers.size(), 1u);
+    EXPECT_EQ(fx.seq().markers[0].comment, "old note");
+    EXPECT_FALSE(fx.panel.setMarkerCommentAt(fr(99), QStringLiteral("x")));
 }
 
 TEST(TimelinePanel, clipboardShortcutsCopyCutPaste) {

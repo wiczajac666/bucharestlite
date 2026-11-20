@@ -181,3 +181,15 @@ tests, a green `ctest --preset linux-release`, doc updates and a commit.
   comment, color) is reached from the clip context menu, where clip markers win
   over sequence markers on hit-test. 3 model/JSON tests, 3 controller tests and
   4 offscreen UI tests; full suite **1022/1022 green** (5 GL skips).
+- [x] **Phase 3 — sequence marker enhancements** — `bl::Marker` gains an
+  optional `comment` (appended to its constructor and serialized
+  backward-compatibly; `operator==` includes it so comment-only edits are
+  undoable). `MarkerItem` now paints its triangle above the ruler and shows a
+  label/comment chip below it; the `Comments` toolbar button /
+  `View → Show Marker Comments` toggle repaints the items without a scene
+  rebuild and persists as `timeline/showMarkerComments`. `Timeline → Next /
+  Previous Marker` (`]` / `[`) move the playhead to the nearest marker on that
+  side (scanning the unsorted model) and scroll it into view; right-clicking a
+  marker offers **Edit Comment…**. 2 model/JSON tests, 1 controller undo test,
+  5 offscreen panel tests and 1 MainWindow action test, plus extended state and
+  persistence assertions; full suite **1031/1031 green** (5 GL skips).
