@@ -2227,6 +2227,63 @@ TEST(SubtitleClipJson, AbsentFieldsBackwardCompat) {
     EXPECT_FALSE(c2.subtitleStyle.has_value());
 }
 
+TEST(ClipMarkerModel, EqualityAndFindByOffset) {
+    Clip c = makeClip("C", 0, 100);
+    const Duration at = Duration::fromFrames(12, fps24());
+    EXPECT_FALSE(c.findMarkerAt(at).has_value());
+
+    c.markers.push_back(ClipMarker(at, "hook", "check the hook", 3));
+    const auto idx = c.findMarkerAt(at);
+    ASSERT_TRUE(idx.has_value());
+    EXPECT_EQ(*idx, 0u);
+    EXPECT_EQ(c.markers[0].label, "hook");
+    EXPECT_EQ(c.markers[0].comment, "check the hook");
+    EXPECT_EQ(c.markers[0].color, 3u);
+
+    // Equality must notice comment changes: undo snapshots compare whole
+    // Clips, and a comment-only edit still needs to be undoable.
+    Clip same = c;
+    EXPECT_TRUE(same == c);
+    same.markers[0].comment = "different";
+    EXPECT_FALSE(same == c);
+}
+
+TEST(ClipMarkerJson, RoundTripAndLegacyClipDefaults) {
+    Clip c = makeClip("C", 0, 100);
+    c.markers.push_back(ClipMarker(Duration::fromFrames(12, fps24()), "hook",
+                                   "check the hook", 5));
+    c.markers.push_back(ClipMarker(Duration::fromFrames(36, fps24()), "outro"));
+
+    nlohmann::json j = c;
+    ASSERT_TRUE(j.contains("markers"));
+    ASSERT_EQ(j["markers"].size(), 2u);
+    Clip c2 = j.get<Clip>();
+    ASSERT_EQ(c2.markers.size(), 2u);
+    EXPECT_EQ(c2.markers[0].offset, Duration::fromFrames(12, fps24()));
+    EXPECT_EQ(c2.markers[0].label, "hook");
+    EXPECT_EQ(c2.markers[0].comment, "check the hook");
+    EXPECT_EQ(c2.markers[0].color, 5u);
+    EXPECT_EQ(c2.markers[1].comment, "");
+
+    // Old clips have no "markers" key at all.
+    j.erase("markers");
+    Clip legacy = j.get<Clip>();
+    EXPECT_TRUE(legacy.markers.empty());
+    EXPECT_TRUE(legacy == makeClip("C", 0, 100));
+}
+
+TEST(ClipMarkerJson, LegacyMarkerWithoutCommentOrColor) {
+    ClipMarker m(Duration::fromFrames(7, fps24()), "cue");
+    nlohmann::json j = m;
+    j.erase("comment");
+    j.erase("color");
+    ClipMarker legacy = j.get<ClipMarker>();
+    EXPECT_EQ(legacy.offset, Duration::fromFrames(7, fps24()));
+    EXPECT_EQ(legacy.label, "cue");
+    EXPECT_TRUE(legacy.comment.empty());
+    EXPECT_EQ(legacy.color, 0u);
+}
+
 TEST(SubtitleTrackOps, SetAndGetText) {
     VideoTrack t;
     ASSERT_TRUE(t.addClip(makeClip("C1", 0, 100)));

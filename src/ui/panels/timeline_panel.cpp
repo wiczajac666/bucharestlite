@@ -1,6 +1,7 @@
 #include "panels/timeline_panel.hpp"
 
 #include "app/project_controller.hpp"
+#include "dialogs/clip_marker_dialog.hpp"
 #include "panels/media_bin_panel.hpp"
 #include "panels/timeline_edit_controller.hpp"
 #include "panels/timeline_items.hpp"
@@ -1912,7 +1913,42 @@ void TimelineView::contextMenuEvent(QContextMenuEvent* event) {
 
     QMenu menu(this);
 
-    // 1) A marker under the cursor wins: rename/delete it.
+    // 1) A clip marker under the cursor wins: edit/delete with its comment.
+    // Checking this before sequence markers lets clip-local cues win when both
+    // kinds happen to overlap the clicked frame.
+    ClipItem* hoveredClip = clipItemAt(scenePos);
+    if (hoveredClip) {
+        bl::Duration offset;
+        if (host_->clipMarkerNear(hoveredClip->clip().id, at, hitRadius,
+                                  offset)) {
+            const auto idx = hoveredClip->clip().findMarkerAt(offset);
+            const bl::ClipMarker* marker =
+                idx ? &hoveredClip->clip().markers[*idx] : nullptr;
+            QAction* editAct = menu.addAction(tr("Edit Clip Marker…"));
+            QAction* deleteAct = menu.addAction(tr("Delete Clip Marker"));
+            QAction* picked = menu.exec(event->globalPos());
+            if (picked == editAct && marker) {
+                ClipMarkerDialog dialog(
+                    QString::fromStdString(marker->label),
+                    QString::fromStdString(marker->comment), marker->color,
+                    this);
+                if (dialog.exec() == QDialog::Accepted) {
+                    bl::ClipMarker revised = *marker;
+                    revised.label = dialog.label().toStdString();
+                    revised.comment = dialog.comment().toStdString();
+                    revised.color = dialog.color();
+                    host_->editClipMarker(hoveredClip->clip().id, offset,
+                                          revised);
+                }
+            } else if (picked == deleteAct) {
+                host_->removeClipMarker(hoveredClip->clip().id, offset);
+            }
+            event->accept();
+            return;
+        }
+    }
+
+    // 2) A sequence marker under the cursor: rename/delete it.
     bl::Time markerPos;
     if (host_->markerNear(at, hitRadius, markerPos)) {
         const auto idx = host_->sequence().findMarkerAt(markerPos);
@@ -1935,7 +1971,7 @@ void TimelineView::contextMenuEvent(QContextMenuEvent* event) {
         return;
     }
 
-    // 2) The ruler band: marker + zone commands anchored at the click.
+    // 3) The ruler band: marker + zone commands anchored at the click.
     if (scenePos.y() <= timeline_geometry::kRulerHeight) {
         QAction* addMarker = menu.addAction(tr("Add Marker Here"));
         menu.addSeparator();
@@ -1957,8 +1993,8 @@ void TimelineView::contextMenuEvent(QContextMenuEvent* event) {
         return;
     }
 
-    // 3) A clip: act on the whole selection, ensuring the clip is in it.
-    if (ClipItem* item = clipItemAt(scenePos)) {
+    // 4) A clip: act on the whole selection, ensuring the clip is in it.
+    if (ClipItem* item = hoveredClip) {
         if (!host_->selection().contains(item->clip().id)) {
             host_->setSelection(QSet<bl::ClipId>{item->clip().id});
         }
@@ -1990,6 +2026,9 @@ void TimelineView::contextMenuEvent(QContextMenuEvent* event) {
         menu.addSeparator();
         QAction* zoneInAct = menu.addAction(tr("Set Zone In Here"));
         QAction* zoneOutAct = menu.addAction(tr("Set Zone Out Here"));
+        menu.addSeparator();
+        QAction* addClipMarkerAct =
+            menu.addAction(tr("Add Clip Marker Here"));
         // Titles carry their stored design, so they can be re-opened in the
         // Title Editor straight from the clip they are on.
         QAction* editTitleAct = nullptr;
@@ -2042,6 +2081,12 @@ void TimelineView::contextMenuEvent(QContextMenuEvent* event) {
             host_->setZoneIn(at);
         } else if (picked == zoneOutAct) {
             host_->setZoneOut(at);
+        } else if (picked == addClipMarkerAct) {
+            ClipMarkerDialog dialog(tr("Marker"), QString(), 3, this);
+            if (dialog.exec() == QDialog::Accepted) {
+                host_->addClipMarker(item->clip().id, at, dialog.label(),
+                                     dialog.comment(), dialog.color());
+            }
         } else if (editTitleAct && picked == editTitleAct) {
             emit host_->editTitleRequested(item->clip().source.mediaItemId);
         }
@@ -2049,7 +2094,7 @@ void TimelineView::contextMenuEvent(QContextMenuEvent* event) {
         return;
     }
 
-    // 4) Empty lane space.
+    // 5) Empty lane space.
     QAction* pasteAct = menu.addAction(tr("Paste"));
     pasteAct->setEnabled(host_->editor().hasClipboard());
     QAction* addMarker = menu.addAction(tr("Add Marker Here"));
@@ -3146,6 +3191,85 @@ bool TimelinePanel::markerNear(const bl::Time& at, int radiusFrames,
         const int64_t frames = d.toFramesAt(fps);
         if (frames <= radiusFrames && (!found || frames < best)) {
             out = m.position;
+            best = frames;
+            found = true;
+        }
+    }
+    return found;
+}
+
+// --- Clip-local markers (Phase 3 item 3) -----------------------------------
+
+bool TimelinePanel::addClipMarker(const bl::ClipId& clipId,
+                                  const bl::Time& at, const QString& label,
+                                  const QString& comment, uint32_t color) {
+    if (!controller_) return false;
+    const auto it = clipItems_.find(clipId);
+    if (it == clipItems_.end()) {
+        emit controller_->statusMessage(tr("No such clip"));
+        return false;
+    }
+    const int flat = it->second->flatTrack();
+    const bl::Clip* clip = editor_.findClip(sequence(), flat, clipId);
+    if (!clip) {
+        emit controller_->statusMessage(tr("No such clip"));
+        return false;
+    }
+    const bl::Duration offset = at - clip->timelineStart;
+    const QString text = label.isEmpty() ? tr("Marker") : label;
+    if (!editor_.addClipMarker(flat, clipId, offset, text.toStdString(),
+                               comment.toStdString(), color)) {
+        reportEditorError();
+        return false;
+    }
+    return true;
+}
+
+bool TimelinePanel::editClipMarker(const bl::ClipId& clipId,
+                                   const bl::Duration& offset,
+                                   const bl::ClipMarker& revised) {
+    if (!controller_) return false;
+    const auto it = clipItems_.find(clipId);
+    if (it == clipItems_.end()) return false;
+    if (!editor_.editClipMarker(it->second->flatTrack(), clipId, offset,
+                                revised)) {
+        reportEditorError();
+        return false;
+    }
+    return true;
+}
+
+bool TimelinePanel::removeClipMarker(const bl::ClipId& clipId,
+                                     const bl::Duration& offset) {
+    if (!controller_) return false;
+    const auto it = clipItems_.find(clipId);
+    if (it == clipItems_.end()) return false;
+    if (!editor_.removeClipMarker(it->second->flatTrack(), clipId, offset)) {
+        reportEditorError();
+        return false;
+    }
+    return true;
+}
+
+bool TimelinePanel::clipMarkerNear(const bl::ClipId& clipId,
+                                   const bl::Time& at, int radiusFrames,
+                                   bl::Duration& out) const {
+    const auto it = clipItems_.find(clipId);
+    if (it == clipItems_.end()) return false;
+    const bl::Clip* clip =
+        editor_.findClip(sequence(), it->second->flatTrack(), clipId);
+    if (!clip) return false;
+
+    const bl::Duration target = at - clip->timelineStart;
+    const bl::Rational fps = sequence().settings.fps;
+    bool found = false;
+    int64_t best = 0;
+    for (const bl::ClipMarker& m : clip->markers) {
+        bl::Duration d = m.offset - target;
+        if (d < bl::Duration{}) d = -d;
+        const int64_t frames = d.toFramesAt(fps);
+        if (frames <= radiusFrames && (!found || frames < best)) {
+            out = m.offset;
             best = frames;
             found = true;
         }

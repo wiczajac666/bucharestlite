@@ -18,6 +18,13 @@
   labels now render distinctly (previously labels 6/7 aliased to 1/2). The
   `Labels` toolbar button and `View → Show Clip Labels & Effects` toggle these
   overlays without rebuilding the timeline, and persist the choice.
+- **Clip-level markers & comments.** Clips now carry their own markers with a
+  label, multi-line comment and color. Right-click a clip to add a marker at the
+  cursor, or right-click the marker triangle on a clip to edit or delete it;
+  markers paint as small colored triangles on the clip's bottom edge. Marker
+  positions are stored as an offset from the clip start, so they move and
+  copy/paste with the clip, and they act as snap targets. Each add/edit/delete
+  is one undo step; old projects without clip markers load unchanged.
 - **Loop playback.** `Playback → Loop Playback` (`Ctrl+Shift+Space`) loops
   transport playback over the current timeline zone, or over the full sequence
   when no zone is set. The loop range follows zone changes and the loop state

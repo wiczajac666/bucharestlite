@@ -33,6 +33,7 @@ add_library(bl_ui STATIC
     dialogs/export_progress_dialog.cpp
     dialogs/batch_export_dialog.cpp
     dialogs/duration_dialog.cpp
+    dialogs/clip_marker_dialog.cpp
     dialogs/title_editor_dialog.cpp
     dialogs/quality_metrics_dialog.cpp
     dialogs/template_picker_dialog.cpp

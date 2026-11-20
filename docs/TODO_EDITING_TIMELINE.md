@@ -195,12 +195,22 @@ target-track concept distinct from the active track.
         `Labels` toolbar button / `View → Show Clip Labels & Effects` action
         repaint items without rebuilding (so drags are not cancelled) and are
         persisted as `timeline/showClipLabels`.
-- [ ] **Clip-level markers & comments**
-  - [ ] Add/edit/delete markers attached to clips (separate from sequence
-        markers), with labels/comments and snap behavior
-  - [ ] Serialize in project format (backward-compatible) and include in copy/
-        paste semantics where sensible
-  - [ ] Tests: model round-trip, undo, snap, clipboard
+- [x] **Clip-level markers & comments** — clips carry their own markers with a
+      label, free-form comment and color, stored as a `Duration` offset from the
+      clip start so they travel with the clip. Right-click a clip to add one at
+      the cursor, or right-click an existing marker triangle to edit/delete it.
+      The editor offers label, multi-line comment and the eight-color palette.
+      Marker offsets are absolute snap targets in `snapToNearest()`, alongside
+      clip edges and sequence markers.
+  - [x] Add/edit/delete markers attached to clips (separate from sequence
+        markers), with labels/comments and snap behavior — one undo step each
+  - [x] Serialize in project format (backward-compatible: old clips have no
+        `markers` key, old markers have no `comment`/`color`) and include in
+        copy/paste — the clipboard deep-copies the whole `Clip`, so markers
+        ride along with no rebasing
+  - [x] Tests: model round-trip, undo, snap, clipboard — Qt-free model/JSON
+        tests, controller add/edit/remove/undo + snap + paste tests, offscreen
+        panel attach/paint/hit-test tests and a dialog test. Full suite green.
 - [ ] **Sequence marker enhancements**
   - [ ] Marker comment text display/toggle on ruler; navigation (next/prev)
   - [ ] Tests: display state, navigation, persistence as designed

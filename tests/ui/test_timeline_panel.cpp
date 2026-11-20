@@ -5,12 +5,15 @@
 #include <bl_timeline/title.hpp>
 
 #include <app/project_controller.hpp>
+#include <dialogs/clip_marker_dialog.hpp>
 #include <panels/media_bin_panel.hpp>
 #include <panels/timeline_panel.hpp>
 #include <title/title_renderer.hpp>
 
 #include <QApplication>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QDragLeaveEvent>
@@ -24,7 +27,9 @@
 #include <QPainter>
 #include <QLineEdit>
 #include <QMimeData>
+#include <QPlainTextEdit>
 #include <QPoint>
+#include <QPushButton>
 #include <QSlider>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -2265,6 +2270,105 @@ TEST(TimelinePanel, markerNearFindsClosestWithinRadius) {
     EXPECT_TRUE(fx.panel.markerNear(fr(11), 2, out));
     EXPECT_EQ(frameOf(out), 10);
     EXPECT_FALSE(fx.panel.markerNear(fr(20), 2, out));
+}
+
+TEST(TimelinePanel, addEditRemoveClipMarkerUpdatesModelAndView) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 20));
+
+    ASSERT_TRUE(fx.panel.addClipMarker("a", fr(12), QStringLiteral("hook"),
+                                       QStringLiteral("note"), 3));
+    auto* item = fx.panel.clipItemFor("a");
+    ASSERT_NE(item, nullptr);
+    ASSERT_EQ(item->clip().markers.size(), 1u);
+    EXPECT_EQ(item->clip().markers[0].label, "hook");
+    EXPECT_EQ(item->clip().markers[0].comment, "note");
+    EXPECT_EQ(frameOf(item->clip().markers[0].offset), 12);
+
+    // Each edit rebuilds the view from the model; assert the new item (not a
+    // stale copy) carries the change.
+    bl::ClipMarker revised = item->clip().markers[0];
+    revised.comment = "updated";
+    ASSERT_TRUE(fx.panel.editClipMarker("a", revised.offset, revised));
+    EXPECT_EQ(fx.panel.clipItemFor("a")->clip().markers[0].comment, "updated");
+
+    ASSERT_TRUE(fx.panel.removeClipMarker("a", revised.offset));
+    EXPECT_TRUE(fx.panel.clipItemFor("a")->clip().markers.empty());
+}
+
+TEST(TimelinePanel, clipMarkerNearFindsClosestWithinRadius) {
+    Fixture fx;
+    fx.addClip(0, makeClip("a", 0, 20));
+    ASSERT_TRUE(fx.panel.addClipMarker("a", fr(10), QStringLiteral("m")));
+
+    Duration out;
+    EXPECT_TRUE(fx.panel.clipMarkerNear("a", fr(11), 2, out));
+    EXPECT_EQ(frameOf(out), 10);
+    EXPECT_FALSE(fx.panel.clipMarkerNear("a", fr(20), 2, out));
+}
+
+TEST(TimelinePanel, ClipItemPaintsClipMarkerTriangle) {
+    Fixture f;
+    Clip c = makeClip("v", 0, 20);
+    c.name.clear();  // keep the name backing off the sampled pixel
+    c.markers.push_back(bl::ClipMarker(Duration::fromFrames(10, kFps), "cue",
+                                       "note", 4));  // red palette entry
+    f.addClip(0, c);
+
+    // Query the item on every render: a marker edit rebuilds the scene.
+    auto render = [&]() {
+        const bl::ui::ClipItem* item = f.panel.clipItemFor("v");
+        const QRectF r = item->rect();
+        QImage out(240, 64, QImage::Format_ARGB32);
+        out.fill(QColor(10, 10, 10, 255));
+        QPainter p(&out);
+        f.panel.view()->scene()->render(&p, QRectF(out.rect()), r,
+                                        Qt::IgnoreAspectRatio);
+        p.end();
+        // Marker sits at 10 frames = 10 * pxPerFrame scene px; sample 4 px
+        // above the bottom edge where the triangle is solidly filled.
+        const int px = static_cast<int>(10.0 * item->pxPerFrame() *
+                                        out.width() / r.width());
+        const int py = out.height() -
+                       static_cast<int>(4.0 * out.height() / r.height());
+        return out.pixelColor(px, py);
+    };
+
+    const QColor marked = render();
+    EXPECT_GT(marked.red(), marked.green() + 40);
+    EXPECT_GT(marked.red(), marked.blue() + 40);
+
+    ASSERT_TRUE(f.panel.removeClipMarker(
+        "v", Duration::fromFrames(10, kFps)));
+    const QColor plain = render();
+    EXPECT_LT(plain.red(), plain.green() + 40);
+}
+
+TEST(ClipMarkerDialog, EditsLabelCommentAndColor) {
+    ensureApp();
+    bl::ui::ClipMarkerDialog dialog(QStringLiteral("old"),
+                                     QStringLiteral("note"), 1);
+    auto* label = dialog.findChild<QLineEdit*>(
+        QStringLiteral("clipMarkerLabelEdit"));
+    auto* comment = dialog.findChild<QPlainTextEdit*>(
+        QStringLiteral("clipMarkerCommentEdit"));
+    auto* color = dialog.findChild<QComboBox*>(
+        QStringLiteral("clipMarkerColorCombo"));
+    auto* ok = dialog.findChild<QPushButton*>(QStringLiteral("clipMarkerOk"));
+    ASSERT_NE(label, nullptr);
+    ASSERT_NE(comment, nullptr);
+    ASSERT_NE(color, nullptr);
+    ASSERT_NE(ok, nullptr);
+
+    label->setText(QStringLiteral("new"));
+    comment->setPlainText(QStringLiteral("long note"));
+    color->setCurrentIndex(5);
+    ok->click();
+
+    EXPECT_EQ(dialog.result(), static_cast<int>(QDialog::Accepted));
+    EXPECT_EQ(dialog.label(), QStringLiteral("new"));
+    EXPECT_EQ(dialog.comment(), QStringLiteral("long note"));
+    EXPECT_EQ(dialog.color(), 5u);
 }
 
 TEST(TimelinePanel, clipboardShortcutsCopyCutPaste) {

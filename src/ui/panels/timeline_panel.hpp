@@ -14,6 +14,7 @@
 #include <QSet>
 #include <QWidget>
 
+#include <cstdint>
 #include <map>
 #include <optional>
 #include <string>
@@ -605,6 +606,22 @@ public:
     // hit-testing marker clicks). Returns false when none is close enough.
     bool markerNear(const bl::Time& at, int radiusFrames,
                     bl::Time& out) const;
+
+    // --- Clip-local markers (Phase 3 item 3) -------------------------------
+    // Add / edit / remove a marker on `clipId`. `at` is an absolute timeline
+    // time and is converted to an offset from the clip's start. Each call is
+    // one undo step; refusals are reported through statusMessage.
+    bool addClipMarker(const bl::ClipId& clipId, const bl::Time& at,
+                       const QString& label, const QString& comment = QString(),
+                       uint32_t color = 3);
+    bool editClipMarker(const bl::ClipId& clipId, const bl::Duration& offset,
+                        const bl::ClipMarker& revised);
+    bool removeClipMarker(const bl::ClipId& clipId,
+                          const bl::Duration& offset);
+    // Offset (from the clip's start) of the marker within `radiusFrames` of
+    // the absolute time `at`, for hit-testing clicks on a clip.
+    bool clipMarkerNear(const bl::ClipId& clipId, const bl::Time& at,
+                        int radiusFrames, bl::Duration& out) const;
 
     // --- Track header operations (Phase 2) ---------------------------------
     // All mutate the model through the existing controllers, so each is a

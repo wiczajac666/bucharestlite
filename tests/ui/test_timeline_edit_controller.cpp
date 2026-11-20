@@ -870,6 +870,77 @@ TEST(TimelineEditControllerMarkers, AddEditRemoveWithUndo) {
     EXPECT_EQ(f.timeline.sequence().markers[0].label, "moved");
 }
 
+TEST(TimelineEditControllerClipMarkers, AddEditRemoveWithUndo) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 40)));
+    const Duration at = Duration::fromFrames(12, kFps);
+
+    ASSERT_TRUE(f.editor.addClipMarker(kVideo0, "a", at, "hook", "comment", 3));
+    ASSERT_EQ(f.clip(kVideo0, "a")->markers.size(), 1u);
+    EXPECT_EQ(f.clip(kVideo0, "a")->markers[0].label, "hook");
+    EXPECT_EQ(f.clip(kVideo0, "a")->markers[0].comment, "comment");
+    EXPECT_EQ(f.clip(kVideo0, "a")->markers[0].color, 3u);
+
+    EXPECT_FALSE(f.editor.addClipMarker(kVideo0, "a", at, "dup"));
+    EXPECT_EQ(f.editor.lastError(), "A marker already exists there");
+    EXPECT_FALSE(f.editor.addClipMarker(
+        kVideo0, "a", Duration::fromFrames(99, kFps), "outside"));
+    EXPECT_FALSE(f.editor.addClipMarker(kVideo0, "missing", at, "x"));
+
+    // A comment-only edit is one undo step.
+    bl::ClipMarker revised = f.clip(kVideo0, "a")->markers[0];
+    revised.comment = "revised";
+    ASSERT_TRUE(f.editor.editClipMarker(kVideo0, "a", at, revised));
+    EXPECT_EQ(f.clip(kVideo0, "a")->markers[0].comment, "revised");
+    f.undoStack.undo();
+    EXPECT_EQ(f.clip(kVideo0, "a")->markers[0].comment, "comment");
+    f.undoStack.redo();
+    EXPECT_EQ(f.clip(kVideo0, "a")->markers[0].comment, "revised");
+
+    ASSERT_TRUE(f.editor.removeClipMarker(kVideo0, "a", at));
+    EXPECT_TRUE(f.clip(kVideo0, "a")->markers.empty());
+    EXPECT_FALSE(f.editor.removeClipMarker(kVideo0, "a", at));
+    f.undoStack.undo();  // restore the marker
+    ASSERT_EQ(f.clip(kVideo0, "a")->markers.size(), 1u);
+    f.undoStack.undo();  // undo the comment edit
+    EXPECT_EQ(f.clip(kVideo0, "a")->markers[0].comment, "comment");
+    f.undoStack.undo();  // undo the add
+    EXPECT_TRUE(f.clip(kVideo0, "a")->markers.empty());
+}
+
+TEST(TimelineEditControllerSnap, ConsidersClipMarkerOffsets) {
+    Fixture f;
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 10, 20)));
+    const Duration off = Duration::fromFrames(12, kFps);
+    ASSERT_TRUE(f.editor.addClipMarker(kVideo0, "a", off, "cue"));
+
+    // The marker is at timeline frame 22; the nearest clip edge is at 30.
+    EXPECT_TIME_EQ(f.editor.snapToNearest(f.timeline.sequence(), frames(23), 4),
+                   22);
+    // Three frames away with a two-frame tolerance: frame-grid fallback.
+    EXPECT_TIME_EQ(f.editor.snapToNearest(f.timeline.sequence(), frames(25), 2),
+                   25);
+}
+
+TEST(TimelineEditControllerClipboard, ClipMarkersRideAlongOnPaste) {
+    Fixture f;
+    Clip c = makeClip("a", 0, 20);
+    c.markers.push_back(bl::ClipMarker(Duration::fromFrames(8, kFps), "cue",
+                                       "note", 2));
+    ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, c));
+    f.editor.setClipboard({{kVideo0, *f.clip(kVideo0, "a")}});
+
+    ASSERT_EQ(f.editor.pasteClips(frames(30), kVideo0), 1);
+    const auto& clips = f.timeline.sequence().videoTracks[0].clips();
+    ASSERT_EQ(clips.size(), 2u);
+    const Clip& pasted = clips[1];
+    ASSERT_EQ(pasted.markers.size(), 1u);
+    EXPECT_EQ(pasted.markers[0].label, "cue");
+    EXPECT_EQ(pasted.markers[0].comment, "note");
+    EXPECT_EQ(pasted.markers[0].color, 2u);
+    EXPECT_DUR_EQ(pasted.markers[0].offset, Duration::fromFrames(8, kFps));
+}
+
 TEST(TimelineEditControllerTracks, InsertMoveRemoveAndUndo) {
     Fixture f;
     ASSERT_TRUE(f.timeline.addClipToVideoTrack(0, makeClip("a", 0, 10)));

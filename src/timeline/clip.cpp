@@ -63,6 +63,13 @@ Duration Clip::effectiveDuration() const noexcept {
     return Duration::fromTicks(effTicks, timelineDuration.rate);
 }
 
+std::optional<size_t> Clip::findMarkerAt(const Duration& offset) const {
+    for (size_t i = 0; i < markers.size(); ++i) {
+        if (markers[i].offset == offset) return i;
+    }
+    return std::nullopt;
+}
+
 Time Clip::sourceTimeAt(Duration timelineOffset) const {
     if (speed.reversed) {
         Time advanced = advanceSourceTime(source.sourceOut, timelineOffset,
@@ -218,6 +225,27 @@ void from_json(const nlohmann::json& j, SubtitleStyle& s) {
     from_json(j.at("position"), s.position);
 }
 
+void to_json(nlohmann::json& j, const ClipMarker& m) {
+    j = {{"offset",
+          {{"ticks", m.offset.ticks},
+           {"rate", {{"num", m.offset.rate.num},
+                     {"den", m.offset.rate.den}}}}},
+         {"label", m.label},
+         {"comment", m.comment},
+         {"color", m.color}};
+}
+
+void from_json(const nlohmann::json& j, ClipMarker& m) {
+    m.offset.ticks = j.at("offset").at("ticks").get<int64_t>();
+    m.offset.rate.num =
+        j.at("offset").at("rate").at("num").get<int64_t>();
+    m.offset.rate.den =
+        j.at("offset").at("rate").at("den").get<int64_t>();
+    m.label = j.value("label", "");
+    m.comment = j.value("comment", "");
+    m.color = j.value("color", 0u);
+}
+
 void to_json(nlohmann::json& j, const Clip& c) {
     j = {
         {"id", c.id},
@@ -244,6 +272,8 @@ void to_json(nlohmann::json& j, const Clip& c) {
     if (c.transitionOut) j["transitionOut"] = *c.transitionOut;
     if (c.subtitleText) j["subtitleText"] = *c.subtitleText;
     if (c.subtitleStyle) j["subtitleStyle"] = *c.subtitleStyle;
+    // Optional array: old clips without markers load with an empty vector.
+    if (!c.markers.empty()) j["markers"] = c.markers;
 }
 
 void from_json(const nlohmann::json& j, Clip& c) {
@@ -289,6 +319,9 @@ void from_json(const nlohmann::json& j, Clip& c) {
     }
     if (j.contains("subtitleStyle")) {
         from_json(j.at("subtitleStyle"), c.subtitleStyle.emplace());
+    }
+    if (j.contains("markers")) {
+        c.markers = j.at("markers").get<std::vector<ClipMarker>>();
     }
 }
 

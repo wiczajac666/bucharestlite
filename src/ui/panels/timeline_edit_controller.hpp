@@ -189,6 +189,17 @@ public:
     bool editTimelineMarker(Time position, const Marker& revised);
     bool removeTimelineMarker(Time position);
 
+    // Clip-local markers (Phase 3 item 3). `offset` is from the clip's
+    // timeline start; identity is that offset and each edit is one undo step.
+    bool addClipMarker(int flatTrack, const ClipId& clipId,
+                       const bl::Duration& offset, std::string label,
+                       std::string comment = {}, uint32_t color = 0);
+    bool editClipMarker(int flatTrack, const ClipId& clipId,
+                        const bl::Duration& offset,
+                        const bl::ClipMarker& revised);
+    bool removeClipMarker(int flatTrack, const ClipId& clipId,
+                          const bl::Duration& offset);
+
     // Imported subtitles: creates one soft-subtitle clip per cue. When
     // `flatTrack` is < 0 a new "Subtitles" video track is created and used.
     // Cues that would overlap an existing clip are skipped. One undo step;

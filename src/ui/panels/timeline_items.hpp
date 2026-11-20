@@ -194,6 +194,11 @@ protected:
                QWidget* widget) override;
 
 private:
+    // Clip-local markers (Phase 3 item 3) are painted from clip_.markers, the
+    // single source of truth; a model edit rebuilds the item. Triangles sit on
+    // the bottom edge so they stay clear of effect chips and right-hand badges.
+    void paintClipMarkers(QPainter* painter, const QRectF& r, bool selected);
+
     bl::Clip clip_;
     int flatTrack_{0};
     qreal pxPerFrame_{6.0};

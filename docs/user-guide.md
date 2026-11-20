@@ -442,6 +442,13 @@ main window.
   **View → Show Clip Labels & Effects** to hide these overlays; the choice is
   remembered between sessions. All eight color labels available in the
   Inspector render as distinct colors.
+- **Clip markers & comments.** Right-click a clip and choose **Add Clip Marker
+  Here** to pin a note to a moment in the clip. The dialog takes a label, a
+  multi-line comment and a color. Markers appear as small triangles along the
+  clip's bottom edge; right-click one to **Edit Clip Marker…** or **Delete Clip
+  Marker**. A marker's position is relative to the clip, so it follows the clip
+  when you move or copy it, and it becomes a snap target while editing. Add,
+  edit and delete are each a single undo step.
 - **Mixer.** The **Mixer** dock has one strip per audio track (gain, pan, mute,
   solo) plus a master bus. Its live L/R meters follow the playhead, so they are
   snapshots of the mix *at that instant* rather than a tap on the device output

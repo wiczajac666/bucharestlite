@@ -425,6 +425,34 @@ public:
         return true;
     }
 
+    // Clip-local markers (Phase 3 item 3). Mutated by index; the controller
+    // resolves an offset to an index through Clip::findMarkerAt().
+    bool addClipMarker(const ClipId& id, ClipMarker marker) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        clips_[*idx].markers.push_back(std::move(marker));
+        return true;
+    }
+
+    bool setClipMarker(const ClipId& id, size_t index,
+                       const ClipMarker& marker) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        ClipType& c = clips_[*idx];
+        if (index >= c.markers.size()) return false;
+        c.markers[index] = marker;
+        return true;
+    }
+
+    bool removeClipMarker(const ClipId& id, size_t index) {
+        auto idx = findClipById(id);
+        if (!idx) return false;
+        ClipType& c = clips_[*idx];
+        if (index >= c.markers.size()) return false;
+        c.markers.erase(c.markers.begin() + static_cast<ptrdiff_t>(index));
+        return true;
+    }
+
     // Kdenlive's "disable clip": the clip keeps its timeline slot but renders
     // neither video nor audio.
     bool setClipEnabled(const ClipId& id, bool enabled) {

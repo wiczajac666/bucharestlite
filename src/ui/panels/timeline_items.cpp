@@ -254,6 +254,31 @@ void ClipItem::clearPreview() {
     update();
 }
 
+void ClipItem::paintClipMarkers(QPainter* painter, const QRectF& r,
+                                bool selected) {
+    if (clip_.markers.empty() || r.height() < 14.0) return;
+    const qreal h = handleWidth();
+    const qreal lo = r.left() + h + 4.0;
+    const qreal hi = r.right() - h - 4.0;
+    if (hi <= lo) return;
+
+    painter->save();
+    for (const bl::ClipMarker& marker : clip_.markers) {
+        const int64_t frame = toFrame(marker.offset, fps_);
+        const qreal x = r.left() + frameToX(frame, pxPerFrame_);
+        // Markers beyond the current out point (after a trim) stay in the
+        // model but are not painted outside the visible clip body.
+        if (x < lo || x > hi) continue;
+        const qreal baseY = r.bottom() - 1.0;
+        painter->setPen(QPen(QColor(0x10, 0x12, 0x14, 220), 1.0));
+        painter->setBrush(labelColor(marker.color, selected));
+        painter->drawPolygon(QPolygonF{
+            QPointF(x - 5.0, baseY), QPointF(x + 5.0, baseY),
+            QPointF(x, baseY - 9.0)});
+    }
+    painter->restore();
+}
+
 void ClipItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget*) {
     const QRectF r = rect();
     if (r.width() < 1.0 || r.height() < 1.0) return;
@@ -467,6 +492,10 @@ void ClipItem::paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget
             painter->restore();
         }
     }
+
+    // Clip-local markers are navigation aids, painted regardless of the label
+    // toggle so a "clean" timeline still shows where a comment is anchored.
+    paintClipMarkers(painter, r, selected);
 
     // Subtitle badge.
     if (clip_.subtitleText) {

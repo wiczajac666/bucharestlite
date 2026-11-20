@@ -158,6 +158,10 @@ Time TimelineEditController::snapToNearest(const Sequence& seq, Time t,
             consider(clip.timelineStart, maxDistanceFrames);
             consider(clip.timelineStart + clip.timelineDuration,
                      maxDistanceFrames);
+            // Clip markers are absolute snap targets too (Phase 3 item 3).
+            for (const auto& marker : clip.markers) {
+                consider(clip.timelineStart + marker.offset, maxDistanceFrames);
+            }
         }
     }
     for (const auto& track : seq.audioTracks) {
@@ -166,6 +170,9 @@ Time TimelineEditController::snapToNearest(const Sequence& seq, Time t,
             consider(clip.timelineStart, maxDistanceFrames);
             consider(clip.timelineStart + clip.timelineDuration,
                      maxDistanceFrames);
+            for (const auto& marker : clip.markers) {
+                consider(clip.timelineStart + marker.offset, maxDistanceFrames);
+            }
         }
     }
     for (const auto& marker : seq.markers) {
@@ -1478,6 +1485,99 @@ bool TimelineEditController::removeTimelineMarker(Time position) {
         return false;
     }
     return true;
+}
+
+// --- Clip-local markers (Phase 3 item 3) -----------------------------------
+
+bool TimelineEditController::addClipMarker(int flatTrack, const ClipId& clipId,
+                                           const Duration& offset,
+                                           std::string label,
+                                           std::string comment,
+                                           uint32_t color) {
+    lastError_.clear();
+    if (!valid()) {
+        lastError_ = "No timeline";
+        return false;
+    }
+    const Clip* clip = findClip(timeline_->sequence(), flatTrack, clipId);
+    if (!clip) {
+        lastError_ = "No such clip";
+        return false;
+    }
+    if (offset < Duration{} || offset >= clip->effectiveDuration()) {
+        lastError_ = "Marker offset is outside the clip";
+        return false;
+    }
+    if (clip->findMarkerAt(offset)) {
+        lastError_ = "A marker already exists there";
+        return false;
+    }
+    const bool ok = runSequenceEdit("Add clip marker", [&](Sequence& s) {
+        return mutableTrackAt(s, flatTrack)
+            .addClipMarker(clipId, ClipMarker(offset, std::move(label),
+                                              std::move(comment), color));
+    });
+    if (!ok) lastError_ = "Could not add clip marker";
+    return ok;
+}
+
+bool TimelineEditController::editClipMarker(int flatTrack,
+                                            const ClipId& clipId,
+                                            const Duration& offset,
+                                            const ClipMarker& revised) {
+    lastError_.clear();
+    if (!valid()) {
+        lastError_ = "No timeline";
+        return false;
+    }
+    const Clip* clip = findClip(timeline_->sequence(), flatTrack, clipId);
+    if (!clip) {
+        lastError_ = "No such clip";
+        return false;
+    }
+    const auto idx = clip->findMarkerAt(offset);
+    if (!idx) {
+        lastError_ = "No clip marker at that offset";
+        return false;
+    }
+    if (revised.offset != offset &&
+        (revised.offset < Duration{} ||
+         revised.offset >= clip->effectiveDuration() ||
+         clip->findMarkerAt(revised.offset))) {
+        lastError_ = "Invalid or occupied marker offset";
+        return false;
+    }
+    const bool ok = runSequenceEdit("Edit clip marker", [&](Sequence& s) {
+        return mutableTrackAt(s, flatTrack).setClipMarker(clipId, *idx,
+                                                          revised);
+    });
+    if (!ok) lastError_ = "Could not edit clip marker";
+    return ok;
+}
+
+bool TimelineEditController::removeClipMarker(int flatTrack,
+                                              const ClipId& clipId,
+                                              const Duration& offset) {
+    lastError_.clear();
+    if (!valid()) {
+        lastError_ = "No timeline";
+        return false;
+    }
+    const Clip* clip = findClip(timeline_->sequence(), flatTrack, clipId);
+    if (!clip) {
+        lastError_ = "No such clip";
+        return false;
+    }
+    const auto idx = clip->findMarkerAt(offset);
+    if (!idx) {
+        lastError_ = "No clip marker at that offset";
+        return false;
+    }
+    const bool ok = runSequenceEdit("Remove clip marker", [&](Sequence& s) {
+        return mutableTrackAt(s, flatTrack).removeClipMarker(clipId, *idx);
+    });
+    if (!ok) lastError_ = "Could not remove clip marker";
+    return ok;
 }
 
 // --- Imported subtitles ----------------------------------------------------

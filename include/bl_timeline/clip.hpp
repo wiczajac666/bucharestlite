@@ -52,6 +52,28 @@ inline bool operator==(const EffectInstance& a, const EffectInstance& b) {
     return a.effectId == b.effectId && a.enabled == b.enabled && a.params == b.params;
 }
 
+// A clip-local marker (Phase 3 item 3). `offset` is measured from the clip's
+// timeline start, so markers travel with the clip when it moves or is copied.
+// Unlike sequence markers these carry a free-form comment; identity is the
+// vector index, with uniqueness of offsets enforced by the edit controller.
+struct ClipMarker {
+    Duration offset{};
+    std::string label;
+    std::string comment;
+    uint32_t color{0};
+
+    ClipMarker() = default;
+    ClipMarker(Duration pos, std::string lbl, std::string cmt = {},
+               uint32_t col = 0)
+        : offset(pos), label(std::move(lbl)), comment(std::move(cmt)),
+          color(col) {}
+};
+
+inline bool operator==(const ClipMarker& a, const ClipMarker& b) {
+    return a.offset == b.offset && a.label == b.label &&
+           a.comment == b.comment && a.color == b.color;
+}
+
 struct AudioClipProps {
     double gain{1.0};
     double pan{0.0};
@@ -88,8 +110,11 @@ struct Clip {
     std::optional<TransitionSpec> transitionOut;
     std::optional<std::string> subtitleText;
     std::optional<SubtitleStyle> subtitleStyle;
+    std::vector<ClipMarker> markers;
 
     Duration effectiveDuration() const noexcept;
+    /// Index of the first marker at `offset`, if any.
+    std::optional<size_t> findMarkerAt(const Duration& offset) const;
     /// Maps a timeline-relative offset to a source time, honoring both the
     /// speed ratio and reverse playback. Forward clips travel from sourceIn up;
     /// reversed clips travel from sourceOut down toward sourceIn.
@@ -108,11 +133,13 @@ inline bool operator==(const Clip& a, const Clip& b) {
            a.keyframes == b.keyframes &&
            a.transitionOut == b.transitionOut &&
            a.subtitleText == b.subtitleText &&
-           a.subtitleStyle == b.subtitleStyle;
+           a.subtitleStyle == b.subtitleStyle && a.markers == b.markers;
 }
 
 void to_json(nlohmann::json& j, const Clip& c);
 void from_json(const nlohmann::json& j, Clip& c);
+void to_json(nlohmann::json& j, const ClipMarker& m);
+void from_json(const nlohmann::json& j, ClipMarker& m);
 void to_json(nlohmann::json& j, const SourceRef& s);
 void from_json(const nlohmann::json& j, SourceRef& s);
 void to_json(nlohmann::json& j, const SpeedRemap& s);

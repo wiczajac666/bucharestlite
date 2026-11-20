@@ -171,3 +171,13 @@ tests, a green `ctest --preset linux-release`, doc updates and a commit.
   `timeline/showClipLabels`. 2 new Qt-free unit tests, 4 new offscreen UI tests,
   and extended state/persistence tests; full suite **1012/1012 green** (5 GL
   tests skipped without `DISPLAY`).
+- [x] **Phase 3 — clip-level markers & comments** — new `bl::ClipMarker`
+  (`Duration` offset from the clip start + label, comment, color) stored on
+  `Clip` and serialized backward-compatibly. `TimelineEditController` adds
+  add/edit/remove as one undo step each, and `snapToNearest()` treats clip
+  markers as absolute targets. The clipboard deep-copies the whole `Clip`, so
+  markers ride along on paste with no rebasing. `ClipItem` paints colored
+  triangles on the clip's bottom edge; a small `ClipMarkerDialog` (label,
+  comment, color) is reached from the clip context menu, where clip markers win
+  over sequence markers on hit-test. 3 model/JSON tests, 3 controller tests and
+  4 offscreen UI tests; full suite **1022/1022 green** (5 GL skips).
